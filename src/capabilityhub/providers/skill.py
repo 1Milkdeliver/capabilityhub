@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
@@ -32,6 +33,16 @@ _SAFE_FRONTMATTER = {
 }
 _NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 _MAX_FRONTMATTER_LINES = 256
+
+
+@dataclass(frozen=True, slots=True)
+class SkillDiscoveryReport:
+    """Safe discovery results plus non-sensitive diagnostics."""
+
+    manifests: tuple[CapabilityManifest, ...]
+    invalid_count: int = 0
+    skipped_count: int = 0
+    duplicate_count: int = 0
 
 
 class SkillProvider:
@@ -65,26 +76,52 @@ class SkillProvider:
         return self._name
 
     def discover(self) -> tuple[CapabilityManifest, ...]:
+        return self.discover_report().manifests
+
+    def discover_report(self) -> SkillDiscoveryReport:
+        """Discover Skills and count rejected entries without exposing their content."""
+
         manifests: list[CapabilityManifest] = []
         seen_coordinates: set[str] = set()
+        invalid_count = 0
+        skipped_count = 0
+        duplicate_count = 0
         for root in self._roots:
             for candidate in sorted(root.rglob("SKILL.md"), key=lambda path: path.as_posix()):
                 try:
                     path = candidate.resolve(strict=True)
-                    if not path.is_relative_to(root):
-                        raise ValueError("skill path escapes its configured directory")
-                    manifest = self._manifest_from_file(root, path)
-                    if manifest.identity.coordinate in seen_coordinates:
-                        raise ValueError(
-                            f"duplicate skill coordinate: {manifest.identity.coordinate}"
-                        )
-                except (OSError, ValueError):
+                except OSError:
+                    invalid_count += 1
                     if self._skip_invalid:
                         continue
                     raise
+                if not path.is_relative_to(root):
+                    skipped_count += 1
+                    if self._skip_invalid:
+                        continue
+                    raise ValueError("skill path escapes its configured directory")
+                try:
+                    manifest = self._manifest_from_file(root, path)
+                except (OSError, ValueError):
+                    invalid_count += 1
+                    if self._skip_invalid:
+                        continue
+                    raise
+                if manifest.identity.coordinate in seen_coordinates:
+                    duplicate_count += 1
+                    if self._skip_invalid:
+                        continue
+                    raise ValueError(
+                        f"duplicate skill coordinate: {manifest.identity.coordinate}"
+                    )
                 seen_coordinates.add(manifest.identity.coordinate)
                 manifests.append(manifest)
-        return tuple(manifests)
+        return SkillDiscoveryReport(
+            tuple(manifests),
+            invalid_count=invalid_count,
+            skipped_count=skipped_count,
+            duplicate_count=duplicate_count,
+        )
 
     def execute(
         self,

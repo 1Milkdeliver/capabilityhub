@@ -74,7 +74,7 @@ capabilityhub mcp-serve
 
 `mcp-serve` exposes exactly `capability.search`, `capability.load`, and
 `capability.execute` through the official MCP Python SDK. Its zero-configuration CLI
-mode builds a read-only startup snapshot from approved Codex/Agents Skill roots,
+mode builds a read-only snapshot from approved Codex/Agents Skill roots,
 enabled plugin Skill roots, configured MCP server names, and project-local
 `.capabilityhub/manifests` files. It also reports the CapabilityHub CLI shipped with the
 running package. Discovery never executes capability code or exposes
@@ -90,9 +90,11 @@ path so the public plugin remains portable:
 codex mcp add capabilityhub-local -- /absolute/path/to/python -m capabilityhub.cli mcp-serve
 ```
 
-Open a new Codex task after registration. The inventory is refreshed when the MCP
-process starts; filesystem changes made during the same task require restarting that
-task/runtime in this pre-alpha version.
+Open a new Codex task after registration. Before each search, the runtime checks a
+lightweight filesystem fingerprint and atomically refreshes only when inputs changed;
+same-task Skill and manifest changes therefore receive a new inventory generation.
+For a fixed project catalog, append `--project-root /absolute/project/path` to the MCP
+command instead of relying on the server process working directory.
 
 ## Local dashboard
 

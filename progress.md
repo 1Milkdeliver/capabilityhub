@@ -20,7 +20,10 @@
 - Integrated and verified the first parallel implementation batch: 51 tests passed, one symlink containment test skipped because Windows denied symlink creation; Ruff and strict mypy passed.
 - Added the user-requested out-of-context visual dashboard and minimal Codex plugin as a release phase; generated the repository plugin/marketplace scaffold using the Codex plugin creator.
 - Implemented and hardened the transport-neutral `capability.search`, `capability.load`, and `capability.execute` service boundary.
-- Added the 100-capability, five-kind oracle-routed disclosure benchmark; the pinned fixture shows 99.87% lower initial portable-token exposure and 98.77% lower mean staged-sequence exposure, without claiming semantic-routing accuracy.
+- Added the 100-capability, five-kind oracle-routed disclosure benchmark; after re-baselining against the complete current MCP argument surface, the pinned fixture shows 99.80% lower initial portable-token exposure and 98.69% lower mean staged-sequence exposure, without claiming semantic-routing accuracy.
 - Added a loopback-only read-only dashboard and validated the generated Codex plugin package with the official plugin validator.
 - Implemented the local CLI and an MCP Python SDK v2 adapter using only official transports; SDK in-memory tests cover the exact three-tool list, end-to-end calls, empty safe defaults, and error redaction.
 - Completed the integrated release-candidate gate: 78 tests passed, one platform symlink test skipped, Ruff passed, strict mypy passed, plugin validation passed, and a clean wheel install successfully ran manifest validation.
+- Published the local MCP connection, direct `/helpme` and `/myskills` menus, language/back/home navigation, and real Skill/MCP/CLI inventory discovery.
+- Added atomic same-process local catalog generations, lightweight change fingerprints, stable source namespaces, deterministic duplicate/conflict handling, explicit project-root support, and safe fresh/partial/stale diagnostics.
+- Added concurrent refresh, unchanged-generation, stale-reference, stale-fallback, redaction, shared execution-grant, and benchmark-artifact consistency coverage; the current local gate is 90 tests with one platform symlink skip.

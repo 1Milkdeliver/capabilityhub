@@ -16,7 +16,7 @@ deployment hardening guide.
 | Search/load/execute core | Deterministic lexical search, scope-bound references, section/operation loading, policy/budget/audit tests | Python-library behavior only; no public transport contract |
 | Skill intake | Filesystem-only `SKILL.md` discovery without script execution | Content discovery, not Skill execution or sandboxing |
 | Local dashboard | Read-only `DashboardServer`, loopback default, injected snapshot | Embedding application owns authentication and data filtering |
-| CLI and MCP | Four local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; zero-config MCP uses a read-only local discovery snapshot refreshed at process start |
+| CLI and MCP | Four local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; read-only catalog generations refresh atomically after a lightweight change check |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
 
 ## Benchmark claim boundary

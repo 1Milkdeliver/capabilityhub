@@ -65,3 +65,25 @@ def test_fixture_definitions_are_the_exact_eager_payload_records() -> None:
 
     assert len(raw_catalog["capabilities"]) == 100
     assert fixture_revisions == set(fixtures.definitions_by_revision)
+
+
+def test_pinned_reference_run_matches_the_current_meta_tool_contract() -> None:
+    report = run_benchmark()
+    reference = json.loads(
+        (FIXTURE_DIR.parent / "reference-run.json").read_text(encoding="utf-8")
+    )
+    accounting = reference["accounting"]
+
+    assert accounting["lazy_initial_fixed_meta_tools"] == {
+        "utf8_bytes": report.lazy_initial.utf8_bytes,
+        "portable_tokens": report.lazy_initial.portable_tokens,
+    }
+    assert accounting["initial_reduction"] == {
+        "utf8_reduction_percent": report.initial_reduction_percent,
+        "portable_token_reduction_percent": report.initial_token_reduction_percent,
+    }
+    assert accounting["mean_lazy_task_sequence"] == {
+        "sequence": ["fixed meta-tools", "one expected search card", "one selected definition"],
+        "utf8_reduction_percent": report.total_reduction_percent,
+        "portable_token_reduction_percent": report.total_token_reduction_percent,
+    }

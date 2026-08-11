@@ -15,8 +15,11 @@ static catalog in `references/locales/`. Never translate stable menu text at run
   Inventory, Lifecycle, Risks, and Conflicts are never hidden. Append the catalog's
   `navigation` items so language settings and the CapabilityHub main menu stay visible.
 - `list`/`inventory`: call `capability.search` with an empty query and a bounded result.
-  Use `total_matches` and `kind_counts.skill` for totals instead of counting cards.
-  Return at most five Skill cards unless the user asks for more.
+  Set `include_inventory: true`, `include_cards: true`, and `kinds: ["skill"]`. Use
+  `inventory.active_by_kind.skill` for the global active Skill total and query-level
+  `total_matches` for the current filter instead of counting cards. Return at most five
+  Skill cards unless the user asks for more. Show the generation/status compactly and
+  report only non-zero safe diagnostic counts.
 - Accept the visible number only while the My Skills menu is the active interaction.
 - Accept exact commands and aliases: `find`, `list`/`ls`, `loaded`/`using`, `show`/`info`,
   `providers`, `routing`/`why`, `lifecycle`, `risks`, `conflicts`/`check`.

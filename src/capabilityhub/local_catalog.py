@@ -29,6 +29,17 @@ class LocalCatalog:
 
     manifests: tuple[CapabilityManifest, ...]
     skill_providers: tuple[SkillProvider, ...]
+    inactive_coordinates: frozenset[str] = frozenset()
+    invalid_count: int = 0
+    skipped_count: int = 0
+    duplicate_count: int = 0
+    conflict_count: int = 0
+
+
+@dataclass(frozen=True, slots=True)
+class _SkillRoot:
+    namespace: str
+    path: Path
 
 
 def discover_local_catalog(
@@ -42,53 +53,112 @@ def discover_local_catalog(
     project_dir = (project or Path.cwd()).resolve()
     providers: list[SkillProvider] = []
     manifests: list[CapabilityManifest] = []
-    for index, root in enumerate(_skill_roots(home_dir, project_dir), start=1):
+    invalid_count = 0
+    skipped_count = 0
+    duplicate_count = 0
+    conflict_count = 0
+    skill_manifests: list[CapabilityManifest] = []
+    for root in _skill_roots(home_dir, project_dir):
         provider = SkillProvider(
-            [root],
-            namespace=f"local-skills-{index}",
-            name=f"local-skill-{index}",
+            [root.path],
+            namespace=root.namespace,
+            name=f"skill-{root.namespace}",
             skip_invalid=True,
         )
-        discovered = provider.discover()
-        if discovered:
+        report = provider.discover_report()
+        invalid_count += report.invalid_count
+        skipped_count += report.skipped_count
+        duplicate_count += report.duplicate_count
+        if report.manifests:
             providers.append(provider)
-            manifests.extend(discovered)
+            skill_manifests.extend(report.manifests)
 
-    manifests.extend(_configured_mcp_manifests(home_dir))
+    name_digests: dict[str, str] = {}
+    for manifest in skill_manifests:
+        raw_digest = manifest.metadata.get("content_digest")
+        digest = raw_digest if isinstance(raw_digest, str) else manifest.identity.digest
+        normalized_name = manifest.identity.name.casefold()
+        known = name_digests.get(normalized_name)
+        if known is not None:
+            if known == digest:
+                duplicate_count += 1
+            else:
+                conflict_count += 1
+            continue
+        name_digests[normalized_name] = digest
+        manifests.append(manifest)
+
+    mcp_manifests, inactive_coordinates = _configured_mcp_manifests(home_dir)
+    manifests.extend(mcp_manifests)
     manifests.append(_capabilityhub_cli_manifest())
-    manifests.extend(_project_manifests(project_dir))
-    return LocalCatalog(tuple(manifests), tuple(providers))
+    project_manifests, project_invalid = _project_manifests(project_dir)
+    invalid_count += project_invalid
+    manifests.extend(project_manifests)
+    return LocalCatalog(
+        tuple(manifests),
+        tuple(providers),
+        inactive_coordinates=frozenset(inactive_coordinates),
+        invalid_count=invalid_count,
+        skipped_count=skipped_count,
+        duplicate_count=duplicate_count,
+        conflict_count=conflict_count,
+    )
 
 
-def _skill_roots(home: Path, project: Path) -> tuple[Path, ...]:
+def local_catalog_fingerprint(
+    *,
+    home: Path | None = None,
+    project: Path | None = None,
+) -> str:
+    """Return a cheap, non-reversible fingerprint of local inventory inputs."""
+
+    home_dir = (home or Path.home()).resolve()
+    project_dir = (project or Path.cwd()).resolve()
+    digest = hashlib.sha256()
+    config = home_dir / ".codex" / "config.toml"
+    _fingerprint_path(digest, config, include_content=True)
+    for root in _skill_roots(home_dir, project_dir):
+        digest.update(root.namespace.encode())
+        digest.update(b"\0")
+        digest.update(str(root.path).encode("utf-8", errors="surrogatepass"))
+        for path in sorted(root.path.rglob("SKILL.md"), key=lambda item: item.as_posix()):
+            _fingerprint_path(digest, path)
+    manifest_root = project_dir / ".capabilityhub" / "manifests"
+    if manifest_root.is_dir():
+        for path in sorted(manifest_root.rglob("*.json"), key=lambda item: item.as_posix()):
+            _fingerprint_path(digest, path)
+    return digest.hexdigest()
+
+
+def _skill_roots(home: Path, project: Path) -> tuple[_SkillRoot, ...]:
     candidates = [
-        home / ".codex" / "skills",
-        home / ".agents" / "skills",
-        project / ".codex" / "skills",
-        project / ".agents" / "skills",
+        _SkillRoot("codex-project", project / ".codex" / "skills"),
+        _SkillRoot("agents-project", project / ".agents" / "skills"),
+        _SkillRoot("codex-user", home / ".codex" / "skills"),
+        _SkillRoot("agents-user", home / ".agents" / "skills"),
     ]
     candidates.extend(_enabled_plugin_skill_roots(home))
-    roots: list[Path] = []
+    roots: list[_SkillRoot] = []
     seen: set[Path] = set()
     for candidate in candidates:
         try:
-            resolved = candidate.resolve(strict=True)
+            resolved = candidate.path.resolve(strict=True)
         except OSError:
             continue
         if not resolved.is_dir() or resolved in seen:
             continue
         seen.add(resolved)
-        roots.append(resolved)
+        roots.append(_SkillRoot(candidate.namespace, resolved))
     return tuple(roots)
 
 
-def _enabled_plugin_skill_roots(home: Path) -> tuple[Path, ...]:
+def _enabled_plugin_skill_roots(home: Path) -> tuple[_SkillRoot, ...]:
     payload = _codex_config(home)
     configured = payload.get("plugins")
     if not isinstance(configured, dict):
         return ()
     cache = home / ".codex" / "plugins" / "cache"
-    roots: list[Path] = []
+    roots: list[_SkillRoot] = []
     for selector, settings in configured.items():
         if (
             not isinstance(selector, str)
@@ -102,7 +172,7 @@ def _enabled_plugin_skill_roots(home: Path) -> tuple[Path, ...]:
         try:
             versions = sorted(
                 (item for item in version_root.iterdir() if item.is_dir()),
-                key=lambda item: item.stat().st_mtime_ns,
+                key=lambda item: _version_key(item.name),
                 reverse=True,
             )
         except OSError:
@@ -110,25 +180,28 @@ def _enabled_plugin_skill_roots(home: Path) -> tuple[Path, ...]:
         for version in versions:
             skills = version / "skills"
             if skills.is_dir():
-                roots.append(skills)
+                namespace = _identifier(f"plugin-{marketplace}-{plugin}")
+                roots.append(_SkillRoot(namespace, skills))
                 break
     return tuple(roots)
 
 
-def _configured_mcp_manifests(home: Path) -> tuple[CapabilityManifest, ...]:
+def _configured_mcp_manifests(
+    home: Path,
+) -> tuple[tuple[CapabilityManifest, ...], frozenset[str]]:
     payload = _codex_config(home)
     servers = payload.get("mcp_servers")
     if not isinstance(servers, dict):
-        return ()
+        return (), frozenset()
     manifests: list[CapabilityManifest] = []
+    inactive: set[str] = set()
     for raw_name, config in sorted(servers.items()):
         if not isinstance(raw_name, str) or not isinstance(config, dict):
             continue
         name = _identifier(raw_name)
         transport = "http" if isinstance(config.get("url"), str) else "stdio"
         digest = hashlib.sha256(f"{raw_name}\0{transport}".encode()).hexdigest()
-        manifests.append(
-            CapabilityManifest(
+        manifest = CapabilityManifest(
                 identity=CapabilityIdentity(
                     "codex-mcp",
                     name,
@@ -142,8 +215,10 @@ def _configured_mcp_manifests(home: Path) -> tuple[CapabilityManifest, ...]:
                 source=f"codex://mcp/{name}",
                 trust_tier="configured",
             )
-        )
-    return tuple(manifests)
+        manifests.append(manifest)
+        if config.get("enabled") is False:
+            inactive.add(manifest.identity.coordinate)
+    return tuple(manifests), frozenset(inactive)
 
 
 def _capabilityhub_cli_manifest() -> CapabilityManifest:
@@ -185,19 +260,51 @@ def _codex_config(home: Path) -> dict[str, object]:
     return payload
 
 
-def _project_manifests(project: Path) -> tuple[CapabilityManifest, ...]:
+def _project_manifests(project: Path) -> tuple[tuple[CapabilityManifest, ...], int]:
     root = project / ".capabilityhub" / "manifests"
     if not root.is_dir():
-        return ()
+        return (), 0
     manifests: list[CapabilityManifest] = []
+    invalid_count = 0
     for path in sorted(root.rglob("*.json"), key=lambda item: item.as_posix()):
         try:
             manifests.append(load_manifest(path))
         except (CapabilityHubError, OSError, ValueError):
+            invalid_count += 1
             continue
-    return tuple(manifests)
+    return tuple(manifests), invalid_count
+
+
+def _fingerprint_path(
+    digest: hashlib._Hash,
+    path: Path,
+    *,
+    include_content: bool = False,
+) -> None:
+    digest.update(str(path).encode("utf-8", errors="surrogatepass"))
+    digest.update(b"\0")
+    try:
+        stat = path.stat()
+    except OSError:
+        digest.update(b"missing\0")
+        return
+    digest.update(f"{stat.st_size}:{stat.st_mtime_ns}".encode())
+    digest.update(b"\0")
+    if include_content:
+        try:
+            digest.update(hashlib.sha256(path.read_bytes()).digest())
+        except OSError:
+            digest.update(b"unreadable")
 
 
 def _identifier(value: str) -> str:
     normalized = _SAFE_NAME.sub("-", value).strip("-.")[:128]
     return normalized or hashlib.sha256(value.encode()).hexdigest()[:16]
+
+
+def _version_key(value: str) -> tuple[tuple[int, int | str], ...]:
+    return tuple(
+        (0, int(part)) if part.isdigit() else (1, part.casefold())
+        for part in re.split(r"(\d+)", value)
+        if part
+    )

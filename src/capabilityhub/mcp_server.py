@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import secrets
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from typing import Any, Literal, TypeVar
@@ -19,9 +20,15 @@ from mcp_types import CallToolResult, TextContent
 from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
-from capabilityhub.local_catalog import discover_local_catalog
+from capabilityhub.local_catalog import discover_local_catalog, local_catalog_fingerprint
 from capabilityhub.metering import canonical_json
-from capabilityhub.models import ExecutionRequest, JsonValue, LoadedCapability, SearchCard
+from capabilityhub.models import (
+    CapabilityKind,
+    ExecutionRequest,
+    JsonValue,
+    LoadedCapability,
+    SearchCard,
+)
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.search import SearchResponse
@@ -32,17 +39,28 @@ BudgetProvider = Callable[[str], BudgetLedger]
 _ResultT = TypeVar("_ResultT", bound=dict[str, JsonValue])
 
 
+@dataclass(frozen=True, slots=True)
+class _MCPRuntimeState:
+    service: CapabilityHubService
+    inventory: dict[str, JsonValue] | None = None
+
+
+RuntimeStateProvider = Callable[[], _MCPRuntimeState]
+
+
 def create_mcp_server(
     service: CapabilityHubService,
     *,
     context_provider: ContextProvider,
     budget_provider: BudgetProvider,
     name: str = "CapabilityHub",
+    state_provider: RuntimeStateProvider | None = None,
 ) -> MCPServer:
     """Create an SDK-owned server exposing exactly search, load, and execute."""
 
     if not name:
         raise ValueError("name must be non-empty")
+    current_state = state_provider or (lambda: _MCPRuntimeState(service))
     server = MCPServer(
         name,
         description="Budgeted discovery, loading, and execution of governed capabilities.",
@@ -58,12 +76,14 @@ def create_mcp_server(
         kinds: list[str] | None = None,
         limit: int = 8,
         max_output_tokens: int = 900,
+        include_inventory: bool = False,
+        include_cards: bool = True,
     ) -> CallToolResult:
         """Search active capabilities within a hard output budget."""
 
         return _safe(
-            lambda: _search(
-                service,
+            lambda: _search_state(
+                current_state(),
                 context_provider,
                 budget_provider,
                 query=query,
@@ -71,6 +91,8 @@ def create_mcp_server(
                 kinds=kinds,
                 limit=limit,
                 max_output_tokens=max_output_tokens,
+                include_cards=include_cards,
+                include_inventory=include_inventory,
             )
         )
 
@@ -89,7 +111,7 @@ def create_mcp_server(
 
         return _safe(
             lambda: _load(
-                service,
+                current_state().service,
                 context_provider,
                 budget_provider,
                 capability_ref=capability_ref,
@@ -117,7 +139,7 @@ def create_mcp_server(
 
         return _safe(
             lambda: _execute(
-                service,
+                current_state().service,
                 context_provider,
                 budget_provider,
                 execution_ref=execution_ref,
@@ -140,6 +162,7 @@ def serve(
     budget_provider: BudgetProvider | None = None,
     transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
     name: str = "CapabilityHub",
+    project: Path | None = None,
     **transport_options: Any,
 ) -> None:
     """Run using an official SDK transport; no transport is implemented here."""
@@ -147,7 +170,7 @@ def serve(
     if service is None:
         if context_provider is not None or budget_provider is not None:
             raise ValueError("context and budget providers require an explicit service")
-        server = create_empty_mcp_server(name=name)
+        server = create_empty_mcp_server(name=name, project=project)
     else:
         if context_provider is None or budget_provider is None:
             raise ValueError("an explicit service requires context and budget providers")
@@ -158,6 +181,122 @@ def serve(
             name=name,
         )
     server.run(transport=transport, **transport_options)
+
+
+class _LocalRuntime:
+    """Atomically refresh a read-only local catalog only when its fingerprint changes."""
+
+    def __init__(self, *, home: Path | None, project: Path | None) -> None:
+        self._home = (home or Path.home()).resolve()
+        self._project = (project or Path.cwd()).resolve()
+        self._references = ReferenceSigner(secrets.token_bytes(32))
+        self._audit = MemoryAuditSink()
+        self._lock = RLock()
+        self._fingerprint = ""
+        self._generation = 0
+        self._state: _MCPRuntimeState | None = None
+
+    def state(self) -> _MCPRuntimeState:
+        with self._lock:
+            try:
+                fingerprint = local_catalog_fingerprint(home=self._home, project=self._project)
+                if self._state is None or fingerprint != self._fingerprint:
+                    refreshed = self._build_state()
+                    self._state = refreshed
+                    self._fingerprint = fingerprint
+            except Exception:
+                if self._state is None:
+                    raise
+                inventory = dict(self._state.inventory or {})
+                inventory["last_refresh_error_code"] = "catalog_refresh_failed"
+                inventory["status"] = "stale"
+                return _MCPRuntimeState(self._state.service, inventory)
+            return self._state
+
+    def _build_state(self) -> _MCPRuntimeState:
+        catalog = discover_local_catalog(home=self._home, project=self._project)
+        registry = CapabilityRegistry()
+        registration_conflicts = 0
+        for manifest in sorted(catalog.manifests, key=lambda item: item.identity.revision):
+            try:
+                registry.register(manifest)
+            except CapabilityHubError:
+                registration_conflicts += 1
+
+        pending = [
+            manifest
+            for manifest in catalog.manifests
+            if manifest.identity.revision in registry.revisions
+            and manifest.identity.coordinate not in catalog.inactive_coordinates
+        ]
+        while pending:
+            remaining = []
+            progress = False
+            for manifest in pending:
+                try:
+                    registry.activate(manifest.identity.coordinate, manifest.identity.revision)
+                except CapabilityHubError:
+                    remaining.append(manifest)
+                else:
+                    progress = True
+            if not progress:
+                break
+            pending = remaining
+
+        if self._state is None:
+            service = CapabilityHubService(
+                registry=registry,
+                providers=catalog.skill_providers,
+                references=self._references,
+                audit=self._audit,
+            )
+        else:
+            service = self._state.service.fork_catalog(
+                registry=registry,
+                providers=catalog.skill_providers,
+            )
+        active_by_kind: dict[str, JsonValue] = {
+            kind.value: 0 for kind in CapabilityKind
+        }
+        for revision in registry.activations.values():
+            kind = registry.revision(revision).kind.value
+            count = active_by_kind[kind]
+            assert isinstance(count, int)
+            active_by_kind[kind] = count + 1
+        discovered_total = len(registry.revisions)
+        active_total = len(registry.activations)
+        self._generation += 1
+        conflict_count = catalog.conflict_count + registration_conflicts
+        excluded_by_reason: dict[str, JsonValue] = {
+            "configured_disabled": len(catalog.inactive_coordinates),
+            "dependency_inactive": len(pending),
+            "duplicate_identical": catalog.duplicate_count,
+            "invalid_manifest": catalog.invalid_count,
+            "path_escape": catalog.skipped_count,
+            "registration_conflict": registration_conflicts,
+            "shadowed_conflict": catalog.conflict_count,
+        }
+        partial = any(
+            value
+            for key, value in excluded_by_reason.items()
+            if key not in {"configured_disabled", "duplicate_identical"}
+            and isinstance(value, int)
+        )
+        inventory: dict[str, JsonValue] = {
+            "active_by_kind": active_by_kind,
+            "active_total": active_total,
+            "conflict_count": conflict_count,
+            "discovered_total": discovered_total,
+            "duplicate_count": catalog.duplicate_count,
+            "excluded_by_reason": excluded_by_reason,
+            "generation": self._generation,
+            "inactive_count": discovered_total - active_total,
+            "invalid_count": catalog.invalid_count,
+            "last_refresh_error_code": None,
+            "skipped_count": catalog.skipped_count,
+            "status": "partial" if partial else "fresh",
+        }
+        return _MCPRuntimeState(service, inventory)
 
 
 def create_empty_mcp_server(
@@ -173,21 +312,8 @@ def create_empty_mcp_server(
     and all state live only for this process.
     """
 
-    catalog = discover_local_catalog(home=home, project=project)
-    registry = CapabilityRegistry()
-    registry.register_many(catalog.manifests)
-    for manifest in catalog.manifests:
-        try:
-            registry.activate(manifest.identity.coordinate, manifest.identity.revision)
-        except CapabilityHubError:
-            # Invalid dependency/conflict closures stay installed but inactive.
-            continue
-    service = CapabilityHubService(
-        registry=registry,
-        providers=catalog.skill_providers,
-        references=ReferenceSigner(secrets.token_bytes(32)),
-        audit=MemoryAuditSink(),
-    )
+    runtime = _LocalRuntime(home=home, project=project)
+    initial = runtime.state()
     context = ServiceContext("local", "anonymous", "mcp-stdio")
     ledgers: dict[str, BudgetLedger] = {}
     lock = RLock()
@@ -208,10 +334,38 @@ def create_empty_mcp_server(
             )
 
     return create_mcp_server(
-        service,
+        initial.service,
         context_provider=lambda: context,
         budget_provider=budget_provider,
         name=name,
+        state_provider=runtime.state,
+    )
+
+
+def _search_state(
+    state: _MCPRuntimeState,
+    context_provider: ContextProvider,
+    budget_provider: BudgetProvider,
+    *,
+    query: str,
+    task_id: str,
+    kinds: list[str] | None,
+    limit: int,
+    max_output_tokens: int,
+    include_cards: bool,
+    include_inventory: bool,
+) -> dict[str, JsonValue]:
+    return _search(
+        state.service,
+        context_provider,
+        budget_provider,
+        query=query,
+        task_id=task_id,
+        kinds=kinds,
+        limit=limit,
+        max_output_tokens=max_output_tokens,
+        include_cards=include_cards,
+        inventory=state.inventory if include_inventory else None,
     )
 
 
@@ -225,6 +379,8 @@ def _search(
     kinds: list[str] | None,
     limit: int,
     max_output_tokens: int,
+    include_cards: bool,
+    inventory: dict[str, JsonValue] | None,
 ) -> dict[str, JsonValue]:
     response = service.search(
         query,
@@ -234,6 +390,8 @@ def _search(
         kinds=kinds,
         limit=limit,
         max_output_tokens=max_output_tokens,
+        include_cards=include_cards,
+        inventory=inventory,
     )
     return _search_dict(response)
 
@@ -301,7 +459,7 @@ def _search_dict(response: SearchResponse) -> dict[str, JsonValue]:
     counts: dict[str, JsonValue] = {
         kind: count for kind, count in response.kind_counts.items()
     }
-    return {
+    result: dict[str, JsonValue] = {
         "cards": [_card_dict(card) for card in response.cards],
         "kind_counts": counts,
         "payload_bytes": response.payload_bytes,
@@ -309,6 +467,9 @@ def _search_dict(response: SearchResponse) -> dict[str, JsonValue]:
         "total_matches": response.total_matches,
         "truncated": response.truncated,
     }
+    if response.inventory is not None:
+        result["inventory"] = response.inventory
+    return result
 
 
 def _card_dict(card: SearchCard) -> dict[str, JsonValue]:

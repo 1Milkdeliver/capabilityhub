@@ -101,8 +101,11 @@ def test_skill_provider_can_skip_invalid_entries_for_read_only_inventory(tmp_pat
     bad.parent.mkdir()
     bad.write_text("x" * 40, encoding="utf-8")
 
-    manifests = SkillProvider(
+    report = SkillProvider(
         [tmp_path], max_file_bytes=32, skip_invalid=True
-    ).discover()
+    ).discover_report()
 
-    assert [item.identity.name for item in manifests] == ["good"]
+    assert [item.identity.name for item in report.manifests] == ["good"]
+    assert report.invalid_count == 1
+    assert report.skipped_count == 0
+    assert report.duplicate_count == 0

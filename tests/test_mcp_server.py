@@ -145,6 +145,138 @@ def test_zero_configuration_cli_server_discovers_local_skills_safely(tmp_path) -
     asyncio.run(scenario())
 
 
+def test_local_server_refreshes_inventory_atomically_in_the_same_process(tmp_path) -> None:
+    home = tmp_path / "home"
+    home.mkdir()
+    project = tmp_path / "project"
+    project.mkdir()
+    server = create_empty_mcp_server(home=home, project=project)
+
+    async def inventory(client: Client, *, task: str) -> dict[str, object]:
+        result = await client.call_tool(
+            "capability.search",
+            {
+                "query": "",
+                "task_id": task,
+                "include_inventory": True,
+                "include_cards": False,
+                "max_output_tokens": 2_000,
+            },
+        )
+        assert not result.is_error
+        data = cast(dict[str, object], result.structured_content)
+        assert data["cards"] == []
+        return cast(dict[str, object], data["inventory"])
+
+    async def scenario() -> None:
+        async with Client(server) as client:
+            first = await inventory(client, task="refresh-1")
+            assert first["generation"] == 1
+            assert first["active_total"] == 1
+
+            skill = home / ".codex" / "skills" / "demo" / "SKILL.md"
+            skill.parent.mkdir(parents=True)
+            skill.write_text("---\nname: demo\n---\nfirst body", encoding="utf-8")
+            concurrent = await asyncio.gather(
+                *(inventory(client, task=f"refresh-2-{index}") for index in range(8))
+            )
+            assert {item["generation"] for item in concurrent} == {2}
+            second = concurrent[0]
+            assert cast(dict[str, object], second["active_by_kind"])["skill"] == 1
+
+            unchanged = await inventory(client, task="refresh-3")
+            assert unchanged["generation"] == 2
+
+            searched = await client.call_tool(
+                "capability.search",
+                {"query": "demo", "task_id": "refresh-ref", "max_output_tokens": 2_000},
+            )
+            cards = cast(
+                list[dict[str, object]],
+                cast(dict[str, object], searched.structured_content)["cards"],
+            )
+            old_ref = cast(str, cards[0]["capability_ref"])
+
+            other = home / ".codex" / "skills" / "other" / "SKILL.md"
+            other.parent.mkdir(parents=True)
+            other.write_text("---\nname: other\n---\nbody", encoding="utf-8")
+            third = await inventory(client, task="refresh-4")
+            assert third["generation"] == 3
+            still_valid = await client.call_tool(
+                "capability.load",
+                {"capability_ref": old_ref, "task_id": "refresh-ref"},
+            )
+            assert not still_valid.is_error
+
+            skill.write_text("---\nname: demo\n---\nchanged body is longer", encoding="utf-8")
+            fourth = await inventory(client, task="refresh-5")
+            assert fourth["generation"] == 4
+            stale = await client.call_tool(
+                "capability.load",
+                {"capability_ref": old_ref, "task_id": "refresh-ref"},
+            )
+            assert stale.is_error
+            assert "stale_revision" in cast(TextContent, stale.content[0]).text
+
+            skill.unlink()
+            fifth = await inventory(client, task="refresh-6")
+            assert fifth["generation"] == 5
+            assert cast(dict[str, object], fifth["active_by_kind"])["skill"] == 1
+            assert fifth["active_total"] == sum(
+                cast(dict[str, int], fifth["active_by_kind"]).values()
+            )
+
+    asyncio.run(scenario())
+
+
+def test_local_server_keeps_last_complete_snapshot_when_refresh_check_fails(
+    tmp_path, monkeypatch
+) -> None:
+    server = create_empty_mcp_server(home=tmp_path, project=tmp_path)
+
+    def fail_fingerprint(**_kwargs: object) -> str:
+        raise OSError("SECRET-CANARY must not escape")
+
+    monkeypatch.setattr("capabilityhub.mcp_server.local_catalog_fingerprint", fail_fingerprint)
+
+    async def scenario() -> None:
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "capability.search",
+                {
+                    "query": "",
+                    "task_id": "stale-refresh",
+                    "include_inventory": True,
+                    "include_cards": False,
+                    "max_output_tokens": 2_000,
+                },
+            )
+            assert not result.is_error
+            data = cast(dict[str, object], result.structured_content)
+            inventory = cast(dict[str, object], data["inventory"])
+            assert inventory["status"] == "stale"
+            assert inventory["last_refresh_error_code"] == "catalog_refresh_failed"
+            assert "SECRET-CANARY" not in cast(TextContent, result.content[0]).text
+
+            monkeypatch.undo()
+            recovered = await client.call_tool(
+                "capability.search",
+                {
+                    "query": "",
+                    "task_id": "recovered-refresh",
+                    "include_inventory": True,
+                    "include_cards": False,
+                    "max_output_tokens": 2_000,
+                },
+            )
+            recovered_data = cast(dict[str, object], recovered.structured_content)
+            recovered_inventory = cast(dict[str, object], recovered_data["inventory"])
+            assert recovered_inventory["status"] == "fresh"
+            assert recovered_inventory["last_refresh_error_code"] is None
+
+    asyncio.run(scenario())
+
+
 def test_official_in_memory_client_completes_search_load_execute() -> None:
     server, ledgers = _server()
 

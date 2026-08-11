@@ -19,7 +19,11 @@ def build_parser() -> argparse.ArgumentParser:
     discover.add_argument("directories", nargs="+")
     dashboard = commands.add_parser("dashboard", help="start a local read-only dashboard")
     dashboard.add_argument("--port", type=int, default=0)
-    commands.add_parser("mcp-serve", help="start the optional MCP server")
+    mcp = commands.add_parser("mcp-serve", help="start the optional MCP server")
+    mcp.add_argument(
+        "--project-root",
+        help="discover project manifests and Skills from this explicit directory",
+    )
     return parser
 
 
@@ -49,7 +53,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         finally:
             server.close()
         return 0
-    runtime.mcp_serve()
+    runtime.mcp_serve(args.project_root)
     return 0
 
 

@@ -23,9 +23,40 @@ MAX_LOAD_UNUSED_RATE = 0.10
 _META_TOOL_CONTRACT: dict[str, JsonValue] = {
     "protocol": "capabilityhub.benchmark.v1",
     "tools": [
-        {"name": "capability.search", "input": ["intent", "kinds", "limit"]},
-        {"name": "capability.load", "input": ["revision", "sections", "operations"]},
-        {"name": "capability.execute", "input": ["execution_ref", "operation", "arguments"]},
+        {
+            "name": "capability.search",
+            "input": [
+                "query",
+                "task_id",
+                "kinds",
+                "limit",
+                "max_output_tokens",
+                "include_inventory",
+                "include_cards",
+            ],
+        },
+        {
+            "name": "capability.load",
+            "input": [
+                "capability_ref",
+                "task_id",
+                "section_names",
+                "operation_names",
+                "max_output_tokens",
+            ],
+        },
+        {
+            "name": "capability.execute",
+            "input": [
+                "execution_ref",
+                "operation",
+                "arguments",
+                "task_id",
+                "approval_ref",
+                "idempotency_key",
+                "max_output_tokens",
+            ],
+        },
     ],
 }
 

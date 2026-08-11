@@ -61,6 +61,13 @@ class _ExecutionGrant:
     operations: frozenset[str]
 
 
+@dataclass(slots=True)
+class _SharedServiceState:
+    grants: dict[str, _ExecutionGrant]
+    sequence: int
+    lock: RLock
+
+
 class CapabilityHubService:
     """Coordinates search, progressive load, and governed provider execution."""
 
@@ -74,6 +81,7 @@ class CapabilityHubService:
         policy: ReferencePolicy | None = None,
         load_ref_ttl_seconds: int = 300,
         execution_ref_ttl_seconds: int = 300,
+        _shared_state: _SharedServiceState | None = None,
     ) -> None:
         if execution_ref_ttl_seconds <= 0:
             raise ValueError("execution_ref_ttl_seconds must be positive")
@@ -91,10 +99,28 @@ class CapabilityHubService:
         self._search_engine = LexicalCapabilitySearch(
             registry, references, load_ref_ttl_seconds=load_ref_ttl_seconds
         )
+        self._load_ref_ttl = load_ref_ttl_seconds
         self._execution_ttl = execution_ref_ttl_seconds
-        self._grants: dict[str, _ExecutionGrant] = {}
-        self._sequence = 0
-        self._lock = RLock()
+        self._shared = _shared_state or _SharedServiceState({}, 0, RLock())
+
+    def fork_catalog(
+        self,
+        *,
+        registry: CapabilityRegistry,
+        providers: Iterable[CapabilityProvider] | Mapping[str, CapabilityProvider],
+    ) -> CapabilityHubService:
+        """Create an immutable catalog generation while retaining refs, grants, and audit order."""
+
+        return CapabilityHubService(
+            registry=registry,
+            providers=providers,
+            references=self._references,
+            audit=self._audit,
+            policy=self._policy,
+            load_ref_ttl_seconds=self._load_ref_ttl,
+            execution_ref_ttl_seconds=self._execution_ttl,
+            _shared_state=self._shared,
+        )
 
     def search(
         self,
@@ -106,6 +132,8 @@ class CapabilityHubService:
         kinds: Iterable[CapabilityKind | str] | None = None,
         limit: int = 8,
         max_output_tokens: int = 900,
+        include_cards: bool = True,
+        inventory: dict[str, JsonValue] | None = None,
     ) -> SearchResponse:
         try:
             response = self._search_engine.search(
@@ -114,6 +142,8 @@ class CapabilityHubService:
                 kinds=kinds,
                 limit=limit,
                 max_output_tokens=max_output_tokens,
+                include_cards=include_cards,
+                inventory=inventory,
             )
             budget.spend(
                 {"portable_tokens": response.portable_tokens, "bytes": response.payload_bytes}
@@ -189,8 +219,8 @@ class CapabilityHubService:
                 }
             )
             if execution_ref:
-                with self._lock:
-                    self._grants[execution_ref] = _ExecutionGrant(
+                with self._shared.lock:
+                    self._shared.grants[execution_ref] = _ExecutionGrant(
                         manifest.identity.revision,
                         frozenset(operation.name for operation in operations),
                     )
@@ -344,7 +374,14 @@ class CapabilityHubService:
         return result
 
     def _active_manifest(self, revision: str) -> CapabilityManifest:
-        manifest = self._registry.revision(revision)
+        try:
+            manifest = self._registry.revision(revision)
+        except CapabilityHubError as error:
+            if error.code == "unknown_revision":
+                raise _reference(
+                    "stale_revision", "The referenced capability revision is no longer active."
+                ) from error
+            raise
         active_revision = self._registry.activations.get(manifest.identity.coordinate)
         if active_revision != revision:
             raise _reference(
@@ -353,8 +390,8 @@ class CapabilityHubService:
         return manifest
 
     def _grant(self, execution_ref: str) -> _ExecutionGrant:
-        with self._lock:
-            grant = self._grants.get(execution_ref)
+        with self._shared.lock:
+            grant = self._shared.grants.get(execution_ref)
         if grant is None:
             raise _reference(
                 "unknown_execution_grant",
@@ -410,9 +447,9 @@ class CapabilityHubService:
         reason_codes: tuple[str, ...] = (),
         metadata: dict[str, JsonValue] | None = None,
     ) -> None:
-        with self._lock:
-            self._sequence += 1
-            sequence = self._sequence
+        with self._shared.lock:
+            self._shared.sequence += 1
+            sequence = self._shared.sequence
         self._audit.emit(
             AuditEvent(
                 event_id=f"evt-{sequence:08d}",

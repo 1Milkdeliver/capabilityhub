@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from capabilityhub.local_catalog import discover_local_catalog
+from capabilityhub.local_catalog import discover_local_catalog, local_catalog_fingerprint
 from capabilityhub.models import CapabilityKind
 
 
@@ -74,3 +74,36 @@ enabled = true
         "dashboard",
         "mcp-serve",
     }
+
+
+def test_local_catalog_uses_stable_sources_and_reports_safe_exclusions(tmp_path) -> None:
+    home = tmp_path / "home"
+    user_skill = home / ".codex" / "skills" / "shared" / "SKILL.md"
+    user_skill.parent.mkdir(parents=True)
+    user_skill.write_text("---\nname: shared\n---\nuser body", encoding="utf-8")
+    invalid = home / ".codex" / "skills" / "invalid" / "SKILL.md"
+    invalid.parent.mkdir(parents=True)
+    invalid.write_text("---\nname: invalid\n---\n" + "x" * 300_000, encoding="utf-8")
+    config = home / ".codex" / "config.toml"
+    config.write_text("[mcp_servers.offline]\nenabled = false\ncommand = 'secret-value'\n")
+
+    project = tmp_path / "project"
+    project_skill = project / ".codex" / "skills" / "shared" / "SKILL.md"
+    project_skill.parent.mkdir(parents=True)
+    project_skill.write_text("---\nname: shared\n---\nproject body", encoding="utf-8")
+
+    first_fingerprint = local_catalog_fingerprint(home=home, project=project)
+    catalog = discover_local_catalog(home=home, project=project)
+    skills = [item for item in catalog.manifests if item.kind is CapabilityKind.SKILL]
+
+    assert [item.identity.coordinate for item in skills] == ["codex-project/shared"]
+    assert catalog.conflict_count == 1
+    assert catalog.invalid_count == 1
+    assert catalog.skipped_count == 0
+    assert "codex-mcp/offline" in catalog.inactive_coordinates
+    assert all("secret-value" not in item.summary for item in catalog.manifests)
+
+    project_skill.write_text(
+        "---\nname: shared\n---\nproject body changed", encoding="utf-8"
+    )
+    assert local_catalog_fingerprint(home=home, project=project) != first_fingerprint

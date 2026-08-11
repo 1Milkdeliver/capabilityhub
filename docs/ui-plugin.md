@@ -20,8 +20,10 @@ snapshot from approved Skill roots, enabled plugin Skill roots, configured MCP n
 the installed CapabilityHub CLI, and project `.capabilityhub/manifests`; it never
 executes discovered code or reports
 credential/connection values. A missing runtime therefore cannot break every Codex
-task, while connected tasks can query actual inventory totals. Same-task filesystem
-changes require restarting the task/runtime in this pre-alpha version.
+task, while connected tasks can query actual inventory totals. Search checks a compact
+filesystem fingerprint and publishes a new atomic generation only after inputs change,
+so same-task Skill and manifest updates do not require a restart. Inventory responses
+identify fresh, partial, or stale state and expose only safe diagnostic codes/counts.
 
 The plugin exposes `helpme` and `myskills`, so the Codex app can present `/helpme` and
 `/myskills`. It does not override built-in `/help`, `/skills`, `/status`, or `/mcp`

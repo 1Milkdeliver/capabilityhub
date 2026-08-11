@@ -32,7 +32,7 @@ def dashboard(snapshot_provider: Callable[[], StatusSnapshot], *, port: int = 0)
     return server
 
 
-def mcp_serve() -> object:
+def mcp_serve(project_root: str | Path | None = None) -> object:
     """Start optional MCP serving only when the separately implemented server exists."""
     try:
         module = import_module("capabilityhub.mcp_server")
@@ -41,4 +41,6 @@ def mcp_serve() -> object:
     serve = getattr(module, "serve", None)
     if not callable(serve):
         raise RuntimeError("MCP server does not expose a serve function.")
-    return cast(Callable[[], object], serve)()
+    typed_serve = cast(Callable[..., object], serve)
+    project = Path(project_root).resolve() if project_root is not None else None
+    return typed_serve(project=project)

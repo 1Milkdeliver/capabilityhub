@@ -99,3 +99,33 @@ def test_search_rejects_a_budget_too_small_for_its_envelope() -> None:
     with pytest.raises(CapabilityHubError) as raised:
         search.search("term", scope="scope", max_output_tokens=1)
     assert raised.value.code == "search_output_budget_too_small"
+
+
+def test_counts_only_inventory_is_global_bounded_and_has_no_references() -> None:
+    search, _ = _search(
+        _manifest("api", "shared", kind=CapabilityKind.API),
+        _manifest("skill", "shared", kind=CapabilityKind.SKILL),
+    )
+    inventory = {
+        "generation": 4,
+        "active_total": 2,
+        "active_by_kind": {"skill": 1, "mcp": 0, "cli": 0, "api": 1, "rag": 0},
+        "status": "fresh",
+    }
+
+    response = search.search(
+        "shared",
+        scope="scope",
+        kinds=(CapabilityKind.SKILL,),
+        include_cards=False,
+        inventory=inventory,
+        max_output_tokens=2_000,
+    )
+
+    assert response.cards == ()
+    assert not response.truncated
+    assert response.total_matches == 1
+    assert response.kind_counts["skill"] == 1
+    assert response.inventory == inventory
+    assert response.inventory["active_total"] == 2
+    assert response.portable_tokens < 2_000

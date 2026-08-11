@@ -41,10 +41,13 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
   `mcp`, `status`, `dashboard`, `budget`, `security`, and `settings` go directly to that
   function. Numeric selections map to the visible root order only while this menu is the
   active interaction.
-- For `/helpme inventory`, call `capability.search` with an empty query, `limit: 1`,
-  and a bounded output budget. Render `total_matches` and all five `kind_counts`; do not
-  infer totals from the returned cards. Label the result as the connected runtime's
-  active snapshot.
+- For `/helpme inventory`, call `capability.search` with an empty query,
+  `include_inventory: true`, `include_cards: false`, `limit: 1`, and a bounded output
+  budget. Render `inventory.active_total`, all five values in
+  `inventory.active_by_kind`, `inventory.generation`, and `inventory.status`; do not
+  infer totals from cards or query-level `kind_counts`. If status is `partial`, show only
+  non-zero `excluded_by_reason` counts. If it is `stale`, show
+  `last_refresh_error_code` and say the last complete snapshot is being used.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

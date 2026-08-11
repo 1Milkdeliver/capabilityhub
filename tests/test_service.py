@@ -242,6 +242,29 @@ def test_unhandled_provider_error_is_wrapped_in_safe_contract() -> None:
     assert audit.events[-1].reason_codes == ("provider_unhandled_error",)
 
 
+def test_catalog_fork_preserves_execution_grants_and_audit_order() -> None:
+    manifest = _manifest()
+    service, context, budget, audit = _setup(manifest)
+    _, execution_ref = _search_and_load(service, context, budget)
+    registry = CapabilityRegistry()
+    registry.register(manifest)
+    registry.activate(manifest.identity.coordinate, manifest.identity.revision)
+    provider = StaticProvider(
+        (StaticFixture(manifest, {"find": {"items": [2]}, "count": 2}),),
+        name="fixture",
+    )
+
+    refreshed = service.fork_catalog(registry=registry, providers=(provider,))
+    result = refreshed.execute(
+        ExecutionRequest(execution_ref, "find", {}, "task"),
+        context=context,
+        budget=budget,
+    )
+
+    assert result.output == {"items": [2]}
+    assert [event.sequence for event in audit.events] == [1, 2, 3]
+
+
 def test_sensitive_section_requires_explicit_permission() -> None:
     manifest = replace(
         _manifest(),

@@ -32,6 +32,7 @@ class SearchResponse:
     truncated: bool = False
     total_matches: int = 0
     kind_counts: dict[str, int] = field(default_factory=dict)
+    inventory: dict[str, JsonValue] | None = None
 
 
 class LexicalCapabilitySearch:
@@ -58,6 +59,8 @@ class LexicalCapabilitySearch:
         kinds: Iterable[CapabilityKind | str] | None = None,
         limit: int = 8,
         max_output_tokens: int = 900,
+        include_cards: bool = True,
+        inventory: dict[str, JsonValue] | None = None,
     ) -> SearchResponse:
         if not isinstance(query, str):
             raise _input("invalid_search_query", "Search query must be text.")
@@ -93,8 +96,9 @@ class LexicalCapabilitySearch:
         total_matches = len(ranked)
 
         cards: list[SearchCard] = []
-        truncated = len(ranked) > limit
-        for index, (_, _, manifest, reasons) in enumerate(ranked[:limit]):
+        truncated = include_cards and len(ranked) > limit
+        selected = ranked[:limit] if include_cards else ()
+        for index, (_, _, manifest, reasons) in enumerate(selected):
             capability_ref = self._references.issue(
                 revision=manifest.identity.revision,
                 scope=scope,
@@ -118,6 +122,7 @@ class LexicalCapabilitySearch:
                 truncated=has_more,
                 total_matches=total_matches,
                 kind_counts=kind_counts,
+                inventory=inventory,
             )
             if candidate.portable_tokens > max_output_tokens:
                 truncated = True
@@ -128,6 +133,7 @@ class LexicalCapabilitySearch:
             truncated=truncated,
             total_matches=total_matches,
             kind_counts=kind_counts,
+            inventory=inventory,
         )
         if response.portable_tokens > max_output_tokens:
             raise _budget_too_small(response.portable_tokens, max_output_tokens)
@@ -192,6 +198,7 @@ def _response(
     truncated: bool,
     total_matches: int,
     kind_counts: dict[str, int],
+    inventory: dict[str, JsonValue] | None,
 ) -> SearchResponse:
     portable_tokens = 0
     payload_bytes = 0
@@ -207,6 +214,8 @@ def _response(
             "total_matches": total_matches,
             "truncated": truncated,
         }
+        if inventory is not None:
+            payload["inventory"] = inventory
         measured = measure_text(canonical_json(payload))
         if measured.portable_tokens == portable_tokens and measured.utf8_bytes == payload_bytes:
             break
@@ -219,6 +228,7 @@ def _response(
         truncated,
         total_matches,
         dict(kind_counts),
+        dict(inventory) if inventory is not None else None,
     )
 
 

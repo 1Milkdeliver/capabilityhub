@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 8 — open-source pre-alpha release hardening and publication.
+Phase 9 — live local inventory hardening.
 
 ## Next Step
 
-Commit and push the verified CLI/MCP/UI/benchmark release candidate, then verify the public repository and plugin installation path.
+Publish and validate atomic same-process inventory refresh, safe diagnostics, stable Skill identities, and explicit project-root discovery.
 
 ## Phases
 
@@ -78,6 +78,16 @@ Status: in_progress
 - Complete README, architecture, security, contribution, notices, examples, and CI.
 - Initialize repository, commit in small verified batches, create/push GitHub repository when an authenticated route is available.
 - Run final full verification.
+
+### Phase 9 — Live local inventory
+
+Status: in_progress
+
+- Refresh the local catalog atomically in the same MCP process only after a lightweight input fingerprint changes.
+- Separate query match counts from global active Inventory counts and expose safe generation/diagnostic fields.
+- Use stable source namespaces and deterministic project/user/plugin precedence for duplicate Skill names.
+- Preserve references, execution grants, budgets, and audit ordering across catalog generations.
+- Validate concurrent refresh, stale fallback, add/change/remove behavior, token bounds, and redaction.
 
 ## Decisions Made
 

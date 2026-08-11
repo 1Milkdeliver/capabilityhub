@@ -19,3 +19,8 @@
 - Implemented hierarchical hard budgets, authenticated revision/scope references, deterministic reasoning-tier routing, safe Skill discovery, and side-effect-free providers for all five fixture kinds.
 - Integrated and verified the first parallel implementation batch: 51 tests passed, one symlink containment test skipped because Windows denied symlink creation; Ruff and strict mypy passed.
 - Added the user-requested out-of-context visual dashboard and minimal Codex plugin as a release phase; generated the repository plugin/marketplace scaffold using the Codex plugin creator.
+- Implemented and hardened the transport-neutral `capability.search`, `capability.load`, and `capability.execute` service boundary.
+- Added the 100-capability, five-kind oracle-routed disclosure benchmark; the pinned fixture shows 99.87% lower initial portable-token exposure and 98.77% lower mean staged-sequence exposure, without claiming semantic-routing accuracy.
+- Added a loopback-only read-only dashboard and validated the generated Codex plugin package with the official plugin validator.
+- Implemented the local CLI and an MCP Python SDK v2 adapter using only official transports; SDK in-memory tests cover the exact three-tool list, end-to-end calls, empty safe defaults, and error redaction.
+- Completed the integrated release-candidate gate: 78 tests passed, one platform symlink test skipped, Ruff passed, strict mypy passed, plugin validation passed, and a clean wheel install successfully ran manifest validation.

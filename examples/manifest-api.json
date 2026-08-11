@@ -1,0 +1,43 @@
+{
+  "apiVersion": "capabilityhub.io/v1alpha1",
+  "kind": "Capability",
+  "metadata": {
+    "namespace": "examples",
+    "name": "issue-search",
+    "version": "1.0.0",
+    "digest": "sha256:7a9ed53e9c0d8be5c835e685fdd59cfc00ed165d1b558c4485a7bc56ae4f9f2e"
+  },
+  "spec": {
+    "type": "api",
+    "summary": "Search an authorized issue service using structured filters.",
+    "provider": "application-owned-provider",
+    "operations": [
+      {
+        "name": "search",
+        "operationType": "execute",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "query": {
+              "type": "string"
+            }
+          },
+          "required": ["query"]
+        },
+        "outputSchema": {
+          "type": "object"
+        },
+        "sideEffect": "none"
+      }
+    ],
+    "sections": {
+      "contract": {
+        "mediaType": "text/markdown",
+        "content": "The embedding application authorizes and executes this provider; this fixture contains no endpoint or credential.",
+        "tokens": 28
+      }
+    },
+    "permissions": ["network"],
+    "tags": ["issues", "search"]
+  }
+}

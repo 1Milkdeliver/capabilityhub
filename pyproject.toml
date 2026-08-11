@@ -21,8 +21,11 @@ classifiers = [
 dependencies = []
 
 [project.optional-dependencies]
+mcp = ["mcp>=2,<3"]
 dev = [
+  "mcp>=2,<3",
   "mypy>=1.11",
+  "PyYAML>=6.0",
   "pytest>=8.3",
   "pytest-cov>=5",
   "ruff>=0.8",
@@ -31,6 +34,9 @@ dev = [
 [project.urls]
 Repository = "https://github.com/1Milkdeliver/capabilityhub"
 Issues = "https://github.com/1Milkdeliver/capabilityhub/issues"
+
+[project.scripts]
+capabilityhub = "capabilityhub.cli:main"
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/capabilityhub"]
@@ -50,4 +56,3 @@ select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 python_version = "3.11"
 strict = true
 packages = ["capabilityhub"]
-

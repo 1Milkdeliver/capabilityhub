@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 3 — search/load/execute orchestration, residency, and benchmark fixtures.
+Phase 8 — open-source pre-alpha release hardening and publication.
 
 ## Next Step
 
-Implement and integrate the three meta-tool service, bounded residency, and deterministic eager-versus-lazy benchmark.
+Commit and push the verified CLI/MCP/UI/benchmark release candidate, then verify the public repository and plugin installation path.
 
 ## Phases
 
@@ -33,7 +33,7 @@ Status: complete
 
 ### Phase 3 — Router and budget controller
 
-Status: in_progress
+Status: complete
 
 - Implement lexical/semantic-ready search and staged disclosure.
 - Implement token estimation, budgets, admission control, caching, eviction, and audit events.
@@ -41,7 +41,7 @@ Status: in_progress
 
 ### Phase 4 — Providers and execution
 
-Status: pending
+Status: complete (reference adapters only; production execution remains out of scope)
 
 - Implement Skill, MCP, CLI, API, and RAG provider contracts.
 - Implement safe local reference providers without duplicating upstream gateways.
@@ -49,15 +49,15 @@ Status: pending
 
 ### Phase 5 — MCP server and CLI
 
-Status: pending
+Status: complete (pre-alpha local surface)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
-- Provide management and audit commands.
+- Provide local validation, discovery, dashboard, and MCP serving commands.
 - Add integration tests.
 
 ### Phase 6 — Validation and token benchmark
 
-Status: pending
+Status: complete for the deterministic release gate
 
 - Compare eager versus lazy capability exposure.
 - Verify coverage across all five capability classes.
@@ -65,7 +65,7 @@ Status: pending
 
 ### Phase 7 — Visual UI and Codex plugin
 
-Status: pending
+Status: complete (repository plugin; personal installation pending release verification)
 
 - Add a loopback-only management dashboard whose detailed data stays outside chat context.
 - Package a minimal Codex plugin entrypoint and repo-local marketplace entry.
@@ -73,7 +73,7 @@ Status: pending
 
 ### Phase 8 — Open-source release
 
-Status: pending
+Status: in_progress
 
 - Complete README, architecture, security, contribution, notices, examples, and CI.
 - Initialize repository, commit in small verified batches, create/push GitHub repository when an authenticated route is available.
@@ -96,3 +96,6 @@ Status: pending
 | Initial commit lacked Git author identity; `gh` could not find the out-of-PATH Git executable | 1 | Configure repository-local noreply identity and prepend bundled Git only for publish commands |
 | Bundled Python did not include pytest | 1 | Create a project-local ignored virtual environment and install the declared development extra once |
 | Core tests passed but Ruff reported one long line plus import hygiene issues | 1 | Apply a targeted formatting/import fix in the owning files, then rerun the same validation once |
+| Codex plugin validator could not import its PyYAML dependency | 1 | Add PyYAML to development-only extras, install once in the project venv, and rerun the validator |
+| CLI integration passed tests but failed initial Ruff/mypy checks | 1 | Returned the issue to the owning implementation stream; after model capacity interrupted it, applied the formatter/type-only fixes once and revalidated |
+| MCP SDK v2 could not derive a schema for recursive `JsonValue` | 1 | Return the SDK's typed `CallToolResult` directly while retaining structured content and official transports |

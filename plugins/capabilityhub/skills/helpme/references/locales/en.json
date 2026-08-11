@@ -17,7 +17,7 @@
         "items": {
           "/helpme providers": "(Providers: see where each capability comes from)",
           "/helpme routing": "(Routing: see why a capability was selected or rejected)",
-          "/helpme lifecycle": "(Lifecycle: enable, pause, update, or quarantine capabilities)",
+          "/helpme lifecycle": "(Lifecycle: enable, disable, or quarantine capabilities)",
           "/helpme mcp": "(MCP: connect external tools and services through a standard protocol)"
         }
       },
@@ -49,7 +49,7 @@
       "/helpme capabilities loaded": "(View capabilities currently loaded into context)",
       "/helpme capabilities providers": "(View the provider behind each capability)",
       "/helpme capabilities routing": "(See why a capability was selected)",
-      "/helpme capabilities lifecycle": "(Enable, disable, update, or quarantine capabilities)"
+      "/helpme capabilities lifecycle": "(Enable, disable, or quarantine capabilities)"
     },
     "consumption": {
       "/helpme consumption summary": "(View total consumption for the current task)",

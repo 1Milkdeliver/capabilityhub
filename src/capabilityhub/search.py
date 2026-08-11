@@ -205,9 +205,7 @@ def _response(
 ) -> SearchResponse:
     portable_tokens = 0
     payload_bytes = 0
-    counts_json: dict[str, JsonValue] = {
-        kind: count for kind, count in kind_counts.items()
-    }
+    counts_json: dict[str, JsonValue] = {kind: count for kind, count in kind_counts.items()}
     for _ in range(4):
         payload: dict[str, JsonValue] = {
             "cards": [_card_dict(card) for card in cards],

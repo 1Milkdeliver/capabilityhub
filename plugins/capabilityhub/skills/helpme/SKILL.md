@@ -28,6 +28,10 @@ For `/helpme language set <locale>`, use task scope unless another scope was exp
 selected. A `project` setting stores only the locale key in `.capabilityhub/config.json`.
 A `global` setting stores only the locale key in the platform's CapabilityHub config
 directory. Never overwrite unrelated configuration keys. `preview` never persists.
+When local CLI execution is available, read persistent settings with
+`capabilityhub language show --pretty` and save project/global choices with
+`capabilityhub language set <locale> --scope <project|global> --pretty`. Keep task scope
+in the current interaction only. Report a failed CLI write instead of claiming success.
 
 ## Progressive routing
 
@@ -63,6 +67,11 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
 - For `/helpme runtime connections`, use `capabilityhub connections --pretty` when
   available. Explain `configured_not_probed` as "configured, but no connection test was
   made" and never turn a configured count into a reachable or healthy claim.
+- For `/helpme lifecycle`, use `capabilityhub lifecycle list --pretty`. A user may set a
+  discovered coordinate to `enabled`, `disabled`, or `quarantined` through
+  `capabilityhub lifecycle set <coordinate> <state> --scope <project|global> --pretty`.
+  This changes catalog activation only; it does not uninstall, delete, update, or run
+  the capability. Require an exact coordinate and confirmation for quarantine.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

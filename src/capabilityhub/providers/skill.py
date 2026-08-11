@@ -111,9 +111,7 @@ class SkillProvider:
                     duplicate_count += 1
                     if self._skip_invalid:
                         continue
-                    raise ValueError(
-                        f"duplicate skill coordinate: {manifest.identity.coordinate}"
-                    )
+                    raise ValueError(f"duplicate skill coordinate: {manifest.identity.coordinate}")
                 seen_coordinates.add(manifest.identity.coordinate)
                 manifests.append(manifest)
         return SkillDiscoveryReport(

@@ -81,9 +81,7 @@ def test_load_execute_budget_and_benchmark_commands_route(monkeypatch, capsys) -
         runtime, "local_execute_static", lambda *_args, **_kwargs: {"executed": True}
     )
     monkeypatch.setattr(runtime, "local_budget_report", lambda *_args: {"budget": True})
-    monkeypatch.setattr(
-        runtime, "local_benchmark", lambda **_kwargs: {"thresholds_passed": True}
-    )
+    monkeypatch.setattr(runtime, "local_benchmark", lambda **_kwargs: {"thresholds_passed": True})
 
     assert main(["load", "demo/item@1#digest"]) == 0
     assert json.loads(capsys.readouterr().out) == {"loaded": True}
@@ -106,6 +104,40 @@ def test_load_execute_budget_and_benchmark_commands_route(monkeypatch, capsys) -
     assert json.loads(capsys.readouterr().out) == {"budget": True}
     assert main(["benchmark"]) == 0
     assert json.loads(capsys.readouterr().out) == {"thresholds_passed": True}
+
+
+def test_language_and_lifecycle_commands_route(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(runtime, "local_preferences", lambda *_args: {"locale": "en"})
+    monkeypatch.setattr(runtime, "local_set_locale", lambda *_args, **_kwargs: {"locale": "zh-CN"})
+    monkeypatch.setattr(runtime, "local_lifecycle", lambda *_args: {"entries": []})
+    monkeypatch.setattr(
+        runtime,
+        "local_set_lifecycle",
+        lambda *_args, **_kwargs: {"state": "quarantined"},
+    )
+
+    assert main(["language"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"locale": "en"}
+    assert main(["language", "set", "zh-CN", "--scope", "global"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"locale": "zh-CN"}
+    assert main(["lifecycle"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"entries": []}
+    assert main(["lifecycle", "set", "demo/tool", "quarantined"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"state": "quarantined"}
+
+
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ["language", "set"],
+        ["language", "show", "en"],
+        ["lifecycle", "set", "demo/tool"],
+        ["lifecycle", "list", "demo/tool"],
+    ],
+)
+def test_management_commands_reject_incomplete_shapes(arguments, capsys) -> None:
+    assert main(arguments) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "invalid_command_arguments"
 
 
 def test_cli_renders_structured_safe_runtime_errors(monkeypatch, capsys) -> None:

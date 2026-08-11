@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 11 — security admission and Release 0.1 CLI completion.
+Phase 12 — durable local management and real adapters.
 
 ## Next Step
 
-Publish and validate permission-filtered search, exact-intent approvals, schema enforcement, idempotency, and the complete Release 0.1 CLI surface; then add durable lifecycle and preference state.
+Publish and validate persistent language and activation controls, then connect safe Dashboard/menu actions and process-level real adapters.
 
 ## Phases
 
@@ -49,7 +49,7 @@ Status: complete (reference adapters only; production execution remains out of s
 
 ### Phase 5 — MCP server and CLI
 
-Status: complete (pre-alpha local surface; twelve commands and three MCP tools)
+Status: complete (pre-alpha local surface; fourteen commands and three MCP tools)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
 - Provide local validation, discovery, dashboard, and MCP serving commands.
@@ -73,7 +73,7 @@ Status: complete (repository plugin installed and release-validated; management 
 
 ### Phase 8 — Open-source release
 
-Status: in_progress
+Status: complete
 
 - Complete README, architecture, security, contribution, notices, examples, and CI.
 - Initialize repository, commit in small verified batches, create/push GitHub repository when an authenticated route is available.
@@ -81,7 +81,7 @@ Status: in_progress
 
 ### Phase 9 — Live local inventory
 
-Status: in_progress
+Status: complete
 
 - Refresh the local catalog atomically in the same MCP process only after a lightweight input fingerprint changes.
 - Separate query match counts from global active Inventory counts and expose safe generation/diagnostic fields.
@@ -103,7 +103,7 @@ Status: complete
 
 ### Phase 11 — Security admission and CLI completeness
 
-Status: in_progress
+Status: complete
 
 - Filter search disclosure by caller permissions.
 - Bind approval references to exact actor, task, revision, operation, arguments, and expiry.
@@ -114,9 +114,9 @@ Status: in_progress
 
 ### Phase 12 — Durable management and real adapters
 
-Status: pending
+Status: in_progress
 
-- Add persistent language, lifecycle, policy, approval, audit, budget, and idempotency state.
+- Add persistent language and activation lifecycle state. (Locale and enabled/disabled/quarantined overrides complete; policy, approval, audit, budget, and idempotency persistence pending.)
 - Connect menu and Dashboard actions only where a real backend exists.
 - Add allowlisted process-level MCP, CLI, HTTP/API, and RAG adapters without copying upstream implementations.
 - Add semantic, failure, cold/warm cache, browser, plugin, and production-adapter validation evidence.

@@ -55,4 +55,3 @@ def test_access_updates_recency_tie_breaker() -> None:
     evictions = inventory.add(section("third", 2))
 
     assert evictions[0].key == "second"
-

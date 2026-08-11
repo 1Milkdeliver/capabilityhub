@@ -75,6 +75,8 @@ enabled = true
         "search",
         "health",
         "connections",
+        "language",
+        "lifecycle",
         "load",
         "execute",
         "budget-report",
@@ -111,7 +113,5 @@ def test_local_catalog_uses_stable_sources_and_reports_safe_exclusions(tmp_path)
     assert "codex-mcp/offline" in catalog.inactive_coordinates
     assert all("secret-value" not in item.summary for item in catalog.manifests)
 
-    project_skill.write_text(
-        "---\nname: shared\n---\nproject body changed", encoding="utf-8"
-    )
+    project_skill.write_text("---\nname: shared\n---\nproject body changed", encoding="utf-8")
     assert local_catalog_fingerprint(home=home, project=project) != first_fingerprint

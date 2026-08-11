@@ -280,9 +280,7 @@ class CapabilityHubService:
 
         manifest = self._active_manifest(revision)
         if manifest.operation(operation) is None:
-            raise _reference(
-                "unknown_operation", "The capability does not declare this operation."
-            )
+            raise _reference("unknown_operation", "The capability does not declare this operation.")
         approval_ref = self._references.issue(
             revision=revision,
             scope=_approval_scope(context, operation, arguments),
@@ -342,9 +340,7 @@ class CapabilityHubService:
             if request.approval_ref is not None:
                 self._references.verify(
                     request.approval_ref,
-                    expected_scope=_approval_scope(
-                        context, request.operation, request.arguments
-                    ),
+                    expected_scope=_approval_scope(context, request.operation, request.arguments),
                     expected_revision=manifest.identity.revision,
                     expected_purpose="approval",
                 )
@@ -371,8 +367,7 @@ class CapabilityHubService:
                     details={"reason_codes": decision.reason_codes},
                 )
             if (
-                operation.side_effect
-                in {SideEffect.REVERSIBLE_WRITE, SideEffect.IRREVERSIBLE}
+                operation.side_effect in {SideEffect.REVERSIBLE_WRITE, SideEffect.IRREVERSIBLE}
                 and request.idempotency_key is None
             ):
                 raise CapabilityHubError(
@@ -501,8 +496,7 @@ class CapabilityHubService:
         return frozenset(
             revision
             for revision in self._registry.activations.values()
-            if set(self._registry.revision(revision).permissions)
-            <= context.granted_permissions
+            if set(self._registry.revision(revision).permissions) <= context.granted_permissions
         )
 
     def _admit_idempotency(
@@ -531,9 +525,7 @@ class CapabilityHubService:
         with self._shared.lock:
             existing = self._shared.idempotency.get(slot)
             if existing is None:
-                self._shared.idempotency[slot] = _IdempotencyRecord(
-                    arguments_digest, "in_progress"
-                )
+                self._shared.idempotency[slot] = _IdempotencyRecord(arguments_digest, "in_progress")
                 return None, slot
             if existing.arguments_digest != arguments_digest:
                 raise CapabilityHubError(
@@ -568,9 +560,7 @@ class CapabilityHubService:
                 record.status = "complete"
                 record.result = result
 
-    def _mark_idempotency_uncertain(
-        self, slot: tuple[str, str, str, str, str] | None
-    ) -> None:
+    def _mark_idempotency_uncertain(self, slot: tuple[str, str, str, str, str] | None) -> None:
         if slot is None:
             return
         with self._shared.lock:
@@ -783,9 +773,7 @@ def _json_digest(value: JsonValue) -> str:
     return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
 
 
-def _validate_arguments(
-    operation: OperationSpec, arguments: Mapping[str, JsonValue]
-) -> None:
+def _validate_arguments(operation: OperationSpec, arguments: Mapping[str, JsonValue]) -> None:
     schema = dict(operation.input_schema)
     if not schema or set(schema) == {"$ref"}:
         return

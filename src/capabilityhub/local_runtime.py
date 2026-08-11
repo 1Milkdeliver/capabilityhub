@@ -54,6 +54,10 @@ class LocalCatalogMonitor:
     def project(self) -> Path:
         return self._project
 
+    @property
+    def home(self) -> Path:
+        return self._home
+
     def snapshot(self, *, force: bool = False) -> LocalCatalogGeneration:
         """Return a complete current generation, refreshing only after input changes."""
 
@@ -115,9 +119,7 @@ class LocalCatalogMonitor:
                 break
             pending = remaining
 
-        active_by_kind: dict[str, JsonValue] = {
-            kind.value: 0 for kind in CapabilityKind
-        }
+        active_by_kind: dict[str, JsonValue] = {kind.value: 0 for kind in CapabilityKind}
         for revision in registry.activations.values():
             kind = registry.revision(revision).kind.value
             count = active_by_kind[kind]
@@ -129,29 +131,39 @@ class LocalCatalogMonitor:
         self._generation += 1
         conflict_count = catalog.conflict_count + registration_conflicts
         dependency_inactive = sum(
-            error.category.value == "dependency"
-            for error in activation_errors.values()
+            error.category.value == "dependency" for error in activation_errors.values()
         )
         activation_conflict = sum(
-            error.category.value == "conflict"
-            for error in activation_errors.values()
+            error.category.value == "conflict" for error in activation_errors.values()
         )
         activation_failed = len(activation_errors) - dependency_inactive - activation_conflict
         excluded_by_reason: dict[str, JsonValue] = {
             "activation_conflict": activation_conflict,
             "activation_failed": activation_failed,
-            "configured_disabled": len(catalog.inactive_coordinates),
+            "configured_disabled": len(
+                catalog.inactive_coordinates
+                - catalog.controlled_disabled_coordinates
+                - catalog.quarantined_coordinates
+            ),
+            "control_disabled": len(catalog.controlled_disabled_coordinates),
             "dependency_inactive": dependency_inactive,
             "duplicate_identical": catalog.duplicate_count,
             "invalid_manifest": catalog.invalid_count,
             "path_escape": catalog.skipped_count,
             "registration_conflict": registration_conflicts,
+            "quarantined": len(catalog.quarantined_coordinates),
             "shadowed_conflict": catalog.conflict_count,
         }
         partial = any(
             value
             for key, value in excluded_by_reason.items()
-            if key not in {"configured_disabled", "duplicate_identical"}
+            if key
+            not in {
+                "configured_disabled",
+                "control_disabled",
+                "duplicate_identical",
+                "quarantined",
+            }
             and isinstance(value, int)
         )
         inventory: dict[str, JsonValue] = {

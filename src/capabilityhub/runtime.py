@@ -13,6 +13,7 @@ from typing import cast
 
 from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
+from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.manifest import load_manifest
 from capabilityhub.models import (
@@ -26,6 +27,12 @@ from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.search import LexicalCapabilitySearch
 from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.state import (
+    PreferenceScope,
+    resolved_preferences,
+    set_lifecycle,
+    set_locale,
+)
 from capabilityhub.webui import DashboardServer, StatusSnapshot
 
 DEFAULT_LOCAL_BUDGETS = {
@@ -144,11 +151,7 @@ def local_health(
         version = metadata.version("capabilityhub")
     except metadata.PackageNotFoundError:
         version = "source"
-    overall = (
-        "ok"
-        if project_ok and assets_ok and config_status != "invalid"
-        else "degraded"
-    )
+    overall = "ok" if project_ok and assets_ok and config_status != "invalid" else "degraded"
     return {
         "catalog_loaded": False,
         "checks": checks,
@@ -191,6 +194,112 @@ def local_connections(
         "generation": snapshot.inventory.get("generation"),
         "network_probes_performed": 0,
         "scope": "configuration_only",
+    }
+
+
+def local_preferences(
+    project_root: str | Path | None = None,
+    *,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Return resolved non-secret language and lifecycle preferences."""
+
+    selected = _select_local_scope(project_root, monitor)
+    payload = resolved_preferences(home=selected.home, project=selected.project)
+    capabilities = payload["capabilities"]
+    paths = payload["paths"]
+    assert isinstance(capabilities, dict) and isinstance(paths, dict)
+    return {
+        "capabilities": dict(capabilities),
+        "locale": cast(JsonValue, payload["locale"]),
+        "paths": dict(paths),
+        "scope_precedence": ["project", "global", "auto"],
+    }
+
+
+def local_set_locale(
+    locale: str,
+    *,
+    scope: str = "project",
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Persist a static-catalog locale without invoking a model translation."""
+
+    selected = _select_local_scope(project_root, monitor)
+    path = set_locale(
+        locale,
+        scope=cast(PreferenceScope, scope),
+        home=selected.home,
+        project=selected.project,
+    )
+    return {"locale": locale, "path": str(path), "scope": scope, "saved": True}
+
+
+def local_lifecycle(
+    project_root: str | Path | None = None,
+    *,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """List persistent lifecycle overrides and their current catalog effect."""
+
+    selected = _select_local_scope(project_root, monitor)
+    snapshot = selected.snapshot()
+    preferences = resolved_preferences(home=selected.home, project=selected.project)
+    raw_states = preferences["capabilities"]
+    assert isinstance(raw_states, dict)
+    active = snapshot.registry.activations
+    entries: list[JsonValue] = [
+        {
+            "active": coordinate in active,
+            "coordinate": coordinate,
+            "state": state,
+        }
+        for coordinate, state in sorted(raw_states.items())
+    ]
+    return {
+        "entries": entries,
+        "generation": snapshot.inventory.get("generation"),
+        "inventory_status": snapshot.inventory.get("status"),
+    }
+
+
+def local_set_lifecycle(
+    coordinate: str,
+    state: str,
+    *,
+    scope: str = "project",
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Persist enable/disable/quarantine and atomically refresh local Inventory."""
+
+    selected = _select_local_scope(project_root, monitor)
+    before = selected.snapshot()
+    known_coordinates = {
+        manifest.identity.coordinate for manifest in before.registry.revisions.values()
+    }
+    if coordinate not in known_coordinates:
+        raise CapabilityHubError(
+            code="unknown_coordinate",
+            category=ErrorCategory.REFERENCE,
+            safe_message="Capability coordinate is not present in the local catalog.",
+        )
+    path = set_lifecycle(
+        coordinate,
+        state,
+        scope=cast(PreferenceScope, scope),
+        home=selected.home,
+        project=selected.project,
+    )
+    after = selected.snapshot(force=True)
+    return {
+        "active": coordinate in after.registry.activations,
+        "coordinate": coordinate,
+        "generation": after.inventory.get("generation"),
+        "path": str(path),
+        "scope": scope,
+        "state": state,
     }
 
 

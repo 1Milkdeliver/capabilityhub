@@ -13,9 +13,7 @@ def test_monitor_refreshes_only_when_local_inputs_change(tmp_path) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
     project.mkdir()
-    monitor = LocalCatalogMonitor(
-        home=home, project=project, refresh_interval_seconds=0
-    )
+    monitor = LocalCatalogMonitor(home=home, project=project, refresh_interval_seconds=0)
 
     first = monitor.snapshot()
     unchanged = monitor.snapshot()
@@ -43,9 +41,7 @@ def test_monitor_refreshes_only_when_local_inputs_change(tmp_path) -> None:
     assert refreshed.registry is not first.registry
 
 
-def test_monitor_keeps_last_complete_generation_when_refresh_fails(
-    tmp_path, monkeypatch
-) -> None:
+def test_monitor_keeps_last_complete_generation_when_refresh_fails(tmp_path, monkeypatch) -> None:
     monitor = LocalCatalogMonitor(
         home=tmp_path / "home", project=tmp_path, refresh_interval_seconds=0
     )
@@ -75,9 +71,7 @@ def test_generation_inventory_copy_and_registry_are_read_only(tmp_path) -> None:
         generation.registry.activate("missing")
 
 
-def test_refresh_window_coalesces_concurrent_fingerprint_checks(
-    tmp_path, monkeypatch
-) -> None:
+def test_refresh_window_coalesces_concurrent_fingerprint_checks(tmp_path, monkeypatch) -> None:
     calls = 0
 
     def fingerprint(**_kwargs) -> str:
@@ -85,9 +79,7 @@ def test_refresh_window_coalesces_concurrent_fingerprint_checks(
         calls += 1
         return "stable"
 
-    monkeypatch.setattr(
-        "capabilityhub.local_runtime.local_catalog_fingerprint", fingerprint
-    )
+    monkeypatch.setattr("capabilityhub.local_runtime.local_catalog_fingerprint", fingerprint)
     monitor = LocalCatalogMonitor(
         home=tmp_path / "home",
         project=tmp_path,
@@ -124,11 +116,15 @@ def test_inventory_classifies_inactive_dependencies(tmp_path) -> None:
     }
     (root / "dependent.json").write_text(json.dumps(document), encoding="utf-8")
 
-    inventory = LocalCatalogMonitor(
-        home=tmp_path / "home",
-        project=tmp_path,
-        refresh_interval_seconds=0,
-    ).snapshot().inventory
+    inventory = (
+        LocalCatalogMonitor(
+            home=tmp_path / "home",
+            project=tmp_path,
+            refresh_interval_seconds=0,
+        )
+        .snapshot()
+        .inventory
+    )
 
     excluded = inventory["excluded_by_reason"]
     assert excluded["dependency_inactive"] == 1

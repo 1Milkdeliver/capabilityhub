@@ -19,6 +19,7 @@ from capabilityhub.models import (
     OperationType,
 )
 from capabilityhub.providers.skill import SkillProvider
+from capabilityhub.state import global_config_path, lifecycle_states, project_config_path
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -30,6 +31,8 @@ class LocalCatalog:
     manifests: tuple[CapabilityManifest, ...]
     skill_providers: tuple[SkillProvider, ...]
     inactive_coordinates: frozenset[str] = frozenset()
+    controlled_disabled_coordinates: frozenset[str] = frozenset()
+    quarantined_coordinates: frozenset[str] = frozenset()
     invalid_count: int = 0
     skipped_count: int = 0
     duplicate_count: int = 0
@@ -94,10 +97,19 @@ def discover_local_catalog(
     project_manifests, project_invalid = _project_manifests(project_dir)
     invalid_count += project_invalid
     manifests.extend(project_manifests)
+    states = lifecycle_states(home=home_dir, project=project_dir)
+    controlled_disabled = frozenset(
+        coordinate for coordinate, state in states.items() if state == "disabled"
+    )
+    quarantined = frozenset(
+        coordinate for coordinate, state in states.items() if state == "quarantined"
+    )
     return LocalCatalog(
         tuple(manifests),
         tuple(providers),
-        inactive_coordinates=frozenset(inactive_coordinates),
+        inactive_coordinates=frozenset(inactive_coordinates) | controlled_disabled | quarantined,
+        controlled_disabled_coordinates=controlled_disabled,
+        quarantined_coordinates=quarantined,
         invalid_count=invalid_count,
         skipped_count=skipped_count,
         duplicate_count=duplicate_count,
@@ -117,6 +129,8 @@ def local_catalog_fingerprint(
     digest = hashlib.sha256()
     config = home_dir / ".codex" / "config.toml"
     _fingerprint_path(digest, config, include_content=True)
+    _fingerprint_path(digest, global_config_path(home_dir), include_content=True)
+    _fingerprint_path(digest, project_config_path(project_dir), include_content=True)
     for root in _skill_roots(home_dir, project_dir):
         digest.update(root.namespace.encode())
         digest.update(b"\0")
@@ -202,19 +216,19 @@ def _configured_mcp_manifests(
         transport = "http" if isinstance(config.get("url"), str) else "stdio"
         digest = hashlib.sha256(f"{raw_name}\0{transport}".encode()).hexdigest()
         manifest = CapabilityManifest(
-                identity=CapabilityIdentity(
-                    "codex-mcp",
-                    name,
-                    "configured",
-                    f"sha256:{digest}",
-                ),
-                kind=CapabilityKind.MCP,
-                summary=f"Configured Codex MCP server ({transport}): {raw_name}",
-                provider="codex-config",
-                operations=(OperationSpec("inspect", OperationType.EXPAND),),
-                source=f"codex://mcp/{name}",
-                trust_tier="configured",
-            )
+            identity=CapabilityIdentity(
+                "codex-mcp",
+                name,
+                "configured",
+                f"sha256:{digest}",
+            ),
+            kind=CapabilityKind.MCP,
+            summary=f"Configured Codex MCP server ({transport}): {raw_name}",
+            provider="codex-config",
+            operations=(OperationSpec("inspect", OperationType.EXPAND),),
+            source=f"codex://mcp/{name}",
+            trust_tier="configured",
+        )
         manifests.append(manifest)
         if config.get("enabled") is False:
             inactive.add(manifest.identity.coordinate)
@@ -246,6 +260,8 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
             OperationSpec("search", OperationType.EXPAND),
             OperationSpec("health", OperationType.EXPAND),
             OperationSpec("connections", OperationType.EXPAND),
+            OperationSpec("language", OperationType.EXPAND),
+            OperationSpec("lifecycle", OperationType.EXPAND),
             OperationSpec("load", OperationType.EXPAND),
             OperationSpec("execute", OperationType.EXPAND),
             OperationSpec("budget-report", OperationType.EXPAND),

@@ -35,3 +35,5 @@
 - Added permission-filtered search, exact-intent approval references, inline JSON Schema validation, and scoped in-process idempotency with safe uncertain-outcome handling.
 - Completed the Release 0.1 CLI command set with `load`, side-effect-free fixture `execute`, `budget-report`, and `benchmark`; packaged benchmark fixtures and typing metadata into the wheel.
 - Verified 125 tests with one platform symlink skip, Ruff, full strict mypy, the deterministic benchmark gate, and a clean isolated wheel install whose packaged CLI can run budget and benchmark commands.
+- Added atomic project/global language settings and lifecycle activation overrides with project precedence, unknown-key preservation, catalog fingerprint refresh, and honest enable/disable/quarantine semantics.
+- Connected `/helpme` and `/myskills` instructions to the real language and lifecycle CLI paths while keeping update, deletion, provider execution, and network health claims unavailable.

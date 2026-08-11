@@ -15,8 +15,12 @@ from capabilityhub.runtime import (
     local_execute_static,
     local_health,
     local_inventory,
+    local_lifecycle,
     local_load,
+    local_preferences,
     local_search,
+    local_set_lifecycle,
+    local_set_locale,
     validate,
 )
 
@@ -59,9 +63,7 @@ def test_local_inventory_search_and_health_share_safe_local_metadata(tmp_path) -
     skill.write_text("---\nname: demo\ndescription: Demo helper\n---\nbody", encoding="utf-8")
     project = tmp_path / "project"
     project.mkdir()
-    monitor = LocalCatalogMonitor(
-        home=home, project=project, refresh_interval_seconds=0
-    )
+    monitor = LocalCatalogMonitor(home=home, project=project, refresh_interval_seconds=0)
 
     inventory = local_inventory(monitor=monitor)
     result = local_search("demo", kinds=["skill"], monitor=monitor)
@@ -90,9 +92,7 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     skill.write_text("---\nname: demo\n---\nbody", encoding="utf-8")
     project = tmp_path / "project"
     project.mkdir()
-    monitor = LocalCatalogMonitor(
-        home=home, project=project, refresh_interval_seconds=0
-    )
+    monitor = LocalCatalogMonitor(home=home, project=project, refresh_interval_seconds=0)
 
     with local_dashboard(project, monitor=monitor) as server:
         payload = _get_json(f"{server.url}/api/status")
@@ -107,6 +107,33 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert payload["connections"]["scope"] == "configuration_only"
     assert refreshed["inventory"]["active_by_kind"]["skill"] == 2
     assert refreshed["inventory"]["generation"] == 2
+
+
+def test_language_and_lifecycle_persist_and_refresh_inventory(tmp_path) -> None:
+    home = tmp_path / "home"
+    skill = home / ".codex" / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: demo\n---\nbody", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    monitor = LocalCatalogMonitor(home=home, project=project, refresh_interval_seconds=10)
+    coordinate = "codex-user/demo"
+
+    assert local_inventory(monitor=monitor)["active_by_kind"]["skill"] == 1
+    saved = local_set_locale("zh-CN", scope="project", monitor=monitor)
+    assert saved["saved"] is True
+    assert local_preferences(monitor=monitor)["locale"] == "zh-CN"
+
+    disabled = local_set_lifecycle(coordinate, "disabled", monitor=monitor)
+    assert disabled["active"] is False
+    assert local_inventory(monitor=monitor)["active_by_kind"]["skill"] == 0
+    assert local_lifecycle(monitor=monitor)["entries"] == [
+        {"active": False, "coordinate": coordinate, "state": "disabled"}
+    ]
+
+    enabled = local_set_lifecycle(coordinate, "enabled", monitor=monitor)
+    assert enabled["active"] is True
+    assert local_inventory(monitor=monitor)["active_by_kind"]["skill"] == 1
 
 
 def test_local_monitor_rejects_a_different_explicit_project(tmp_path) -> None:

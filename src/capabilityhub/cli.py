@@ -10,7 +10,7 @@ from pathlib import Path
 from threading import Event
 
 from capabilityhub import runtime
-from capabilityhub.errors import CapabilityHubError
+from capabilityhub.errors import CapabilityHubError, ErrorCategory
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -37,6 +37,21 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _project_argument(connections)
     _pretty_argument(connections)
+    language = commands.add_parser("language", help="show or save the static menu language")
+    language.add_argument("action", nargs="?", choices=("show", "set"), default="show")
+    language.add_argument("locale", nargs="?", choices=("auto", "en", "zh-CN"))
+    language.add_argument("--scope", choices=("project", "global"), default="project")
+    _project_argument(language)
+    _pretty_argument(language)
+    lifecycle = commands.add_parser(
+        "lifecycle", help="list or change persistent capability activation overrides"
+    )
+    lifecycle.add_argument("action", nargs="?", choices=("list", "set"), default="list")
+    lifecycle.add_argument("coordinate", nargs="?")
+    lifecycle.add_argument("state", nargs="?", choices=("enabled", "disabled", "quarantined"))
+    lifecycle.add_argument("--scope", choices=("project", "global"), default="project")
+    _project_argument(lifecycle)
+    _pretty_argument(lifecycle)
     load = commands.add_parser("load", help="load selected sections from an active revision")
     load.add_argument("revision")
     load.add_argument("--section", action="append")
@@ -125,6 +140,37 @@ def _main(argv: Sequence[str] | None = None) -> int:
     if args.command == "connections":
         _print_json(runtime.local_connections(args.project_root), pretty=args.pretty)
         return 0
+    if args.command == "language":
+        if args.action == "set":
+            if args.locale is None:
+                raise _usage("language set requires a locale")
+            payload = runtime.local_set_locale(
+                args.locale,
+                scope=args.scope,
+                project_root=args.project_root,
+            )
+        else:
+            if args.locale is not None:
+                raise _usage("language show does not accept a locale")
+            payload = runtime.local_preferences(args.project_root)
+        _print_json(payload, pretty=args.pretty)
+        return 0
+    if args.command == "lifecycle":
+        if args.action == "set":
+            if args.coordinate is None or args.state is None:
+                raise _usage("lifecycle set requires a coordinate and state")
+            payload = runtime.local_set_lifecycle(
+                args.coordinate,
+                args.state,
+                scope=args.scope,
+                project_root=args.project_root,
+            )
+        else:
+            if args.coordinate is not None or args.state is not None:
+                raise _usage("lifecycle list does not accept a coordinate or state")
+            payload = runtime.local_lifecycle(args.project_root)
+        _print_json(payload, pretty=args.pretty)
+        return 0
     if args.command == "load":
         _print_json(
             runtime.local_load(
@@ -191,9 +237,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
     return 0
 
 
-def _project_argument(
-    parser: argparse.ArgumentParser, *, must_exist: bool = True
-) -> None:
+def _project_argument(parser: argparse.ArgumentParser, *, must_exist: bool = True) -> None:
     if must_exist:
         parser.add_argument(
             "--project-root",
@@ -242,6 +286,14 @@ def _non_negative_int(value: str) -> int:
     if parsed < 0:
         raise argparse.ArgumentTypeError("must be non-negative")
     return parsed
+
+
+def _usage(message: str) -> CapabilityHubError:
+    return CapabilityHubError(
+        code="invalid_command_arguments",
+        category=ErrorCategory.INPUT,
+        safe_message=message,
+    )
 
 
 def _json_value(value: str) -> object:

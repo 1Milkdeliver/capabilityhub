@@ -16,7 +16,7 @@
       "items": {
         "/myskills providers": "(Providers: see whether Skills come from local files, plugins, or elsewhere)",
         "/myskills routing <name>": "(Routing: see why this Skill was selected or rejected)",
-        "/myskills lifecycle <name>": "(Lifecycle: enable, pause, update, or quarantine a Skill)",
+        "/myskills lifecycle <name>": "(Lifecycle: enable, disable, or quarantine a Skill)",
         "/myskills risks <name>": "(Risks: view the permissions and security risks of a Skill)",
         "/myskills conflicts": "(Conflicts: check duplicates, conflicts, formatting, and dependencies)"
       }

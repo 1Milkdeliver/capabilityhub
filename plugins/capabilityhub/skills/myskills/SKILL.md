@@ -41,9 +41,11 @@ static catalog in `references/locales/`. Never translate stable menu text at run
   user requests more.
 - Load a Skill body only after an explicit selection.
 - Skills are load-only in CapabilityHub; do not offer a `run` command.
-- Read-only actions execute directly. Lifecycle mutations are not connected in the
-  current local runtime; label `enable`, `disable`, `pause`, `update`, and `quarantine`
-  as unavailable instead of pretending to change state.
+- Read-only actions execute directly. For a discovered exact Skill coordinate, use
+  `capabilityhub lifecycle set <coordinate> <enabled|disabled|quarantined> --pretty`.
+  Confirm quarantine before applying it. These states only control catalog activation;
+  they do not delete or execute Skill files. `update` remains unavailable, and `pause`
+  is presented as the reversible `disabled` state rather than a separate hidden state.
 - If Loaded, Providers, or Routing data is not present in the selected runtime response,
   say it is unavailable. Never infer it from a search card.
 - Never delete a Skill. Use pause or quarantine instead.

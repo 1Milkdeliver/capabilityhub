@@ -16,7 +16,7 @@
       "items": {
         "/myskills providers": "（Providers：查看 Skills 来自本地、插件还是其他来源）",
         "/myskills routing <name>": "（Routing：查看为什么选择或排除这个 Skill）",
-        "/myskills lifecycle <name>": "（Lifecycle：启用、暂停、更新或隔离 Skill）",
+        "/myskills lifecycle <name>": "（Lifecycle：启用、停用或隔离 Skill）",
         "/myskills risks <name>": "（Risks：查看 Skill 的权限和安全风险）",
         "/myskills conflicts": "（Conflicts：检查重复、冲突、格式和依赖问题）"
       }

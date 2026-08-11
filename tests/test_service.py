@@ -161,9 +161,7 @@ def test_search_filters_capabilities_before_disclosure_by_permission() -> None:
     allowed = service.search(
         "records",
         task_id="task-allowed",
-        context=replace(
-            denied_context, granted_permissions=frozenset({"records.private"})
-        ),
+        context=replace(denied_context, granted_permissions=frozenset({"records.private"})),
         budget=budget,
         max_output_tokens=2_000,
     )
@@ -185,9 +183,7 @@ def test_execute_requires_an_exact_bound_approval_reference() -> None:
             ),
         ),
     )
-    service, context, budget, audit = _setup(
-        manifest, outputs={"find": {"updated": True}}
-    )
+    service, context, budget, audit = _setup(manifest, outputs={"find": {"updated": True}})
     _, execution_ref = _search_and_load(service, context, budget)
     arguments: dict[str, JsonValue] = {"query": "x"}
 
@@ -329,9 +325,7 @@ def test_approval_reference_rejects_changed_intent(
         ),
     )
     service, context, budget, _ = _setup(manifest)
-    _, execution_ref = _search_and_load(
-        service, context, budget, operations=("find", "count")
-    )
+    _, execution_ref = _search_and_load(service, context, budget, operations=("find", "count"))
     original_arguments: dict[str, JsonValue] = {"query": "x"}
     approval_ref = service.issue_approval(
         revision=manifest.identity.revision,
@@ -340,9 +334,7 @@ def test_approval_reference_rejects_changed_intent(
         task_id="task",
         context=context,
     )
-    selected_context = (
-        replace(context, principal_id="other") if changed_context else context
-    )
+    selected_context = replace(context, principal_id="other") if changed_context else context
 
     with pytest.raises(CapabilityHubError) as raised:
         service.execute(
@@ -475,9 +467,7 @@ def test_execute_validates_input_and_output_json_schemas() -> None:
             ),
         ),
     )
-    service, context, budget, _ = _setup(
-        manifest, outputs={"find": {"items": [1]}}
-    )
+    service, context, budget, _ = _setup(manifest, outputs={"find": {"items": [1]}})
     _, execution_ref = _search_and_load(service, context, budget)
 
     with pytest.raises(CapabilityHubError) as invalid_input:
@@ -508,9 +498,7 @@ def test_execute_rejects_provider_output_that_breaks_declared_schema() -> None:
             ),
         ),
     )
-    service, context, budget, _ = _setup(
-        manifest, outputs={"find": {"unexpected": True}}
-    )
+    service, context, budget, _ = _setup(manifest, outputs={"find": {"unexpected": True}})
     _, execution_ref = _search_and_load(service, context, budget)
 
     with pytest.raises(CapabilityHubError) as invalid_output:

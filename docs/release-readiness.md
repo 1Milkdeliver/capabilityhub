@@ -16,7 +16,8 @@ deployment hardening guide.
 | Search/load/execute core | Permission-filtered lexical search, scope-bound references, section/operation loading, JSON Schema validation, exact-intent approvals, in-process idempotency, policy/budget/audit tests | Pre-alpha library/CLI/MCP behavior; idempotency and approvals are not yet durable across process restarts |
 | Skill intake | Filesystem-only `SKILL.md` discovery without script execution | Content discovery, not Skill execution or sandboxing |
 | Local dashboard | Read-only loopback server with live Inventory and local Health snapshot | Local inspection only; no remote connection probe, authentication, or mutations |
-| CLI and MCP | Twelve local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; execute is a static-fixture verification path, connection state is configuration-only, and catalog generations refresh atomically after a lightweight change check |
+| CLI and MCP | Fourteen local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; execute is a static-fixture verification path, connection state is configuration-only, and catalog generations refresh atomically after a lightweight change check |
+| Local preferences/lifecycle | Atomic project/global locale and enabled/disabled/quarantined overrides with project precedence | Local catalog activation only; no install, update, rollback, process draining, or durable execution ledger |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
 
 ## Benchmark claim boundary

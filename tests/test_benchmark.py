@@ -69,9 +69,7 @@ def test_fixture_definitions_are_the_exact_eager_payload_records() -> None:
 
 def test_pinned_reference_run_matches_the_current_meta_tool_contract() -> None:
     report = run_benchmark()
-    reference = json.loads(
-        (FIXTURE_DIR.parent / "reference-run.json").read_text(encoding="utf-8")
-    )
+    reference = json.loads((FIXTURE_DIR.parent / "reference-run.json").read_text(encoding="utf-8"))
     accounting = reference["accounting"]
 
     assert accounting["lazy_initial_fixed_meta_tools"] == {

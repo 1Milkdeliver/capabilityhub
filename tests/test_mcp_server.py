@@ -63,8 +63,10 @@ def _server(*, exploding: bool = False):  # type: ignore[no-untyped-def]
     registry = CapabilityRegistry()
     registry.register(manifest)
     registry.activate(manifest.identity.coordinate, manifest.identity.revision)
-    provider = _ExplodingProvider(manifest) if exploding else StaticProvider(
-        (StaticFixture(manifest, {"find": {"items": [1]}}),), name="fixture"
+    provider = (
+        _ExplodingProvider(manifest)
+        if exploding
+        else StaticProvider((StaticFixture(manifest, {"find": {"items": [1]}}),), name="fixture")
     )
     service = CapabilityHubService(
         registry=registry,
@@ -150,9 +152,7 @@ def test_local_server_refreshes_inventory_atomically_in_the_same_process(tmp_pat
     home.mkdir()
     project = tmp_path / "project"
     project.mkdir()
-    server = create_empty_mcp_server(
-        home=home, project=project, refresh_interval_seconds=0
-    )
+    server = create_empty_mcp_server(home=home, project=project, refresh_interval_seconds=0)
 
     async def inventory(client: Client, *, task: str) -> dict[str, object]:
         result = await client.call_tool(

@@ -17,7 +17,7 @@
         "items": {
           "/helpme providers": "（Providers：查看每项能力从哪里接入）",
           "/helpme routing": "（Routing：查看为什么选择或排除某项能力）",
-          "/helpme lifecycle": "（Lifecycle：启用、暂停、更新或隔离能力）",
+          "/helpme lifecycle": "（Lifecycle：启用、停用或隔离能力）",
           "/helpme mcp": "（MCP：通过标准协议连接外部工具和服务）"
         }
       },
@@ -49,7 +49,7 @@
       "/helpme capabilities loaded": "（查看当前已加载到上下文的能力）",
       "/helpme capabilities providers": "（查看各能力由哪个 Provider 提供）",
       "/helpme capabilities routing": "（查看任务选择某项能力的原因）",
-      "/helpme capabilities lifecycle": "（启用、停用、更新或隔离能力）"
+      "/helpme capabilities lifecycle": "（启用、停用或隔离能力）"
     },
     "consumption": {
       "/helpme consumption summary": "（查看当前任务的总体消耗）",

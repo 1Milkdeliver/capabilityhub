@@ -392,9 +392,7 @@ def _execute(
 
 
 def _search_dict(response: SearchResponse) -> dict[str, JsonValue]:
-    counts: dict[str, JsonValue] = {
-        kind: count for kind, count in response.kind_counts.items()
-    }
+    counts: dict[str, JsonValue] = {kind: count for kind, count in response.kind_counts.items()}
     result: dict[str, JsonValue] = {
         "cards": [_card_dict(card) for card in response.cards],
         "kind_counts": counts,

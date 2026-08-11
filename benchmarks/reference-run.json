@@ -1,0 +1,61 @@
+{
+  "schema_version": 1,
+  "benchmark": "oracle-routed-structural-disclosure",
+  "harness": "benchmarks.harness.run_benchmark",
+  "fixture": {
+    "catalog": "fixtures/catalog.json",
+    "tasks": "fixtures/tasks.json",
+    "catalog_digest": "sha256:d072dc4a2f8ceb483914a9e27ee70fc1a00cdc7613a68a3e09e7ceac37b5ce7d",
+    "capability_definitions": 100,
+    "task_count": 10,
+    "provider_kinds": ["skill", "mcp", "cli", "api", "rag"]
+  },
+  "accounting": {
+    "portable_estimator": "utf8-bytes-div-4-v1",
+    "eager_initial_full_definitions": {
+      "utf8_bytes": 235984,
+      "portable_tokens": 58996
+    },
+    "lazy_initial_fixed_meta_tools": {
+      "utf8_bytes": 301,
+      "portable_tokens": 76
+    },
+    "mean_lazy_task_sequence": {
+      "sequence": ["fixed meta-tools", "one expected search card", "one selected definition"],
+      "utf8_reduction_percent": 98.76830632585259,
+      "portable_token_reduction_percent": 98.76788256830972
+    },
+    "initial_reduction": {
+      "utf8_reduction_percent": 99.87244897959184,
+      "portable_token_reduction_percent": 99.87117770696318
+    }
+  },
+  "control_results": {
+    "definitions_identical": true,
+    "expected_target_revisions_selected": true,
+    "provider_coverage": {
+      "skill": true,
+      "mcp": true,
+      "cli": true,
+      "api": true,
+      "rag": true
+    },
+    "load_unused_rate": 0.0,
+    "release_thresholds_passed": true
+  },
+  "execution_environment": {
+    "network_calls": 0,
+    "model_calls": 0,
+    "paid_service_calls": 0
+  },
+  "interpretation": {
+    "supported_claim": "For this pinned fixture catalog and oracle-supplied target revisions, staged disclosure exposes much less fixture material than eager full-definition exposure.",
+    "not_measured": [
+      "semantic search or tool-selection accuracy",
+      "model reasoning quality or hidden reasoning-token use",
+      "real provider latency, execution success, or failure handling",
+      "production model pricing or end-to-end monetary cost",
+      "cache behavior, authorization enforcement, or adversarial resilience"
+    ]
+  }
+}

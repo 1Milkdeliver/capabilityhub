@@ -1,0 +1,55 @@
+{
+  "fixture_version": 1,
+  "tasks": [
+    {
+      "id": "skill-0",
+      "prompt": "Use the skill benchmark fixture 0.",
+      "expected_target_revision": "benchmark/skill-capability-000@1.0.0#sha256:0000000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "skill-19",
+      "prompt": "Use the skill benchmark fixture 19.",
+      "expected_target_revision": "benchmark/skill-capability-019@1.0.0#sha256:0013000000000000000000000000000000000000000000000000000000000000"
+    },
+    {
+      "id": "mcp-0",
+      "prompt": "Use the mcp benchmark fixture 0.",
+      "expected_target_revision": "benchmark/mcp-capability-000@1.0.0#sha256:1000111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "id": "mcp-19",
+      "prompt": "Use the mcp benchmark fixture 19.",
+      "expected_target_revision": "benchmark/mcp-capability-019@1.0.0#sha256:1013111111111111111111111111111111111111111111111111111111111111"
+    },
+    {
+      "id": "cli-0",
+      "prompt": "Use the cli benchmark fixture 0.",
+      "expected_target_revision": "benchmark/cli-capability-000@1.0.0#sha256:2000222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "id": "cli-19",
+      "prompt": "Use the cli benchmark fixture 19.",
+      "expected_target_revision": "benchmark/cli-capability-019@1.0.0#sha256:2013222222222222222222222222222222222222222222222222222222222222"
+    },
+    {
+      "id": "api-0",
+      "prompt": "Use the api benchmark fixture 0.",
+      "expected_target_revision": "benchmark/api-capability-000@1.0.0#sha256:3000333333333333333333333333333333333333333333333333333333333333"
+    },
+    {
+      "id": "api-19",
+      "prompt": "Use the api benchmark fixture 19.",
+      "expected_target_revision": "benchmark/api-capability-019@1.0.0#sha256:3013333333333333333333333333333333333333333333333333333333333333"
+    },
+    {
+      "id": "rag-0",
+      "prompt": "Use the rag benchmark fixture 0.",
+      "expected_target_revision": "benchmark/rag-capability-000@1.0.0#sha256:4000444444444444444444444444444444444444444444444444444444444444"
+    },
+    {
+      "id": "rag-19",
+      "prompt": "Use the rag benchmark fixture 19.",
+      "expected_target_revision": "benchmark/rag-capability-019@1.0.0#sha256:4013444444444444444444444444444444444444444444444444444444444444"
+    }
+  ]
+}

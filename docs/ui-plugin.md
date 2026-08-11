@@ -1,11 +1,14 @@
 # Local dashboard and Codex plugin
 
-`capabilityhub.webui.DashboardServer` is a read-only standard-library HTTP server. It binds to `127.0.0.1` by default and serves only local bundled assets plus `GET /api/status`. The application injects a JSON-serializable snapshot callback; the UI never receives registry objects or full capability content through chat.
+`capabilityhub.webui.DashboardServer` is a loopback-only standard-library HTTP server. It serves local bundled assets, safe status, and optional callbacks for bounded metadata search, project language, and activation lifecycle. The application injects each callback; the UI never receives registry objects or full capability content through chat. Mutation requests require the random token returned to same-origin JavaScript plus an origin check, accept at most 16 KiB JSON, and are disabled when their callback is absent.
 
 The built-in live snapshot contains five-kind active counts, generation and freshness,
 inactive and safe exclusion counts, local wiring checks, and configuration-only
 connection state. It does not dial providers and omits credentials,
 commands, URLs, full manifests, Skill bodies, scripts, and provider output.
+Search returns no more than ten compact cards and never loads a capability body. Dashboard
+lifecycle supports only enabled, disabled, and quarantined catalog states. It cannot delete,
+install, update, run, approve, or change provider credentials.
 
 The repository-local Codex plugin provides two minimal menu skills. They can be
 installed as an always-available help entry without loading the catalog into each chat.

@@ -1,6 +1,6 @@
 {
   "name": "capabilityhub",
-  "version": "0.1.1+codex.20260811173116",
+  "version": "0.1.1+codex.20260811175145",
   "license": "MIT",
   "description": "Local, read-only CapabilityHub dashboard helper.",
   "author": {

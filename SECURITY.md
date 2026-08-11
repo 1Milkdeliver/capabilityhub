@@ -12,7 +12,7 @@ The project is pre-alpha. Only the latest `main` revision is currently supported
 
 ## Current release posture
 
-The current tree ships a pre-alpha local CLI, an experimental three-tool MCP server, and a read-only loopback dashboard around the Python control core. These interfaces are supported only for local experimentation; it does not ship a remote API listener, sandbox, secret broker, persistent control database, or production provider adapter. The CLI's execute command uses only an operator-supplied, side-effect-free static fixture. Treat every real provider integration as application-owned security work. Dashboard responses must not contain credentials, full capability content, retrieved passages, raw provider output, commands, or endpoint URLs.
+The current tree ships a pre-alpha local CLI, an experimental three-tool MCP server, and a loopback dashboard around the Python control core. The dashboard offers bounded metadata search plus project language and activation overrides; mutations require a random per-process CSRF header and same-origin browser requests. These interfaces are supported only for local experimentation; it does not ship a remote API listener, sandbox, secret broker, persistent control database, or production deployment profile. The CLI's execute command uses only an operator-supplied, side-effect-free static fixture. Real providers are opt-in embedding APIs. Dashboard responses must not contain credentials, full capability content, retrieved passages, raw provider output, commands, endpoint URLs, or absolute configuration paths.
 
 Security invariants below describe the intended and tested core boundary; they are not a claim that a complete production deployment profile exists today.
 

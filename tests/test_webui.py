@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 from urllib.error import HTTPError
+from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 import pytest
@@ -57,3 +60,78 @@ def test_dashboard_start_and_close_are_idempotent_across_threads() -> None:
     assert len(set(urls)) == 1
     with ThreadPoolExecutor(max_workers=4) as pool:
         list(pool.map(lambda _: dashboard.close(), range(8)))
+
+
+def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
+    root = Path(__file__).parents[1] / "src" / "capabilityhub" / "web"
+    assets = "\n".join(
+        (root / name).read_text(encoding="utf-8") for name in ("index.html", "app.js", "style.css")
+    )
+
+    assert "search-form" in assets
+    assert "/api/lifecycle" in assets
+    assert "/api/language" in assets
+    assert "\u0431" not in assets
+    assert "\ufffd" not in assets
+
+
+def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
+    lifecycle_calls: list[tuple[str, str]] = []
+    language_calls: list[str] = []
+
+    with DashboardServer(
+        lambda: {"inventory": {"active_total": 1}},
+        search_provider=lambda query, kind, limit: {
+            "query": query,
+            "kind": kind,
+            "limit": limit,
+            "results": [],
+        },
+        lifecycle_provider=lambda coordinate, state: (
+            lifecycle_calls.append((coordinate, state)) or {"saved": True}
+        ),
+        language_provider=lambda locale: language_calls.append(locale) or {"saved": True},
+    ) as dashboard:
+        with urlopen(f"{dashboard.url}/api/status", timeout=2) as response:
+            status = json.loads(response.read())
+        token = status["dashboard"]["csrf_token"]
+        query = urlencode({"q": "pdf", "kind": "skill", "limit": 3})
+        with urlopen(f"{dashboard.url}/api/search?{query}", timeout=2) as response:
+            search = json.loads(response.read())
+        assert search == {"kind": "skill", "limit": 3, "query": "pdf", "results": []}
+
+        denied = Request(
+            f"{dashboard.url}/api/language",
+            data=b'{"locale":"zh-CN"}',
+            headers={"Content-Type": "application/json"},
+            method="POST",
+        )
+        with pytest.raises(HTTPError) as error:
+            urlopen(denied, timeout=2)
+        assert error.value.code == 403
+
+        lifecycle = Request(
+            f"{dashboard.url}/api/lifecycle",
+            data=b'{"coordinate":"demo/tool","state":"disabled"}',
+            headers={
+                "Content-Type": "application/json",
+                "X-CapabilityHub-CSRF": token,
+            },
+            method="POST",
+        )
+        with urlopen(lifecycle, timeout=2) as response:
+            assert json.loads(response.read()) == {"saved": True}
+        language = Request(
+            f"{dashboard.url}/api/language",
+            data=b'{"locale":"zh-CN"}',
+            headers={
+                "Content-Type": "application/json",
+                "X-CapabilityHub-CSRF": token,
+            },
+            method="POST",
+        )
+        with urlopen(language, timeout=2) as response:
+            assert json.loads(response.read()) == {"saved": True}
+
+    assert lifecycle_calls == [("demo/tool", "disabled")]
+    assert language_calls == ["zh-CN"]

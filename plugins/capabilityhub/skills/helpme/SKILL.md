@@ -58,8 +58,10 @@ in the current interaction only. Report a failed CLI write instead of claiming s
   clearly that configured or discovered MCP/API/RAG entries are not proof of a live
   network connection.
 - For `/helpme dashboard`, give the local `capabilityhub dashboard` command and explain
-  that it shows live Inventory plus local wiring checks. Do not claim that it opens a
-  browser automatically or displays budgets and alerts.
+  that it shows live Inventory, local wiring, no-model compact search, project language,
+  and enable/disable/quarantine activation controls. Explain that these controls do not
+  delete or execute files. Do not claim that it opens a browser automatically or
+  displays budgets and alerts.
 - For `/helpme runtime health`, use `capabilityhub health --pretty` when local CLI
   execution is available. This check must not scan the capability catalog; it checks
   only the project path, bundled Dashboard files, MCP SDK presence, local Codex config

@@ -136,16 +136,18 @@ Lifecycle, risks, and conflicts remain visible with plain-language explanations.
 and `/helpme home` returns to the CapabilityHub main menu. Every child menu and result
 keeps these navigation choices visible; `/myskills back` returns to the My Skills menu.
 
-`DashboardServer` is a small read-only, standard-library dashboard server. It binds to `127.0.0.1` by default and serves bundled assets plus `GET /api/status`; it does not accept mutations. Start the live local Inventory and Health view:
+`DashboardServer` is a small, standard-library local management server. It binds to `127.0.0.1` by default and serves bundled assets, safe status, bounded metadata search, project language settings, and activation lifecycle controls. Mutations require a per-process CSRF token and same-origin requests. Start the live local view:
 
 ```bash
 capabilityhub dashboard --project-root /absolute/project/path
 ```
 
 The page refreshes every three seconds and shows five-kind active counts, generation,
-safe exclusion counts, local wiring checks, and configuration-only connection state.
-It performs no provider network probes and does not show credentials, commands,
-URLs, full manifests, Skill bodies, or provider output. `examples/dashboard.py` remains a
+safe exclusion counts, local wiring checks, configuration-only connection state, compact search,
+language, and enable/disable/quarantine controls. It performs no provider network probes and does
+not show credentials, commands, URLs, full manifests, Skill bodies, provider output, or absolute
+preference paths. Lifecycle actions only change project catalog activation; they never delete or
+execute files. `examples/dashboard.py` remains a
 small injected-snapshot fixture for embedders. See [the dashboard note](docs/ui-plugin.md)
 for the same boundary.
 

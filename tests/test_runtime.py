@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from urllib.request import urlopen
+from urllib.parse import urlencode
+from urllib.request import Request, urlopen
 
 import pytest
 
@@ -96,6 +97,17 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
 
     with local_dashboard(project, monitor=monitor) as server:
         payload = _get_json(f"{server.url}/api/status")
+        query = urlencode({"q": "demo", "kind": "skill", "limit": 5})
+        searched = _get_json(f"{server.url}/api/search?{query}")
+        csrf = payload["dashboard"]["csrf_token"]
+        mutation = Request(
+            f"{server.url}/api/lifecycle",
+            data=b'{"coordinate":"codex-user/demo","state":"disabled"}',
+            headers={"Content-Type": "application/json", "X-CapabilityHub-CSRF": csrf},
+            method="POST",
+        )
+        with urlopen(mutation, timeout=2) as response:
+            changed = json.loads(response.read())
         second = home / ".codex" / "skills" / "second" / "SKILL.md"
         second.parent.mkdir(parents=True)
         second.write_text("---\nname: second\n---\nbody", encoding="utf-8")
@@ -105,8 +117,10 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert payload["health"]["catalog_loaded"] is False
     assert payload["active_capabilities"] == []
     assert payload["connections"]["scope"] == "configuration_only"
-    assert refreshed["inventory"]["active_by_kind"]["skill"] == 2
-    assert refreshed["inventory"]["generation"] == 2
+    assert searched["total_matches"] == 1
+    assert changed["active"] is False
+    assert refreshed["inventory"]["active_by_kind"]["skill"] == 1
+    assert refreshed["inventory"]["generation"] >= 3
 
 
 def test_language_and_lifecycle_persist_and_refresh_inventory(tmp_path) -> None:

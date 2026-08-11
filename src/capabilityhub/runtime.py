@@ -33,7 +33,13 @@ from capabilityhub.state import (
     set_lifecycle,
     set_locale,
 )
-from capabilityhub.webui import DashboardServer, StatusSnapshot
+from capabilityhub.webui import (
+    DashboardServer,
+    LanguageProvider,
+    LifecycleProvider,
+    SearchProvider,
+    StatusSnapshot,
+)
 
 DEFAULT_LOCAL_BUDGETS = {
     "bytes": 1_000_000,
@@ -55,9 +61,23 @@ def discover_skills(directories: list[str | Path]) -> tuple[CapabilityManifest, 
     return SkillProvider(directories).discover()
 
 
-def dashboard(snapshot_provider: Callable[[], StatusSnapshot], *, port: int = 0) -> DashboardServer:
+def dashboard(
+    snapshot_provider: Callable[[], StatusSnapshot],
+    *,
+    port: int = 0,
+    search_provider: SearchProvider | None = None,
+    lifecycle_provider: LifecycleProvider | None = None,
+    language_provider: LanguageProvider | None = None,
+) -> DashboardServer:
     """Create (but do not implicitly retain) a localhost-only dashboard server."""
-    server = DashboardServer(snapshot_provider, host="127.0.0.1", port=port)
+    server = DashboardServer(
+        snapshot_provider,
+        host="127.0.0.1",
+        port=port,
+        search_provider=search_provider,
+        lifecycle_provider=lifecycle_provider,
+        language_provider=language_provider,
+    )
     server.start()
     return server
 
@@ -489,12 +509,13 @@ def local_dashboard(
     port: int = 0,
     monitor: LocalCatalogMonitor | None = None,
 ) -> DashboardServer:
-    """Start a live read-only dashboard backed by one local catalog monitor."""
+    """Start a live local dashboard backed by one local catalog monitor."""
 
     selected = _select_local_scope(project_root, monitor)
 
     def snapshot() -> StatusSnapshot:
         inventory = local_inventory(monitor=selected)
+        preferences = local_preferences(monitor=selected)
         raw_counts = inventory.get("active_by_kind")
         counts = raw_counts if isinstance(raw_counts, dict) else {}
         providers = [
@@ -510,10 +531,32 @@ def local_dashboard(
             "inventory": inventory,
             "connections": local_connections(monitor=selected),
             "loaded_capabilities": [],
+            "lifecycle": local_lifecycle(monitor=selected),
+            "preferences": {"locale": preferences.get("locale", "auto")},
             "providers": providers,
         }
 
-    return dashboard(snapshot, port=port)
+    def search(query: str, kind: str | None, limit: int) -> StatusSnapshot:
+        return local_search(
+            query,
+            kinds=[kind] if kind is not None else None,
+            limit=limit,
+            monitor=selected,
+        )
+
+    def lifecycle(coordinate: str, state: str) -> StatusSnapshot:
+        return local_set_lifecycle(coordinate, state, scope="project", monitor=selected)
+
+    def language(locale: str) -> StatusSnapshot:
+        return local_set_locale(locale, scope="project", monitor=selected)
+
+    return dashboard(
+        snapshot,
+        port=port,
+        search_provider=search,
+        lifecycle_provider=lifecycle,
+        language_provider=language,
+    )
 
 
 def mcp_serve(project_root: str | Path | None = None) -> object:

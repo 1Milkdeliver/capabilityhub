@@ -9,7 +9,7 @@
 <body>
   <main>
     <header>
-      <p class="eyebrow">LOCAL · READ ONLY</p>
+      <p class="eyebrow">LOCAL / CONTROLLED</p>
       <h1>CapabilityHub</h1>
       <p id="state" aria-live="polite">Loading live Inventory…</p>
     </header>
@@ -24,6 +24,33 @@
         <div><dt>API</dt><dd id="kind-api">—</dd></div>
         <div><dt>RAG</dt><dd id="kind-rag">—</dd></div>
       </dl>
+    </section>
+
+    <section aria-labelledby="search-title">
+      <h2 id="search-title">Search</h2>
+      <p class="hint">Find compact capability cards without loading their bodies.</p>
+      <form id="search-form" class="controls">
+        <label>Task or name <input id="search-query" maxlength="500" placeholder="Example: work with PDF files"></label>
+        <label>Kind
+          <select id="search-kind">
+            <option value="">All</option><option>skill</option><option>mcp</option><option>cli</option><option>api</option><option>rag</option>
+          </select>
+        </label>
+        <button type="submit">Search</button>
+      </form>
+      <ul id="search-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="manage-title">
+      <h2 id="manage-title">Manage</h2>
+      <p class="hint">Project-only language and activation controls. No files are deleted or executed.</p>
+      <div class="controls">
+        <label>Language
+          <select id="language"><option value="auto">Auto</option><option value="en">English</option><option value="zh-CN">简体中文</option></select>
+        </label>
+        <button id="save-language" type="button">Save language</button>
+      </div>
+      <ul id="lifecycle-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="summary-title">

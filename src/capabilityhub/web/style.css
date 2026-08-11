@@ -26,6 +26,14 @@ dd { font-size: 1.5rem; font-weight: 800; margin: .3rem 0 0; }
 .cards { grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); }
 .cards strong { display: block; overflow-wrap: anywhere; }
 .cards span { color: #566174; font-size: .95rem; }
+.controls { display: flex; flex-wrap: wrap; gap: .75rem; align-items: end; margin: 1rem 0; }
+.controls label { display: grid; gap: .35rem; color: #566174; font-size: .9rem; }
+input, select, button { font: inherit; border: 1px solid #aeb7cc; border-radius: .55rem; padding: .65rem .75rem; background: white; }
+input { min-width: min(28rem, 70vw); }
+button { cursor: pointer; color: white; background: #3347a5; border-color: #3347a5; }
+button:hover { background: #263887; }
+.actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .75rem; }
+.actions button { font-size: .8rem; padding: .4rem .55rem; }
 
 @media (max-width: 760px) {
   .metrics, .metrics.kinds { grid-template-columns: repeat(2, minmax(0, 1fr)); }

@@ -22,6 +22,11 @@
       }
     }
   ],
+  "navigation": {
+    "/myskills back": "（返回上一级：回到 My Skills 菜单）",
+    "/helpme language": "（语言：修改菜单显示语言）",
+    "/helpme home": "（返回主菜单：回到 CapabilityHub 主菜单）"
+  },
   "footer": "回复数字、Skill 名称，或者直接说你想做什么。",
   "unknown": "我不明白这个 Skill 操作：{topic}"
 }

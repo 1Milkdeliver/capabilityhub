@@ -105,6 +105,9 @@ Enter `/myskills` to open the direct Skill menu. It supports numbered choices, e
 commands, and explicit natural-language requests while leaving Codex's native `/skills`,
 `/status`, `/mcp`, and other slash commands untouched. Inventory, Providers, Routing,
 Lifecycle, risks, and conflicts remain visible with plain-language explanations.
+`/helpme language` opens language settings, `/helpme back` returns to the previous menu,
+and `/helpme home` returns to the CapabilityHub main menu. Every child menu and result
+keeps these navigation choices visible; `/myskills back` returns to the My Skills menu.
 
 `DashboardServer` is a small read-only, standard-library dashboard server. It binds to `127.0.0.1` by default and serves bundled assets plus `GET /api/status`; it does not accept mutations. Start the illustrative local snapshot:
 

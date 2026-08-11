@@ -34,6 +34,7 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
 - Bare `/helpme`: read only the resolved catalog's `root` object and render every group
   and item in order. Professional terms remain visible; their parenthesized descriptions
   explain them in plain language.
+- Keep `/helpme language` visible on the root menu. It opens language settings directly.
 - `/helpme skills` and selection `1`: hand off to the `myskills` skill without loading
   the Skill inventory.
 - Root shortcuts `inventory`, `search`, `loaded`, `providers`, `routing`, `lifecycle`,
@@ -46,6 +47,12 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
   active snapshot.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
+- `/helpme back`: return to the parent of the last menu rendered in this interaction;
+  when no parent is known, render the root menu.
+- `/helpme home`: always render the root menu. Also recognize explicit localized intent
+  such as `返回上一级`, `返回主菜单`, `back`, and `home` while a CapabilityHub menu is active.
+- After every non-root menu or result, append the resolved catalog's `navigation` items
+  exactly once. Do not append them to the root menu.
 - Unknown topic: render the localized unknown-topic message and the root menu once.
 - Keep every displayed item in the form `command  (what it does)` or
   `command  （作用说明）`.

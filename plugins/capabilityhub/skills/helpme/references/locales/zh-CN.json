@@ -28,7 +28,8 @@
           "/helpme dashboard": "（Dashboard：在本机浏览器查看能力、预算和告警）",
           "/helpme budget": "（Budget：查看和控制 Token、加载及执行次数）",
           "/helpme security": "（Security：查看权限、审批、凭据和风险）",
-          "/helpme settings": "（Settings：修改语言、项目范围和默认规则）"
+          "/helpme settings": "（Settings：修改项目范围和默认规则）",
+          "/helpme language": "（语言：修改菜单显示语言）"
         }
       }
     ],
@@ -107,5 +108,9 @@
     "/helpme language scope project": "（对当前项目生效）",
     "/helpme language scope global": "（对所有项目生效）",
     "/helpme language reset": "（恢复自动语言设置）"
+  },
+  "navigation": {
+    "/helpme back": "（返回上一级：回到刚才的菜单）",
+    "/helpme home": "（返回主菜单：回到 CapabilityHub 主菜单）"
   }
 }

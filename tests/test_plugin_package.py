@@ -42,16 +42,20 @@ def test_helpme_locale_catalogs_have_matching_parenthesized_menus() -> None:
     assert "/helpme providers" in reference_root_items
     assert "/helpme routing" in reference_root_items
     assert "/helpme mcp" in reference_root_items
+    assert "/helpme language" in reference_root_items
+    assert set(reference["navigation"]) == {"/helpme back", "/helpme home"}
 
     for catalog in catalogs.values():
         assert set(catalog["topics"]) == expected_topics
         root_items = _group_items(catalog["root"]["groups"])
         assert set(root_items) == set(reference_root_items)
         assert set(catalog["language"]) == set(reference["language"])
+        assert set(catalog["navigation"]) == set(reference["navigation"])
         for topic in expected_topics:
             assert set(catalog["topics"][topic]) == set(reference["topics"][topic])
         descriptions = list(root_items.values())
         descriptions.extend(catalog["language"].values())
+        descriptions.extend(catalog["navigation"].values())
         for topic in catalog["topics"].values():
             descriptions.extend(topic.values())
         assert all(
@@ -84,10 +88,20 @@ def test_myskills_catalogs_match_and_keep_professional_terms_visible() -> None:
     for catalog in catalogs.values():
         items = _group_items(catalog["groups"])
         assert set(items) == set(reference_items)
+        assert set(catalog["navigation"]) == {
+            "/myskills back",
+            "/helpme language",
+            "/helpme home",
+        }
         assert all(
             (text.startswith("(") and text.endswith(")"))
             or (text.startswith("\uff08") and text.endswith("\uff09"))
             for text in items.values()
+        )
+        assert all(
+            (text.startswith("(") and text.endswith(")"))
+            or (text.startswith("\uff08") and text.endswith("\uff09"))
+            for text in catalog["navigation"].values()
         )
 
 

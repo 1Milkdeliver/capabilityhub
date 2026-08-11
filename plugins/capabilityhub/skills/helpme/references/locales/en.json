@@ -28,7 +28,8 @@
           "/helpme dashboard": "(Dashboard: view capabilities, budgets, and alerts in a local browser)",
           "/helpme budget": "(Budget: view and limit tokens, loads, and executions)",
           "/helpme security": "(Security: view permissions, approvals, credentials, and risks)",
-          "/helpme settings": "(Settings: change language, project scope, and defaults)"
+          "/helpme settings": "(Settings: change project scope and defaults)",
+          "/helpme language": "(Language: change the menu language)"
         }
       }
     ],
@@ -107,5 +108,9 @@
     "/helpme language scope project": "(Apply to the current project)",
     "/helpme language scope global": "(Apply to all projects)",
     "/helpme language reset": "(Restore automatic language selection)"
+  },
+  "navigation": {
+    "/helpme back": "(Back: return to the previous menu)",
+    "/helpme home": "(Home: return to the CapabilityHub main menu)"
   }
 }

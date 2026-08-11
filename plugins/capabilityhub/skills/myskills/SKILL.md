@@ -12,13 +12,18 @@ static catalog in `references/locales/`. Never translate stable menu text at run
 ## Interaction
 
 - Bare `/myskills`: render both visible groups and all items. Provider, Routing,
-  Inventory, Lifecycle, Risks, and Conflicts are never hidden.
+  Inventory, Lifecycle, Risks, and Conflicts are never hidden. Append the catalog's
+  `navigation` items so language settings and the CapabilityHub main menu stay visible.
 - `list`/`inventory`: call `capability.search` with an empty query and a bounded result.
   Use `total_matches` and `kind_counts.skill` for totals instead of counting cards.
   Return at most five Skill cards unless the user asks for more.
 - Accept the visible number only while the My Skills menu is the active interaction.
 - Accept exact commands and aliases: `find`, `list`/`ls`, `loaded`/`using`, `show`/`info`,
   `providers`, `routing`/`why`, `lifecycle`, `risks`, `conflicts`/`check`.
+- `/myskills back` returns to the My Skills menu. `/helpme home` always returns to the
+  CapabilityHub main menu, and `/helpme language` opens language settings. Recognize
+  localized `返回上一级`, `返回主菜单`, `back`, and `home` only while this menu is active.
+- Append the catalog's `navigation` items exactly once after every My Skills result.
 - Recognize explicit natural-language intents such as “帮我找一个处理 PDF 的 Skill”,
   “我加载了哪些 Skill”, or “为什么选择 documents”. Use low reasoning for status,
   listing, and direct commands; use medium reasoning only when task-to-Skill matching is

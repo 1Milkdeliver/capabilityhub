@@ -28,6 +28,9 @@ commands. Bare `/helpme` keeps Inventory, Providers, Routing, Lifecycle, and MCP
 with plain parenthesized explanations. Bare `/myskills` goes directly to Skill search,
 inventory, loaded state, details, providers, routing, lifecycle, risks, and conflicts.
 Both menus accept visible numbers, exact commands, and explicit natural-language intent.
+Language settings are directly visible on the root menu. Every child menu and result
+shows localized back and home controls: `/helpme back`, `/helpme home`, and, inside the
+Skill area, `/myskills back`.
 
 Stable UI text comes from bundled `zh-CN` and `en` JSON message catalogs. Language
 selection follows explicit command, task, project, global, then system preference, with

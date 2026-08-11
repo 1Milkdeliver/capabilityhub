@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 20 - bounded hierarchy, observability, and OpenAPI intake.
+Phase 21 - runtime hierarchy, private telemetry, and progressive continuation.
 
 ## Next Step
 
-Wire standalone safety cores into real runtime paths without overstating production readiness.
+Continue closing partial requirements while preserving measured disclosure bounds.
 
 ## Phases
 
@@ -90,6 +90,15 @@ Status: complete
 - Validate concurrent refresh, stale fallback, add/change/remove behavior, token bounds, and redaction.
 
 ## Decisions Made
+
+### Phase 21 - runtime hierarchy, private telemetry, and progressive continuation
+
+Status: complete for the local pre-alpha scope
+
+- Wire loopback HTTP to restart-safe tenant/principal/session/task hard budgets.
+- Attach privacy-bounded observability optionally at the shared real-service adapter.
+- Return bounded dependency/conflict notices and signed exact rehydration handles from selective load.
+- Prove large manifests cannot force unbounded handle, notice, or omission-name disclosure.
 
 ### Phase 20 - bounded hierarchy, observability, and OpenAPI intake
 

@@ -5,8 +5,11 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import os
 import sqlite3
+import stat
 from collections.abc import Mapping
+from contextlib import suppress
 from pathlib import Path
 from types import MappingProxyType
 from uuid import uuid4
@@ -701,6 +704,47 @@ class SQLiteHierarchicalBudgetStore:
         return connection
 
 
+class DurableHierarchicalBudgetProvider:
+    """Resolve task ledgers below one opaque tenant/principal/session chain."""
+
+    def __init__(
+        self,
+        store: SQLiteHierarchicalBudgetStore,
+        *,
+        tenant_scope: str,
+        principal_scope: str,
+        session_scope: str,
+        aggregate_limits: Mapping[str, int],
+        task_limits: Mapping[str, int],
+    ) -> None:
+        root = store.root(f"tenant:{_scope_name(tenant_scope)}", aggregate_limits)
+        principal = root.create_child(
+            f"principal:{_scope_name(principal_scope)}",
+            aggregate_limits,
+        )
+        self._session = principal.create_child(
+            f"session:{_scope_name(session_scope)}",
+            aggregate_limits,
+        )
+        self._task_limits = MappingProxyType(store._limits(task_limits))
+
+    @property
+    def opaque_root(self) -> str:
+        return self._session.opaque_root
+
+    @property
+    def session_scope_id(self) -> str:
+        return self._session.scope_id
+
+    def __call__(self, task_scope: str) -> HierarchicalBudgetScope:
+        """Create or reopen one HMAC-addressed task budget."""
+
+        return self._session.create_child(
+            f"task:{_scope_name(task_scope)}",
+            self._task_limits,
+        )
+
+
 class HierarchicalBudgetScope(BudgetLedger):
     """A durable budget node addressed only by opaque HMAC identifiers."""
 
@@ -797,6 +841,48 @@ class PersistentBudgetReservation(BudgetReservation):
 def _scope_name(value: str) -> str:
     if not isinstance(value, str) or not value or len(value) > 4_096:
         raise ValueError("scope name must be non-empty and at most 4096 characters")
+    return value
+
+
+def load_or_create_hmac_key(path: str | Path) -> bytes:
+    """Load a private 256-bit key, creating it with an atomic no-replace link."""
+
+    key_path = Path(path).resolve()
+    key_path.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        return _read_hmac_key(key_path)
+    except FileNotFoundError:
+        pass
+
+    candidate = os.urandom(32)
+    temporary = key_path.with_name(f".{key_path.name}.{uuid4().hex}.tmp")
+    descriptor = os.open(temporary, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        with os.fdopen(descriptor, "wb") as stream:
+            stream.write(candidate)
+            stream.flush()
+            os.fsync(stream.fileno())
+        with suppress(FileExistsError):
+            os.link(temporary, key_path)
+    finally:
+        temporary.unlink(missing_ok=True)
+    return _read_hmac_key(key_path)
+
+
+def _read_hmac_key(path: Path) -> bytes:
+    if os.name != "nt" and stat.S_IMODE(path.stat().st_mode) & 0o077:
+        raise HierarchicalBudgetError(
+            "budget_hmac_key_permissions",
+            "The local budget key file permissions are unsafe.",
+            category=ErrorCategory.POLICY,
+        )
+    value = path.read_bytes()
+    if len(value) != 32:
+        raise HierarchicalBudgetError(
+            "budget_hmac_key_invalid",
+            "The local budget key file is invalid.",
+            category=ErrorCategory.INTERNAL,
+        )
     return value
 
 

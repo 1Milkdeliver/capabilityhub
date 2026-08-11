@@ -19,11 +19,14 @@ from capabilityhub.metering import canonical_json, measure_text
 from capabilityhub.models import (
     CapabilityKind,
     CapabilityManifest,
+    CapabilityNotice,
     ExecutionRequest,
     ExecutionResult,
     JsonValue,
     LoadedCapability,
+    OmissionKind,
     OperationSpec,
+    RehydrationHandle,
     SectionDescriptor,
     SideEffect,
 )
@@ -34,6 +37,10 @@ from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.resilience import FailureCertainty, ResilientProviderExecutor
 from capabilityhub.search import LexicalCapabilitySearch, SearchResponse
 from capabilityhub.supervision import ProviderSupervisor
+
+MAX_REHYDRATION_HANDLES = 4
+MAX_OMISSION_NAMES_PER_KIND = 8
+MAX_LOAD_NOTICES = 4
 
 
 @dataclass(frozen=True, slots=True)
@@ -226,6 +233,8 @@ class CapabilityHubService:
                     "Loading sensitive capability content requires explicit permission.",
                 )
             operations = _select_operations(manifest, operation_names)
+            handles = self._rehydration_handles(manifest, sections, operations, context)
+            notices, omitted_notice_count = _manifest_notices(manifest)
             execution_ref = ""
             if manifest.kind is not CapabilityKind.SKILL:
                 execution_ref = self._references.issue(
@@ -234,7 +243,15 @@ class CapabilityHubService:
                     purpose="execution",
                     ttl_seconds=self._execution_ttl,
                 )
-            loaded, payload_bytes = _loaded_response(manifest, sections, operations, execution_ref)
+            loaded, payload_bytes = _loaded_response(
+                manifest,
+                sections,
+                operations,
+                execution_ref,
+                notices,
+                handles,
+                omitted_notice_count,
+            )
             if loaded.portable_tokens > max_output_tokens:
                 raise _budget(
                     "load_output_budget_exceeded",
@@ -278,6 +295,85 @@ class CapabilityHubService:
             },
         )
         return loaded
+
+    def rehydrate(
+        self,
+        handle: RehydrationHandle,
+        *,
+        task_id: str,
+        context: ServiceContext,
+        budget: BudgetLedger,
+        max_output_tokens: int = 2_000,
+    ) -> LoadedCapability:
+        """Load exactly one previously omitted section or operation."""
+
+        purpose = _rehydration_purpose(handle.kind, handle.selector_digest)
+        claims = self._references.verify(
+            handle.reference,
+            expected_scope=context.reference_scope,
+            expected_purpose=purpose,
+        )
+        if claims.expires_at != handle.expires_at:
+            raise _reference(
+                "rehydration_expiry_mismatch",
+                "The rehydration handle expiry does not match its signed reference.",
+            )
+        manifest = self._active_manifest(claims.revision)
+        target = _resolve_rehydration_target(manifest, handle.kind, handle.selector_digest)
+        load_ref = self._references.issue(
+            revision=manifest.identity.revision,
+            scope=context.reference_scope,
+            purpose="load",
+            ttl_seconds=self._load_ref_ttl,
+        )
+        return self.load(
+            load_ref,
+            task_id=task_id,
+            context=context,
+            budget=budget,
+            section_names=(target,) if handle.kind is OmissionKind.SECTION else (),
+            operation_names=(target,) if handle.kind is OmissionKind.OPERATION else (),
+            max_output_tokens=max_output_tokens,
+        )
+
+    def _rehydration_handles(
+        self,
+        manifest: CapabilityManifest,
+        sections: tuple[SectionDescriptor, ...],
+        operations: tuple[OperationSpec, ...],
+        context: ServiceContext,
+    ) -> tuple[RehydrationHandle, ...]:
+        selected_sections = {section.name for section in sections}
+        selected_operations = {operation.name for operation in operations}
+        targets = [
+            *(
+                (OmissionKind.SECTION, section.name)
+                for section in manifest.sections
+                if section.name not in selected_sections
+            ),
+            *(
+                (OmissionKind.OPERATION, operation.name)
+                for operation in manifest.operations
+                if operation.name not in selected_operations
+            ),
+        ]
+        handles: list[RehydrationHandle] = []
+        for kind, name in targets[:MAX_REHYDRATION_HANDLES]:
+            selector = _rehydration_selector(manifest.identity.revision, kind, name)
+            reference = self._references.issue(
+                revision=manifest.identity.revision,
+                scope=context.reference_scope,
+                purpose=_rehydration_purpose(kind, selector),
+                ttl_seconds=self._load_ref_ttl,
+            )
+            claims = self._references.verify(
+                reference,
+                expected_scope=context.reference_scope,
+                expected_purpose=_rehydration_purpose(kind, selector),
+                expected_revision=manifest.identity.revision,
+            )
+            handles.append(RehydrationHandle(kind, selector, reference, claims.expires_at))
+        return tuple(handles)
 
     def issue_approval(
         self,
@@ -747,10 +843,22 @@ def _loaded_response(
     sections: tuple[SectionDescriptor, ...],
     operations: tuple[OperationSpec, ...],
     execution_ref: str,
+    notices: tuple[CapabilityNotice, ...],
+    rehydration_handles: tuple[RehydrationHandle, ...],
+    omitted_notice_count: int,
 ) -> tuple[LoadedCapability, int]:
     portable_tokens = 0
     payload_bytes = 0
-    omitted = tuple(section.name for section in manifest.sections if section not in sections)
+    all_omitted_sections = tuple(
+        section.name for section in manifest.sections if section not in sections
+    )
+    all_omitted_operations = tuple(
+        operation.name for operation in manifest.operations if operation not in operations
+    )
+    omitted = all_omitted_sections[:MAX_OMISSION_NAMES_PER_KIND]
+    omitted_operations = all_omitted_operations[:MAX_OMISSION_NAMES_PER_KIND]
+    total_omissions = len(all_omitted_sections) + len(all_omitted_operations)
+    unhandled_omissions = max(0, total_omissions - len(rehydration_handles))
     for _ in range(4):
         loaded = LoadedCapability(
             revision=manifest.identity.revision,
@@ -760,6 +868,13 @@ def _loaded_response(
             portable_tokens=portable_tokens,
             execution_ref=execution_ref,
             omitted_sections=omitted,
+            omitted_operations=omitted_operations,
+            notices=notices,
+            rehydration_handles=rehydration_handles,
+            omitted_section_count=len(all_omitted_sections),
+            omitted_operation_count=len(all_omitted_operations),
+            omitted_notice_count=omitted_notice_count,
+            unhandled_omission_count=unhandled_omissions,
         )
         measured = measure_text(canonical_json(_loaded_dict(loaded)))
         if measured.portable_tokens == portable_tokens and measured.utf8_bytes == payload_bytes:
@@ -774,12 +889,31 @@ def _loaded_response(
         portable_tokens=portable_tokens,
         execution_ref=execution_ref,
         omitted_sections=omitted,
+        omitted_operations=omitted_operations,
+        notices=notices,
+        rehydration_handles=rehydration_handles,
+        omitted_section_count=len(all_omitted_sections),
+        omitted_operation_count=len(all_omitted_operations),
+        omitted_notice_count=omitted_notice_count,
+        unhandled_omission_count=unhandled_omissions,
     ), payload_bytes
 
 
 def _loaded_dict(loaded: LoadedCapability) -> dict[str, JsonValue]:
     return {
         "execution_ref": loaded.execution_ref,
+        "notices": [
+            {
+                "attributes": dict(notice.attributes),
+                "code": notice.code,
+                "kind": notice.kind,
+            }
+            for notice in loaded.notices
+        ],
+        "omitted_notice_count": loaded.omitted_notice_count,
+        "omitted_operation_count": loaded.omitted_operation_count,
+        "omitted_operations": list(loaded.omitted_operations),
+        "omitted_section_count": loaded.omitted_section_count,
         "omitted_sections": list(loaded.omitted_sections),
         "operations": [
             {
@@ -794,6 +928,15 @@ def _loaded_dict(loaded: LoadedCapability) -> dict[str, JsonValue]:
         ],
         "permissions": list(loaded.permissions),
         "portable_tokens": loaded.portable_tokens,
+        "rehydration_handles": [
+            {
+                "expires_at": handle.expires_at,
+                "kind": handle.kind.value,
+                "reference": handle.reference,
+                "selector_digest": handle.selector_digest,
+            }
+            for handle in loaded.rehydration_handles
+        ],
         "revision": loaded.revision,
         "sections": [
             {
@@ -805,7 +948,70 @@ def _loaded_dict(loaded: LoadedCapability) -> dict[str, JsonValue]:
             }
             for section in loaded.sections
         ],
+        "unhandled_omission_count": loaded.unhandled_omission_count,
     }
+
+
+def _manifest_notices(
+    manifest: CapabilityManifest,
+) -> tuple[tuple[CapabilityNotice, ...], int]:
+    notices = [
+        CapabilityNotice(
+            kind="dependency",
+            code="dependency.optional" if dependency.optional else "dependency.required",
+            attributes={
+                "coordinate": dependency.coordinate,
+                "optional": dependency.optional,
+                "version_constraint": dependency.version_constraint,
+            },
+        )
+        for dependency in sorted(manifest.dependencies, key=lambda item: item.coordinate)
+    ]
+    notices.extend(
+        CapabilityNotice(
+            kind="conflict",
+            code="conflict.declared",
+            attributes={
+                "type": conflict.conflict_type,
+                "value_digest": "sha256:"
+                + hashlib.sha256(conflict.value.encode("utf-8")).hexdigest(),
+            },
+        )
+        for conflict in sorted(
+            manifest.conflicts, key=lambda item: (item.conflict_type, item.value)
+        )
+    )
+    return tuple(notices[:MAX_LOAD_NOTICES]), max(0, len(notices) - MAX_LOAD_NOTICES)
+
+
+def _rehydration_selector(revision: str, kind: OmissionKind, name: str) -> str:
+    payload = canonical_json({"kind": kind.value, "name": name, "revision": revision})
+    return "sha256:" + hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _rehydration_purpose(kind: OmissionKind, selector: str) -> str:
+    return f"rehydration:{kind.value}:{selector}"
+
+
+def _resolve_rehydration_target(
+    manifest: CapabilityManifest, kind: OmissionKind, selector: str
+) -> str:
+    names = (
+        (section.name for section in manifest.sections)
+        if kind is OmissionKind.SECTION
+        else (operation.name for operation in manifest.operations)
+    )
+    matches = [
+        name
+        for name in names
+        if _rehydration_selector(manifest.identity.revision, kind, name) == selector
+    ]
+    if len(matches) != 1:
+        raise _reference(
+            "rehydration_target_invalid",
+            "The rehydration handle does not identify one current omission target.",
+        )
+    return matches[0]
 
 
 def _positive_budget(value: int) -> None:

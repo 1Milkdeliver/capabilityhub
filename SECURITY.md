@@ -37,6 +37,8 @@ Security invariants below describe the intended and tested core boundary; they a
 - Dependency health treats missing, future-dated, expired, and unknown policy/provider evidence as unsafe. Degraded operation requires a named, operation-specific, age-bounded fallback.
 - OpenAPI import is offline and allowlisted: it rejects remote references, dynamic callbacks, embedded credentials, security bindings, server overrides, and unselected operations before emitting an inert manifest preview.
 - Privacy observability accepts only bounded low-cardinality fields and hashed correlation domains; it has no arbitrary metadata channel for arguments, outputs, secrets, URLs, paths, or raw identities.
+- Loopback HTTP budgets derive opaque tenant, principal, session, and task scope IDs with a private local HMAC key; raw scope identifiers are not stored in the hierarchy tables or returned in budget errors.
+- Progressive-load continuation handles bind scope, revision, omission kind, target digest, and expiry. Notice, omission-name, and handle lists have hard bounds; declared conflict values are represented only by digests.
 - The HTTP control adapter accepts only numeric loopback binding/peers/Hosts, one bounded JSON POST endpoint, and a high-entropy bearer token whose digest alone remains in the server. It is not a remote TLS/authentication profile.
 - Draining blocks new admissions while preserving every in-flight revision pin. Cancellation is requested only for operations declared cancellable; forced retirement requires an explicit policy and bounded reason code.
 - Secrets are references resolved outside model-visible payloads.

@@ -10,6 +10,12 @@ from typing import TypeVar
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.models import ExecutionRequest, ExecutionResult, LoadedCapability, SearchCard
+from capabilityhub.observability import (
+    InMemoryObservability,
+    ProviderCategory,
+    SpanHandle,
+    TraceContext,
+)
 from capabilityhub.protocol import (
     AdapterKind,
     JsonValue,
@@ -44,6 +50,7 @@ class CapabilityHubServiceAdapter:
         budget_provider: BudgetProvider,
         inventory_provider: InventoryProvider | None = None,
         cancel_callback: CancelCallback | None = None,
+        observability: InMemoryObservability | None = None,
     ) -> None:
         self.kind = kind
         self.handshake = protocol_handshake(cancellation=cancel_callback is not None)
@@ -52,9 +59,30 @@ class CapabilityHubServiceAdapter:
         self._budget_provider = budget_provider
         self._inventory_provider = inventory_provider
         self._cancel_callback = cancel_callback
+        self._observability = observability
 
     def dispatch(self, request: RequestEnvelope) -> JsonValue:
         """Validate an exact meta-tool payload and return JSON-domain data."""
+
+        observer = self._observability
+        if observer is None:
+            return self._dispatch(request)
+        span = _start_observation(observer, request)
+        try:
+            result = self._dispatch(request)
+        except Exception as error:
+            _finish_observation(span, error_code=_safe_error_code(error))
+            raise
+        portable_tokens, payload_bytes = _result_counters(request.operation, result)
+        _finish_observation(
+            span,
+            portable_tokens=portable_tokens,
+            payload_bytes=payload_bytes,
+        )
+        return result
+
+    def _dispatch(self, request: RequestEnvelope) -> JsonValue:
+        """Dispatch without observability work when the optional observer is absent."""
 
         if request.adapter is not self.kind:
             raise _input("adapter_kind_mismatch", "The request uses a different adapter kind.")
@@ -312,6 +340,74 @@ def _provided(callback: Callable[[], _ProvidedT]) -> _ProvidedT:
         raise
     except Exception as exc:
         raise _internal_provider_error() from exc
+
+
+def _start_observation(
+    observer: InMemoryObservability, request: RequestEnvelope
+) -> SpanHandle | None:
+    operation = {
+        _SEARCH: "search",
+        _LOAD: "load",
+        _EXECUTE: "execute",
+    }.get(request.operation, "other")
+    try:
+        context = TraceContext.from_correlation(request.correlation_id, request.adapter.value)
+        return observer.start_span(
+            context,
+            operation=operation,
+            provider_category=ProviderCategory.OTHER,
+        )
+    except Exception:
+        return None
+
+
+def _finish_observation(
+    span: SpanHandle | None,
+    *,
+    portable_tokens: int = 0,
+    payload_bytes: int = 0,
+    error_code: str | None = None,
+) -> None:
+    if span is None:
+        return
+    try:
+        span.finish(
+            portable_tokens=portable_tokens,
+            payload_bytes=payload_bytes,
+            error_code=error_code,
+        )
+    except Exception:
+        return
+
+
+def _safe_error_code(error: Exception) -> str:
+    if isinstance(error, CapabilityHubError):
+        code = error.code
+        if (
+            isinstance(code, str)
+            and 1 <= len(code) <= 64
+            and code[0].islower()
+            and all(
+                character.islower() or character.isdigit() or character in "_.-"
+                for character in code
+            )
+        ):
+            return code
+    return "adapter_unhandled_error"
+
+
+def _result_counters(operation: str, result: JsonValue) -> tuple[int, int]:
+    if not isinstance(result, Mapping):
+        return 0, 0
+    portable_tokens = result.get("portable_tokens")
+    payload_bytes = result.get("payload_bytes") if operation == _SEARCH else None
+    selected_tokens = 0
+    selected_bytes = 0
+    if isinstance(portable_tokens, int) and not isinstance(portable_tokens, bool):
+        selected_tokens = max(0, portable_tokens)
+    if isinstance(payload_bytes, int) and not isinstance(payload_bytes, bool):
+        selected_bytes = max(0, payload_bytes)
+    return selected_tokens, selected_bytes
 
 
 def _invalid_payload() -> CapabilityHubError:

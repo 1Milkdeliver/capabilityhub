@@ -165,6 +165,45 @@ class SearchCard:
     match_reason: tuple[str, ...]
 
 
+class OmissionKind(StrEnum):
+    SECTION = "section"
+    OPERATION = "operation"
+
+
+@dataclass(frozen=True, slots=True)
+class CapabilityNotice:
+    kind: str
+    code: str
+    attributes: Mapping[str, JsonValue] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "attributes", MappingProxyType(dict(self.attributes)))
+
+
+@dataclass(frozen=True, slots=True)
+class RehydrationHandle:
+    kind: OmissionKind
+    selector_digest: str
+    reference: str
+    expires_at: int
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.selector_digest, str):
+            raise ValueError("rehydration handle fields are invalid")
+        digest = self.selector_digest.removeprefix("sha256:")
+        if (
+            not isinstance(self.kind, OmissionKind)
+            or len(digest) != 64
+            or any(character not in "0123456789abcdef" for character in digest)
+            or not isinstance(self.reference, str)
+            or not self.reference
+            or not isinstance(self.expires_at, int)
+            or isinstance(self.expires_at, bool)
+            or self.expires_at <= 0
+        ):
+            raise ValueError("rehydration handle fields are invalid")
+
+
 @dataclass(frozen=True, slots=True)
 class LoadedCapability:
     revision: str
@@ -174,6 +213,13 @@ class LoadedCapability:
     portable_tokens: int
     execution_ref: str
     omitted_sections: tuple[str, ...] = ()
+    omitted_operations: tuple[str, ...] = ()
+    notices: tuple[CapabilityNotice, ...] = ()
+    rehydration_handles: tuple[RehydrationHandle, ...] = ()
+    omitted_section_count: int = 0
+    omitted_operation_count: int = 0
+    omitted_notice_count: int = 0
+    unhandled_omission_count: int = 0
 
 
 @dataclass(frozen=True, slots=True)

@@ -46,6 +46,7 @@ jobs:
           .wheel-smoke/bin/capabilityhub budget-report
           .wheel-smoke/bin/capabilityhub benchmark
           .wheel-smoke/bin/capabilityhub benchmark --scale
+          .wheel-smoke/bin/capabilityhub import-openapi --help
 
   windows-smoke:
     runs-on: windows-latest
@@ -77,3 +78,4 @@ jobs:
           .\.wheel-smoke\Scripts\capabilityhub.exe health --project-root .
           .\.wheel-smoke\Scripts\capabilityhub.exe benchmark
           .\.wheel-smoke\Scripts\capabilityhub.exe benchmark --scale
+          .\.wheel-smoke\Scripts\capabilityhub.exe import-openapi --help

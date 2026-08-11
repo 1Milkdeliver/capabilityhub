@@ -34,6 +34,11 @@ from capabilityhub.compatibility import (
 )
 from capabilityhub.context_state import LocalContextState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.hierarchical_budget import (
+    DurableHierarchicalBudgetProvider,
+    SQLiteHierarchicalBudgetStore,
+    load_or_create_hmac_key,
+)
 from capabilityhub.http_control import HttpControlAccess, LoopbackHttpControl
 from capabilityhub.idempotency import SqliteIdempotencyStore
 from capabilityhub.insights import loaded_view, providers_view, routing_view
@@ -88,6 +93,9 @@ DEFAULT_LOCAL_BUDGETS = {
     "loads": 100,
     "portable_tokens": 100_000,
     "reasoning_tokens": 100_000,
+}
+DEFAULT_LOCAL_HTTP_AGGREGATE_BUDGETS = {
+    counter: limit * 100 for counter, limit in DEFAULT_LOCAL_BUDGETS.items()
 }
 LOCAL_POLICY_REVISION = "local-v1"
 DEFAULT_CONTEXT_TOKENS = 16_000
@@ -1229,9 +1237,13 @@ def local_http_control(
     *,
     port: int = 0,
     granted_permissions: list[str] | None = None,
+    tenant_id: str = "local",
+    principal_id: str = "operator",
+    session_id: str = "http",
+    task_budget_limits: Mapping[str, int] | None = None,
     monitor: LocalCatalogMonitor | None = None,
 ) -> tuple[LoopbackHttpControl, HttpControlAccess]:
-    """Start the authenticated loopback protocol over one immutable catalog snapshot."""
+    """Start loopback HTTP with durable tenant/principal/session/task budgets."""
 
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
@@ -1244,19 +1256,31 @@ def local_http_control(
         provider_supervisor=ProcessProviderSupervisor(),
     )
     context = ServiceContext(
-        "local",
-        "operator",
-        "http",
+        tenant_id,
+        principal_id,
+        session_id,
         granted_permissions=frozenset(granted_permissions or ()),
     )
-    budget = SqliteBudgetRepository(_state_path(selected.project)).ledger(
-        "local-http", DEFAULT_LOCAL_BUDGETS
+    selected_task_limits = {
+        **DEFAULT_LOCAL_BUDGETS,
+        **(dict(task_budget_limits) if task_budget_limits is not None else {}),
+    }
+    budget_provider = DurableHierarchicalBudgetProvider(
+        SQLiteHierarchicalBudgetStore(
+            _state_path(selected.project),
+            hmac_key=load_or_create_hmac_key(_budget_hmac_key_path(selected.project)),
+        ),
+        tenant_scope=context.tenant_id,
+        principal_scope=context.principal_id,
+        session_scope=context.session_id,
+        aggregate_limits=DEFAULT_LOCAL_HTTP_AGGREGATE_BUDGETS,
+        task_limits=selected_task_limits,
     )
     adapter = CapabilityHubServiceAdapter(
         service,
         kind=AdapterKind.HTTP,
         context_provider=lambda: context,
-        budget_provider=lambda _task_id: budget,
+        budget_provider=budget_provider,
         inventory_provider=generation.inventory_json,
     )
     control = LoopbackHttpControl(adapter, port=port)
@@ -1459,6 +1483,10 @@ def _audit_events(project: Path, *, limit: int) -> tuple[AuditEvent, ...]:
 
 def _state_path(project: Path) -> Path:
     return project / ".capabilityhub" / "state.sqlite3"
+
+
+def _budget_hmac_key_path(project: Path) -> Path:
+    return project / ".capabilityhub" / "budget-hmac.key"
 
 
 def _jsonable(value: object) -> JsonValue:

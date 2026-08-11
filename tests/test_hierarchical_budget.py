@@ -7,7 +7,11 @@ import pytest
 
 from capabilityhub.budget import BudgetExceeded
 from capabilityhub.errors import CapabilityHubError
-from capabilityhub.hierarchical_budget import SQLiteHierarchicalBudgetStore
+from capabilityhub.hierarchical_budget import (
+    DurableHierarchicalBudgetProvider,
+    SQLiteHierarchicalBudgetStore,
+    load_or_create_hmac_key,
+)
 
 _KEY = b"hierarchical-budget-test-key-32-bytes-minimum"
 
@@ -215,3 +219,51 @@ def test_corrupt_cycle_fails_closed_before_creating_a_child(tmp_path) -> None:
     with pytest.raises(CapabilityHubError) as caught:
         child.create_child("attempt", {"tokens": 1})
     assert caught.value.code == "budget_state_invalid"
+
+
+def test_local_hmac_key_creation_is_atomic_and_restart_stable(tmp_path) -> None:
+    path = tmp_path / "private" / "budget.key"
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        keys = list(pool.map(lambda _: load_or_create_hmac_key(path), range(16)))
+
+    assert len(set(keys)) == 1
+    assert len(keys[0]) == 32
+    assert load_or_create_hmac_key(path) == keys[0]
+
+
+def test_durable_provider_derives_four_private_levels_and_reopens_tasks(tmp_path) -> None:
+    path = tmp_path / "budgets.sqlite3"
+    store = SQLiteHierarchicalBudgetStore(path, hmac_key=_KEY)
+    provider = DurableHierarchicalBudgetProvider(
+        store,
+        tenant_scope="private-tenant",
+        principal_scope="private-principal",
+        session_scope="private-session",
+        aggregate_limits={"tokens": 100},
+        task_limits={"tokens": 10},
+    )
+    first = provider("private-task")
+    first.spend({"tokens": 3})
+
+    restarted = DurableHierarchicalBudgetProvider(
+        SQLiteHierarchicalBudgetStore(path, hmac_key=_KEY),
+        tenant_scope="private-tenant",
+        principal_scope="private-principal",
+        session_scope="private-session",
+        aggregate_limits={"tokens": 100},
+        task_limits={"tokens": 10},
+    )
+    reopened = restarted("private-task")
+
+    assert reopened.scope_id == first.scope_id
+    assert reopened.snapshot().used["tokens"] == 3
+    assert len(store.snapshots(provider.opaque_root)) == 4
+    with sqlite3.connect(path) as connection:
+        dump = " ".join(connection.iterdump())
+    for private_value in (
+        "private-tenant",
+        "private-principal",
+        "private-session",
+        "private-task",
+    ):
+        assert private_value not in dump

@@ -14,21 +14,21 @@ run does not upgrade a row by itself.
 | R5 | Compact search under hard budgets | Implemented | Search is capped at 900 portable tokens and CLI result limits are bounded |
 | R6 | Progressive selective loading | Partial | Sections and operations are selectable; dependency/conflict notices and rehydration handles remain open |
 | R7 | Revision-bound references | Implemented | Signed scope/purpose/revision/expiry references reject stale and tampered input |
-| R8 | Manifest as source of truth | Partial | JSON v1alpha1, inert driver config, deterministic export and explicit alias migration exist; YAML remains open |
+| R8 | Manifest as source of truth | Implemented | JSON and resource-bounded safe YAML parse into the same inert v1alpha1 model; deterministic JSON export and explicit alias migration are verified |
 | R9 | Stable identity and digest | Implemented | Immutable coordinate/version/digest revisions and activation pointers are enforced |
 | R10 | Explainable authorized search | Implemented | Deterministic lexical reasons and pre-disclosure permission filtering exist |
 | R11 | Catalog/RAG index separation | Partial | Catalog stays metadata-only and local RAG scans bounded text; persistent ACL index remains open |
 | R12 | Bounded RAG results and citations | Implemented | Local adapter enforces top-k, file/byte/deadline bounds and relative line citations |
-| R13 | Dependency resolution and lock | Partial | Constraints/cycles are validated; persistent activation lock export remains open |
+| R13 | Dependency resolution and lock | Implemented | Constraints/cycles are validated and a deterministic exact-revision activation lock with transitive dependency closure detects missing, extra, or drifted active state |
 | R14 | Conflict detection and policy | Partial | Declared typed conflicts are enforced; automatic port/path/route projection policies remain open |
 | R15 | Lifecycle state machine | Partial | Persistent enabled/disabled/quarantined overrides exist; install/update/retire/drain remains open |
 | R16 | Staged update and rollback | Partial | SQLite stage/health/activate/rollback CAS pointers and in-flight pins drive live catalog generations; artifact acquisition, mandatory trust-verifier wiring, and worker draining remain open |
 | R17 | Least-privilege permissions | Partial | The optional service authorizer now shares search/execute decisions and attenuates dependency permissions plus path/host/method/command/profile/secret-alias arguments; automatic grant derivation for every configured provider remains open |
 | R18 | Exact-intent approvals | Partial | Durable single-use queue binds actor/task/revision/operation/argument digest/side effect/policy/expiry and has CLI/Dashboard decisions; authenticated remote approver identity remains open |
 | R19 | Supply-chain trust | Partial | Artifact digests, publisher/registry policy, revocation, expiry and a local HMAC attestation profile exist; public-key/Sigstore identity and staged-acquisition enforcement remain open |
-| R20 | Secret broker | Partial | Environment-name indirection and redaction exist; brokered scoped secret handles remain open |
+| R20 | Secret broker | Partial | An in-memory broker provides scoped, expiring, use-limited handles and resolves aliases only inside trusted callbacks; provider wiring and OS-backed storage remain open |
 | R21 | Provider isolation | Partial | Local configured execution uses supervised spawned workers with bounded JSON IPC; OS resource sandboxing remains open |
-| R22 | Typed failure and retry | Partial | Safe structured errors exist; class-wide retry/idempotency conformance remains open |
+| R22 | Typed failure and retry | Partial | Safe structured errors plus optional service retries/circuit breaking enforce typed retryability, explicit not-applied certainty, side-effect/idempotency gates and deadlines; real-adapter failure classification remains open |
 | R23 | Reasoning-tier routing | Partial | Persistent CLI/Dashboard advice selects the cheapest safe affordable tier; actual model endpoint enforcement and measured quality remain open |
 | R24 | Anti-loop escalation | Implemented | SQLite task orchestration persists only attempt/evidence digests, caps escalation and returns an observable stop decision across restarts and concurrent callers |
 | R25 | Hierarchical budgets | Partial | Local runtime uses atomic restart-safe SQLite accounting; durable hierarchical child scopes remain open |

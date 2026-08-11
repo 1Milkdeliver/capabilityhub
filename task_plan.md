@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 15 — trust, least privilege, and client conformance.
+Phase 16 — secrets, resilience, and portable activation.
 
 ## Next Step
 
-Integrate supply-chain verification, argument-level authorization, and transport-neutral client conformance without widening the always-loaded context.
+Integrate scoped secret handles, conservative provider resilience, safe YAML, and exact activation locks without widening the always-loaded context.
 
 ## Phases
 
@@ -49,7 +49,7 @@ Status: complete (reference adapters only; production execution remains out of s
 
 ### Phase 5 — MCP server and CLI
 
-Status: complete (pre-alpha local surface; twenty-six commands and three MCP tools)
+Status: complete (pre-alpha local surface; twenty-seven commands and three MCP tools)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
 - Provide local validation, discovery, dashboard, and MCP serving commands.
@@ -141,12 +141,21 @@ Status: complete for the local pre-alpha scope
 
 ### Phase 15 — Trust, least privilege, and client conformance
 
-Status: in_progress
+Status: complete for the local pre-alpha scope
 
 - Verify artifacts against explicit publisher and registry trust policy.
 - Attenuate permissions against normalized arguments and dependency privileges.
 - Define one request/error/feature envelope for library, CLI, MCP, and future HTTP clients.
 - Connect only proven backends to CLI, Dashboard, and plugin documentation.
+
+### Phase 16 — Secrets, resilience, and portable activation
+
+Status: complete for the local pre-alpha scope
+
+- Add scope-, expiry-, and use-bound secret handles for trusted local callbacks.
+- Add typed, certainty-aware retry and bounded circuit-breaker primitives.
+- Accept resource-bounded safe YAML through the same inert manifest model.
+- Export and verify deterministic exact-revision activation locks.
 
 | Decision | Reason |
 |---|---|

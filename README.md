@@ -67,13 +67,14 @@ The transport-neutral protocol module defines one request/response/error envelop
 
 ## CLI and MCP
 
-The source install exposes twenty-six local commands:
+The source install exposes twenty-seven local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
 capabilityhub export-manifest examples/manifest-api.json --pretty
 capabilityhub migrate-manifest /path/to/legacy.json --pretty
 capabilityhub compatibility --required-feature security.example --pretty
+capabilityhub activation-lock export --pretty
 capabilityhub discover-skills /path/to/approved/skills
 capabilityhub inventory --pretty
 capabilityhub search "work with PDF files" --kind skill --limit 5 --pretty
@@ -108,6 +109,10 @@ supported driver is explicitly configured; `execute` uses that provider by defau
 Project manifests can opt into the CLI process, fixed-origin HTTP API, local RAG, and MCP stdio adapters. The process supervisor enforces wall-clock termination and bounded JSON IPC, but it is not an OS CPU/memory/filesystem sandbox; those production hardening gates remain open.
 
 The supply-chain module can verify artifact bytes against the manifest digest and an explicit publisher/registry policy. Its current signed profile uses standard-library HMAC-SHA256 for local shared-key deployments, with key IDs, expiry, and revocation. Production policy rejects unsigned artifacts. HMAC is not public publisher identity or third-party non-repudiation; a future public distribution profile must use a standard public-key/Sigstore implementation.
+
+Manifests may be JSON, `.yaml`, or `.yml`. YAML intake uses `safe_load` only after enforcing byte, node, and depth limits and rejecting aliases, custom tags, and multiple documents. `activation-lock export` captures exact active revisions plus dependency closure without loading providers; `activation-lock verify FILE` fails closed on missing, extra, or drifted capabilities.
+
+`ScopedSecretBroker` issues short-lived, scope-bound, use-limited handles for trusted local provider callbacks. It resolves an environment alias only after atomic handle admission and never offers a plaintext lookup API or stores secrets on disk. This is an embedding API, not an OS keychain. `ResilientProviderExecutor` adds opt-in bounded circuit breaking and retries only when a typed error is retryable, the operation is safe or idempotent, and the embedder explicitly classifies the failure as not applied; uncertain failures are never retried.
 
 `HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
 

@@ -44,10 +44,16 @@ def parse_manifest_json(source: str | bytes | bytearray) -> CapabilityManifest:
 
 
 def load_manifest(path: str | Path) -> CapabilityManifest:
-    """Load a JSON manifest from disk; YAML is intentionally outside the 0.1 core."""
+    """Load one JSON or bounded safe-YAML manifest from disk."""
 
     try:
-        return parse_manifest_json(Path(path).read_bytes())
+        selected = Path(path)
+        source = selected.read_bytes()
+        if selected.suffix.casefold() in {".yaml", ".yml"}:
+            from capabilityhub.manifest_yaml import load_manifest_yaml
+
+            return parse_manifest(load_manifest_yaml(source))
+        return parse_manifest_json(source)
     except OSError as error:
         raise CapabilityHubError(
             code="manifest_unreadable",

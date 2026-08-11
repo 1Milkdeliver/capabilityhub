@@ -9,6 +9,7 @@ from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.manifest import (
     API_VERSION,
     MAX_SUMMARY_CHARS,
+    load_manifest,
     parse_manifest,
     parse_manifest_json,
 )
@@ -47,6 +48,32 @@ def test_parses_all_capability_kinds(kind: str) -> None:
     assert manifest.operation("search").operation_type is (
         OperationType.RETRIEVE if kind == "rag" else OperationType.EXECUTE
     )
+
+
+def test_load_manifest_accepts_bounded_safe_yaml(tmp_path) -> None:
+    path = tmp_path / "manifest.yaml"
+    path.write_text(
+        """
+apiVersion: capabilityhub.io/v1alpha1
+kind: Capability
+metadata:
+  namespace: community
+  name: yaml-search
+  version: 1.0.0
+  digest: sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+spec:
+  type: api
+  summary: Search from safe YAML.
+  provider: fixture
+  operations:
+    - name: search
+""".strip(),
+        encoding="utf-8",
+    )
+
+    manifest = load_manifest(path)
+
+    assert manifest.identity.coordinate == "community/yaml-search"
 
 
 def test_accepts_architecture_shaped_sections_and_operations() -> None:

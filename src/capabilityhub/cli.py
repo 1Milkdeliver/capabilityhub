@@ -16,7 +16,7 @@ from capabilityhub.errors import CapabilityHubError, ErrorCategory
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="capabilityhub")
     commands = parser.add_subparsers(dest="command", required=True)
-    validate = commands.add_parser("validate", help="validate JSON manifests")
+    validate = commands.add_parser("validate", help="validate JSON or YAML manifests")
     validate.add_argument("paths", nargs="+")
     export_manifest = commands.add_parser(
         "export-manifest", help="export one validated manifest as deterministic JSON"
@@ -35,6 +35,15 @@ def build_parser() -> argparse.ArgumentParser:
     compatibility.add_argument("--supported-feature", action="append")
     compatibility.add_argument("--required-feature", action="append")
     _pretty_argument(compatibility)
+    activation_lock = commands.add_parser(
+        "activation-lock", help="export or verify the exact active revision lock"
+    )
+    activation_lock.add_argument(
+        "action", nargs="?", choices=("export", "verify"), default="export"
+    )
+    activation_lock.add_argument("path", nargs="?")
+    _project_argument(activation_lock)
+    _pretty_argument(activation_lock)
     discover = commands.add_parser("discover-skills", help="discover local SKILL.md packages")
     discover.add_argument("directories", nargs="+")
     inventory = commands.add_parser("inventory", help="show live local capability counts")
@@ -239,6 +248,19 @@ def _main(argv: Sequence[str] | None = None) -> int:
             ),
             pretty=args.pretty,
         )
+        return 0
+    if args.command == "activation-lock":
+        if args.action == "verify":
+            if args.path is None:
+                raise _usage("activation-lock verify requires a path")
+            payload = runtime.local_activation_lock_verify(
+                args.path, project_root=args.project_root
+            )
+        else:
+            if args.path is not None:
+                raise _usage("activation-lock export does not accept a path")
+            payload = runtime.local_activation_lock(args.project_root)
+        _print_json(payload, pretty=args.pretty)
         return 0
     if args.command == "discover-skills":
         manifests = runtime.discover_skills(args.directories)

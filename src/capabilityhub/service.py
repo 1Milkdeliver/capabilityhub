@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from threading import RLock
 
@@ -31,6 +31,7 @@ from capabilityhub.policy import PolicyContext, PolicyOutcome, ReferencePolicy
 from capabilityhub.providers.base import CapabilityProvider, ProviderContext
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
+from capabilityhub.resilience import FailureCertainty, ResilientProviderExecutor
 from capabilityhub.search import LexicalCapabilitySearch, SearchResponse
 from capabilityhub.supervision import ProviderSupervisor
 
@@ -100,6 +101,8 @@ class CapabilityHubService:
         execution_ref_ttl_seconds: int = 300,
         idempotency_store: IdempotencyStore | None = None,
         provider_supervisor: ProviderSupervisor | None = None,
+        provider_executor: ResilientProviderExecutor[ExecutionResult] | None = None,
+        retry_certainty_classifier: Callable[[CapabilityHubError], FailureCertainty] | None = None,
         _shared_state: _SharedServiceState | None = None,
     ) -> None:
         if execution_ref_ttl_seconds <= 0:
@@ -122,6 +125,8 @@ class CapabilityHubService:
         self._execution_ttl = execution_ref_ttl_seconds
         self._idempotency_store = idempotency_store
         self._provider_supervisor = provider_supervisor
+        self._provider_executor = provider_executor
+        self._retry_certainty_classifier = retry_certainty_classifier
         self._shared = _shared_state or _SharedServiceState({}, {}, 0, RLock())
 
     def fork_catalog(
@@ -142,6 +147,8 @@ class CapabilityHubService:
             execution_ref_ttl_seconds=self._execution_ttl,
             idempotency_store=self._idempotency_store,
             provider_supervisor=self._provider_supervisor,
+            provider_executor=self._provider_executor,
+            retry_certainty_classifier=self._retry_certainty_classifier,
             _shared_state=self._shared,
         )
 
@@ -434,11 +441,24 @@ class CapabilityHubService:
                 context.deadline_ms,
                 limit,
             )
-            if self._provider_supervisor is None:
-                result = provider.execute(manifest.identity, request, provider_context)
-            else:
-                result = self._provider_supervisor.execute(
+
+            def invoke_provider() -> ExecutionResult:
+                if self._provider_supervisor is None:
+                    return provider.execute(manifest.identity, request, provider_context)
+                return self._provider_supervisor.execute(
                     provider, manifest.identity, request, provider_context
+                )
+
+            if self._provider_executor is None:
+                result = invoke_provider()
+            else:
+                result = self._provider_executor.execute(
+                    provider.name,
+                    invoke_provider,
+                    operation=operation,
+                    request=request,
+                    deadline_seconds=context.deadline_ms / 1_000,
+                    classify_certainty=self._retry_certainty_classifier,
                 )
             result = self._normalize_result(result, manifest, request, provider.name)
             _validate_provider_output(operation, result.output)

@@ -7,7 +7,7 @@ import pytest
 from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.authorization import ParameterAuthorizer, PermissionConstraint
 from capabilityhub.budget import BudgetLedger
-from capabilityhub.errors import CapabilityHubError
+from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.models import (
     CapabilityIdentity,
     CapabilityKind,
@@ -24,6 +24,7 @@ from capabilityhub.providers.base import ProviderContext
 from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
+from capabilityhub.resilience import FailureCertainty, ResilientProviderExecutor, RetryPolicy
 from capabilityhub.service import CapabilityHubService, ServiceContext
 
 
@@ -49,6 +50,8 @@ def _setup(
     *,
     outputs: dict[str, JsonValue] | None = None,
     provider_type: type[StaticProvider] = StaticProvider,
+    provider_executor: ResilientProviderExecutor[ExecutionResult] | None = None,
+    retry_certainty_classifier=None,
 ) -> tuple[CapabilityHubService, ServiceContext, BudgetLedger, MemoryAuditSink]:
     selected = manifest or _manifest()
     registry = CapabilityRegistry()
@@ -64,6 +67,8 @@ def _setup(
         providers=(provider,),
         references=ReferenceSigner(b"service-test-key", clock=lambda: 100),
         audit=audit,
+        provider_executor=provider_executor,
+        retry_certainty_classifier=retry_certainty_classifier,
     )
     context = ServiceContext("tenant", "principal", "session", max_output_tokens=1_000)
     budget = BudgetLedger(
@@ -106,6 +111,26 @@ class CountingProvider(StaticProvider):
         return super().execute(identity, request, context)
 
 
+class RetryOnceProvider(StaticProvider):
+    calls = 0
+
+    def execute(
+        self,
+        identity: CapabilityIdentity,
+        request: ExecutionRequest,
+        context: ProviderContext,
+    ) -> ExecutionResult:
+        type(self).calls += 1
+        if type(self).calls == 1:
+            raise CapabilityHubError(
+                code="provider_temporarily_unavailable",
+                category=ErrorCategory.PROVIDER,
+                safe_message="The provider is temporarily unavailable.",
+                retryable=True,
+            )
+        return super().execute(identity, request, context)
+
+
 def _search_and_load(
     service: CapabilityHubService,
     context: ServiceContext,
@@ -145,6 +170,29 @@ def test_three_tool_flow_loads_only_selected_material_and_executes_named_provide
     snapshot = budget.snapshot()
     assert snapshot.used["loads"] == 1
     assert snapshot.used["executions"] == 1
+
+
+def test_service_retries_only_when_failure_is_explicitly_not_applied() -> None:
+    RetryOnceProvider.calls = 0
+    executor: ResilientProviderExecutor[ExecutionResult] = ResilientProviderExecutor(
+        retry_policy=RetryPolicy(max_attempts=2, initial_backoff_seconds=0),
+        sleeper=lambda _seconds: None,
+    )
+    service, context, budget, _ = _setup(
+        provider_type=RetryOnceProvider,
+        provider_executor=executor,
+        retry_certainty_classifier=lambda _error: FailureCertainty.NOT_APPLIED,
+    )
+    _, execution_ref = _search_and_load(service, context, budget)
+
+    result = service.execute(
+        ExecutionRequest(execution_ref, "find", {"query": "x"}, "task"),
+        context=context,
+        budget=budget,
+    )
+
+    assert result.output == {"items": [1]}
+    assert RetryOnceProvider.calls == 2
 
 
 def test_search_filters_capabilities_before_disclosure_by_permission() -> None:

@@ -29,6 +29,9 @@ Security invariants below describe the intended and tested core boundary; they a
 - Staged revision activation requires an explicit health result and compare-and-swap active pointer; rollback retains the prior immutable revision. This is not artifact signature verification or a sandbox health probe.
 - Optional parameter authorization applies the same dependency-aware eligibility decision before search disclosure and execution, then checks normalized path, host, method, command, profile, and secret-alias constraints. It never accepts raw secret values.
 - Local artifact attestations use HMAC-SHA256 only for shared-key deployments and are not a substitute for public-key publisher identity. Production policy fails closed on unsigned, expired, revoked, untrusted, or digest-mismatched artifacts.
+- YAML manifests are byte-, node-, and depth-bounded and reject aliases, custom tags, multiple documents, non-string keys, and non-JSON values before entering the common manifest parser.
+- Secret broker handles bind caller and operation scope, expiry, use count, and policy revision. Plaintext is delivered only to a pre-registered in-process callback and is never returned through the broker API or persisted.
+- Automatic retries require a typed retryable error, an explicitly not-applied failure, and a read-only or idempotent reversible operation. Unknown, uncertain, and irreversible failures are never retried.
 - Secrets are references resolved outside model-visible payloads.
 - Provider output is untrusted and budget bounded.
 - External gateways, sandboxes, and credential stores remain separate integrations.

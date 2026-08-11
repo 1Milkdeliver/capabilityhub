@@ -146,7 +146,7 @@ def local_catalog_fingerprint(
             _fingerprint_path(digest, path)
     manifest_root = project_dir / ".capabilityhub" / "manifests"
     if manifest_root.is_dir():
-        for path in sorted(manifest_root.rglob("*.json"), key=lambda item: item.as_posix()):
+        for path in _manifest_paths(manifest_root):
             _fingerprint_path(digest, path)
     state_path = project_dir / ".capabilityhub" / "state.sqlite3"
     if state_path.is_file():
@@ -271,6 +271,7 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
             OperationSpec("export-manifest", OperationType.EXPAND),
             OperationSpec("migrate-manifest", OperationType.EXPAND),
             OperationSpec("compatibility", OperationType.EXPAND),
+            OperationSpec("activation-lock", OperationType.EXPAND),
             OperationSpec("discover-skills", OperationType.EXPAND),
             OperationSpec("inventory", OperationType.EXPAND),
             OperationSpec("search", OperationType.EXPAND),
@@ -315,13 +316,26 @@ def _project_manifests(project: Path) -> tuple[tuple[CapabilityManifest, ...], i
         return (), 0
     manifests: list[CapabilityManifest] = []
     invalid_count = 0
-    for path in sorted(root.rglob("*.json"), key=lambda item: item.as_posix()):
+    for path in _manifest_paths(root):
         try:
             manifests.append(load_manifest(path))
         except (CapabilityHubError, OSError, ValueError):
             invalid_count += 1
             continue
     return tuple(manifests), invalid_count
+
+
+def _manifest_paths(root: Path) -> tuple[Path, ...]:
+    return tuple(
+        sorted(
+            (
+                path
+                for path in root.rglob("*")
+                if path.is_file() and path.suffix.casefold() in {".json", ".yaml", ".yml"}
+            ),
+            key=lambda item: item.as_posix(),
+        )
+    )
 
 
 def _fingerprint_path(

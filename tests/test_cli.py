@@ -35,6 +35,22 @@ def test_manifest_and_compatibility_commands_route(monkeypatch, capsys) -> None:
     assert json.loads(capsys.readouterr().out)["decision"]["compatible"] is False
 
 
+def test_activation_lock_commands_route_and_validate_usage(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(runtime, "local_activation_lock", lambda *_args: {"lockDigest": "x"})
+    monkeypatch.setattr(
+        runtime,
+        "local_activation_lock_verify",
+        lambda *_args, **_kwargs: {"valid": True},
+    )
+
+    assert main(["activation-lock"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"lockDigest": "x"}
+    assert main(["activation-lock", "verify", "lock.json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"valid": True}
+    assert main(["activation-lock", "verify"]) == 2
+    assert "activation-lock verify requires a path" in capsys.readouterr().err
+
+
 def test_mcp_serve_accepts_an_explicit_project_root() -> None:
     args = build_parser().parse_args(["mcp-serve", "--project-root", "project with spaces"])
 

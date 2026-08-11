@@ -10,6 +10,8 @@ from capabilityhub.errors import CapabilityHubError
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.runtime import (
     discover_skills,
+    local_activation_lock,
+    local_activation_lock_verify,
     local_audit,
     local_benchmark,
     local_budget_report,
@@ -72,6 +74,24 @@ def test_validate_and_discover_skills(tmp_path) -> None:
 
     exported = local_manifest_export(file)
     assert exported["apiVersion"] == "capabilityhub.io/v1alpha1"
+
+
+def test_activation_lock_runtime_round_trip(tmp_path) -> None:
+    home = tmp_path / "home"
+    skill = home / ".codex" / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: demo\n---\nbody", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    monitor = LocalCatalogMonitor(home=home, project=project)
+    document = local_activation_lock(monitor=monitor)
+    path = tmp_path / "activation-lock.json"
+    path.write_text(json.dumps(document), encoding="utf-8")
+
+    result = local_activation_lock_verify(path, monitor=monitor)
+
+    assert result["valid"] is True
+    assert result["capability_count"] == 2
 
 
 def test_manifest_migration_preview_and_compatibility_fail_closed(tmp_path) -> None:

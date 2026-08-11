@@ -54,6 +54,24 @@ enabled = true
         }""",
         encoding="utf-8",
     )
+    (manifests / "notes.yaml").write_text(
+        """
+apiVersion: capabilityhub.io/v1alpha1
+kind: Capability
+metadata:
+  namespace: project
+  name: notes
+  version: 1.0.0
+  digest: sha256:1111111111111111111111111111111111111111111111111111111111111111
+spec:
+  type: rag
+  summary: Read project notes
+  provider: fixture
+  operations:
+    - name: retrieve
+""".strip(),
+        encoding="utf-8",
+    )
 
     catalog = discover_local_catalog(home=tmp_path, project=project)
 
@@ -66,6 +84,7 @@ enabled = true
     assert counts[CapabilityKind.MCP] == 1
     assert counts[CapabilityKind.CLI] == 1
     assert counts[CapabilityKind.API] == 1
+    assert counts[CapabilityKind.RAG] == 1
     cli = next(item for item in catalog.manifests if item.kind is CapabilityKind.CLI)
     assert cli.identity.coordinate == "capabilityhub/cli"
     assert {operation.name for operation in cli.operations} == {
@@ -73,6 +92,7 @@ enabled = true
         "export-manifest",
         "migrate-manifest",
         "compatibility",
+        "activation-lock",
         "discover-skills",
         "inventory",
         "search",

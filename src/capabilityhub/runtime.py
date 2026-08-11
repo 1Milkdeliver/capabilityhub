@@ -14,6 +14,10 @@ from pathlib import Path
 from secrets import token_bytes
 from typing import cast
 
+from capabilityhub.activation_lock import (
+    export_activation_lock,
+    validate_activation_lock_json,
+)
 from capabilityhub.approval_store import (
     ApprovalIntent,
     ApprovalRecord,
@@ -97,6 +101,42 @@ def local_manifest_export(path: str | Path) -> dict[str, JsonValue]:
     """Export one validated manifest deterministically without invoking a Provider."""
 
     return manifest_to_document(load_manifest(path))
+
+
+def local_activation_lock(
+    project_root: str | Path | None = None,
+    *,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Export the exact active catalog without loading capability bodies."""
+
+    selected = _select_local_scope(project_root, monitor)
+    return export_activation_lock(selected.snapshot().registry)
+
+
+def local_activation_lock_verify(
+    path: str | Path,
+    project_root: str | Path | None = None,
+    *,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Verify an activation lock against the current active catalog."""
+
+    try:
+        source = Path(path).read_bytes()
+    except OSError as error:
+        raise CapabilityHubError(
+            code="activation_lock_unreadable",
+            category=ErrorCategory.INPUT,
+            safe_message="The activation lock could not be read.",
+        ) from error
+    selected = _select_local_scope(project_root, monitor)
+    result = validate_activation_lock_json(source, selected.snapshot().registry)
+    return {
+        "capability_count": result.capability_count,
+        "lock_digest": result.lock_digest,
+        "valid": True,
+    }
 
 
 def local_manifest_migrate(path: str | Path) -> dict[str, JsonValue]:

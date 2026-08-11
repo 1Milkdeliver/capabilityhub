@@ -15,8 +15,8 @@ deployment hardening guide.
 | Manifest and registry | JSON `v1alpha1` parsing, immutable revisions, activation pointers, dependency/conflict checks | Suitable for local/core experimentation; not a compatibility guarantee |
 | Search/load/execute core | Deterministic lexical search, scope-bound references, section/operation loading, policy/budget/audit tests | Python-library behavior only; no public transport contract |
 | Skill intake | Filesystem-only `SKILL.md` discovery without script execution | Content discovery, not Skill execution or sandboxing |
-| Local dashboard | Read-only `DashboardServer`, loopback default, injected snapshot | Embedding application owns authentication and data filtering |
-| CLI and MCP | Four local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; read-only catalog generations refresh atomically after a lightweight change check |
+| Local dashboard | Read-only loopback server with live Inventory and local Health snapshot | Local inspection only; no remote connection probe, authentication, or mutations |
+| CLI and MCP | Seven local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; read-only catalog generations refresh atomically after a lightweight change check |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
 
 ## Benchmark claim boundary

@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import secrets
 from collections.abc import Callable
+from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
@@ -20,17 +21,15 @@ from mcp_types import CallToolResult, TextContent
 from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
-from capabilityhub.local_catalog import discover_local_catalog, local_catalog_fingerprint
+from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.metering import canonical_json
 from capabilityhub.models import (
-    CapabilityKind,
     ExecutionRequest,
     JsonValue,
     LoadedCapability,
     SearchCard,
 )
 from capabilityhub.references import ReferenceSigner
-from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.search import SearchResponse
 from capabilityhub.service import CapabilityHubService, ServiceContext
 
@@ -187,116 +186,38 @@ class _LocalRuntime:
     """Atomically refresh a read-only local catalog only when its fingerprint changes."""
 
     def __init__(self, *, home: Path | None, project: Path | None) -> None:
-        self._home = (home or Path.home()).resolve()
-        self._project = (project or Path.cwd()).resolve()
+        self._monitor = LocalCatalogMonitor(home=home, project=project)
         self._references = ReferenceSigner(secrets.token_bytes(32))
         self._audit = MemoryAuditSink()
         self._lock = RLock()
-        self._fingerprint = ""
-        self._generation = 0
         self._state: _MCPRuntimeState | None = None
 
     def state(self) -> _MCPRuntimeState:
         with self._lock:
-            try:
-                fingerprint = local_catalog_fingerprint(home=self._home, project=self._project)
-                if self._state is None or fingerprint != self._fingerprint:
-                    refreshed = self._build_state()
-                    self._state = refreshed
-                    self._fingerprint = fingerprint
-            except Exception:
-                if self._state is None:
-                    raise
-                inventory = dict(self._state.inventory or {})
-                inventory["last_refresh_error_code"] = "catalog_refresh_failed"
-                inventory["status"] = "stale"
-                return _MCPRuntimeState(self._state.service, inventory)
+            generation = self._monitor.snapshot()
+            current_generation = (
+                self._state.inventory.get("generation")
+                if self._state is not None and self._state.inventory is not None
+                else None
+            )
+            next_generation = generation.inventory.get("generation")
+            if self._state is None:
+                service = CapabilityHubService(
+                    registry=generation.registry,
+                    providers=generation.providers,
+                    references=self._references,
+                    audit=self._audit,
+                )
+                self._state = _MCPRuntimeState(service, generation.inventory_json())
+            elif next_generation != current_generation:
+                service = self._state.service.fork_catalog(
+                    registry=generation.registry,
+                    providers=generation.providers,
+                )
+                self._state = _MCPRuntimeState(service, generation.inventory_json())
+            elif generation.inventory != self._state.inventory:
+                return _MCPRuntimeState(self._state.service, generation.inventory_json())
             return self._state
-
-    def _build_state(self) -> _MCPRuntimeState:
-        catalog = discover_local_catalog(home=self._home, project=self._project)
-        registry = CapabilityRegistry()
-        registration_conflicts = 0
-        for manifest in sorted(catalog.manifests, key=lambda item: item.identity.revision):
-            try:
-                registry.register(manifest)
-            except CapabilityHubError:
-                registration_conflicts += 1
-
-        pending = [
-            manifest
-            for manifest in catalog.manifests
-            if manifest.identity.revision in registry.revisions
-            and manifest.identity.coordinate not in catalog.inactive_coordinates
-        ]
-        while pending:
-            remaining = []
-            progress = False
-            for manifest in pending:
-                try:
-                    registry.activate(manifest.identity.coordinate, manifest.identity.revision)
-                except CapabilityHubError:
-                    remaining.append(manifest)
-                else:
-                    progress = True
-            if not progress:
-                break
-            pending = remaining
-
-        if self._state is None:
-            service = CapabilityHubService(
-                registry=registry,
-                providers=catalog.skill_providers,
-                references=self._references,
-                audit=self._audit,
-            )
-        else:
-            service = self._state.service.fork_catalog(
-                registry=registry,
-                providers=catalog.skill_providers,
-            )
-        active_by_kind: dict[str, JsonValue] = {
-            kind.value: 0 for kind in CapabilityKind
-        }
-        for revision in registry.activations.values():
-            kind = registry.revision(revision).kind.value
-            count = active_by_kind[kind]
-            assert isinstance(count, int)
-            active_by_kind[kind] = count + 1
-        discovered_total = len(registry.revisions)
-        active_total = len(registry.activations)
-        self._generation += 1
-        conflict_count = catalog.conflict_count + registration_conflicts
-        excluded_by_reason: dict[str, JsonValue] = {
-            "configured_disabled": len(catalog.inactive_coordinates),
-            "dependency_inactive": len(pending),
-            "duplicate_identical": catalog.duplicate_count,
-            "invalid_manifest": catalog.invalid_count,
-            "path_escape": catalog.skipped_count,
-            "registration_conflict": registration_conflicts,
-            "shadowed_conflict": catalog.conflict_count,
-        }
-        partial = any(
-            value
-            for key, value in excluded_by_reason.items()
-            if key not in {"configured_disabled", "duplicate_identical"}
-            and isinstance(value, int)
-        )
-        inventory: dict[str, JsonValue] = {
-            "active_by_kind": active_by_kind,
-            "active_total": active_total,
-            "conflict_count": conflict_count,
-            "discovered_total": discovered_total,
-            "duplicate_count": catalog.duplicate_count,
-            "excluded_by_reason": excluded_by_reason,
-            "generation": self._generation,
-            "inactive_count": discovered_total - active_total,
-            "invalid_count": catalog.invalid_count,
-            "last_refresh_error_code": None,
-            "skipped_count": catalog.skipped_count,
-            "status": "partial" if partial else "fresh",
-        }
-        return _MCPRuntimeState(service, inventory)
 
 
 def create_empty_mcp_server(
@@ -468,7 +389,7 @@ def _search_dict(response: SearchResponse) -> dict[str, JsonValue]:
         "truncated": response.truncated,
     }
     if response.inventory is not None:
-        result["inventory"] = response.inventory
+        result["inventory"] = deepcopy(response.inventory)
     return result
 
 

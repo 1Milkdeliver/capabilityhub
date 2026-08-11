@@ -91,6 +91,16 @@ Status: in_progress
 
 ## Decisions Made
 
+### Phase 10 — Live local operations
+
+Status: complete
+
+- Add bounded `inventory`, `search`, and non-scanning `health` CLI commands.
+- Connect the loopback Dashboard to the shared live Inventory generation.
+- Make returned Inventory data isolated, freeze published registries, and reject mixed project scopes.
+- Keep search output at or below 900 portable tokens and reject oversized result limits.
+- Preserve the exact three-tool MCP surface.
+
 | Decision | Reason |
 |---|---|
 | Use adapters instead of merging upstream source trees | Avoid duplicated maintenance and license/technology conflicts |

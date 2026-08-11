@@ -6,7 +6,7 @@
       "title": "Everyday",
       "items": {
         "/myskills find <task>": "(Search: tell me what you want to do and I will find a Skill)",
-        "/myskills list": "(Inventory: see all discovered Skills)",
+        "/myskills list": "(Inventory: see active searchable Skills; five results by default)",
         "/myskills loaded": "(Loaded: see Skills loaded for this task)",
         "/myskills show <name>": "(Details: see what a Skill can do)"
       }

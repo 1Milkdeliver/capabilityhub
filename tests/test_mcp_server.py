@@ -237,7 +237,7 @@ def test_local_server_keeps_last_complete_snapshot_when_refresh_check_fails(
     def fail_fingerprint(**_kwargs: object) -> str:
         raise OSError("SECRET-CANARY must not escape")
 
-    monkeypatch.setattr("capabilityhub.mcp_server.local_catalog_fingerprint", fail_fingerprint)
+    monkeypatch.setattr("capabilityhub.local_runtime.local_catalog_fingerprint", fail_fingerprint)
 
     async def scenario() -> None:
         async with Client(server) as client:

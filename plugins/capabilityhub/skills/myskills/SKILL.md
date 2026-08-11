@@ -41,9 +41,11 @@ static catalog in `references/locales/`. Never translate stable menu text at run
   user requests more.
 - Load a Skill body only after an explicit selection.
 - Skills are load-only in CapabilityHub; do not offer a `run` command.
-- Read-only actions execute directly. An explicit `enable` or `disable` command may act
-  on one exact Skill and must provide an undo hint. Ambiguous mutations return choices
-  without changing state.
+- Read-only actions execute directly. Lifecycle mutations are not connected in the
+  current local runtime; label `enable`, `disable`, `pause`, `update`, and `quarantine`
+  as unavailable instead of pretending to change state.
+- If Loaded, Providers, or Routing data is not present in the selected runtime response,
+  say it is unavailable. Never infer it from a search card.
 - Never delete a Skill. Use pause or quarantine instead.
 - Label unavailable management actions honestly when the runtime is not connected.
 - Never reveal credentials, hidden reasoning, or full unselected Skill content.

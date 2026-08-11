@@ -7,10 +7,11 @@ from collections.abc import Callable, Mapping
 from functools import partial
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
+from ipaddress import ip_address
 from pathlib import Path
 from socket import socket
 from socketserver import BaseServer
-from threading import Thread
+from threading import RLock, Thread
 from typing import Any
 
 StatusSnapshot = Mapping[str, object]
@@ -26,39 +27,57 @@ class DashboardServer:
         host: str = "127.0.0.1",
         port: int = 0,
     ) -> None:
+        if host != "localhost" and not ip_address(host).is_loopback:
+            raise ValueError("dashboard host must be a loopback address")
         self._snapshot_provider = snapshot_provider
         self._host = host
         self._port = port
         self._server: ThreadingHTTPServer | None = None
+        self._thread: Thread | None = None
+        self._lifecycle_lock = RLock()
 
     @property
     def url(self) -> str:
-        if self._server is None:
+        with self._lifecycle_lock:
+            server = self._server
+        if server is None:
             raise RuntimeError("dashboard server has not been started")
-        host, port = self._server.server_address[:2]
+        host, port = server.server_address[:2]
         if isinstance(host, bytes):
             host = host.decode("ascii")
         return f"http://{host}:{port}"
 
     def start(self) -> str:
-        if self._server is not None:
+        with self._lifecycle_lock:
+            if self._server is not None:
+                return self.url
+            handler = partial(
+                _DashboardHandler,
+                directory=str(_assets_directory()),
+                snapshot_provider=self._snapshot_provider,
+            )
+            server = ThreadingHTTPServer((self._host, self._port), handler)
+            thread = Thread(
+                target=server.serve_forever,
+                name="capabilityhub-dashboard",
+                daemon=True,
+            )
+            self._server = server
+            self._thread = thread
+            thread.start()
             return self.url
-        handler = partial(
-            _DashboardHandler,
-            directory=str(_assets_directory()),
-            snapshot_provider=self._snapshot_provider,
-        )
-        self._server = ThreadingHTTPServer((self._host, self._port), handler)
-        Thread(
-            target=self._server.serve_forever, name="capabilityhub-dashboard", daemon=True
-        ).start()
-        return self.url
 
     def close(self) -> None:
-        if self._server is not None:
-            self._server.shutdown()
-            self._server.server_close()
+        with self._lifecycle_lock:
+            server = self._server
+            thread = self._thread
             self._server = None
+            self._thread = None
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        if thread is not None:
+            thread.join(timeout=2)
 
     def __enter__(self) -> DashboardServer:
         self.start()
@@ -99,6 +118,9 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
             self.send_error(
                 HTTPStatus.INTERNAL_SERVER_ERROR, "Status snapshot is not JSON serializable"
             )
+            return
+        except Exception:
+            self.send_error(HTTPStatus.SERVICE_UNAVAILABLE, "Status snapshot unavailable")
             return
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", "application/json; charset=utf-8")

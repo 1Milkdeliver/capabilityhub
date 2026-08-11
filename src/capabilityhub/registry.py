@@ -24,6 +24,12 @@ class CapabilityRegistry:
         self._by_coordinate: dict[str, list[str]] = {}
         self._active: dict[str, str] = {}
         self._by_kind: dict[CapabilityKind, set[str]] = {kind: set() for kind in CapabilityKind}
+        self._frozen = False
+
+    def freeze(self) -> None:
+        """Prevent further revision or activation mutation."""
+
+        self._frozen = True
 
     @property
     def revisions(self) -> Mapping[str, CapabilityManifest]:
@@ -43,6 +49,7 @@ class CapabilityRegistry:
     ) -> tuple[CapabilityManifest, ...]:
         """Atomically store revisions after rejecting duplicate revision identities."""
 
+        self._ensure_mutable()
         additions = tuple(manifests)
         staged = dict(self._revisions)
         for manifest in additions:
@@ -93,6 +100,7 @@ class CapabilityRegistry:
     def activate(self, coordinate: str, revision: str | None = None) -> CapabilityManifest:
         """Atomically point a coordinate at a validated, immutable revision."""
 
+        self._ensure_mutable()
         chosen_revision = revision if revision is not None else self._active_candidate(coordinate)
         manifest = self.revision(chosen_revision)
         if manifest.identity.coordinate != coordinate:
@@ -106,6 +114,7 @@ class CapabilityRegistry:
         return manifest
 
     def deactivate(self, coordinate: str) -> None:
+        self._ensure_mutable()
         if coordinate not in self._active:
             raise _reference(
                 "inactive_capability", "Capability has no active revision.", coordinate=coordinate
@@ -244,6 +253,10 @@ class CapabilityRegistry:
             for coordinate, items in coordinates.items()
         }
         self._by_kind = kinds
+
+    def _ensure_mutable(self) -> None:
+        if self._frozen:
+            raise _conflict("registry_frozen", "This registry snapshot is read-only.")
 
 
 def _kind(kind: CapabilityKind | str) -> CapabilityKind:

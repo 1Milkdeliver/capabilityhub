@@ -63,12 +63,15 @@ Search and load are not permission grants. Skill content is load-only, and execu
 
 ## CLI and MCP
 
-The source install exposes four local commands:
+The source install exposes seven local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
 capabilityhub discover-skills /path/to/approved/skills
-capabilityhub dashboard
+capabilityhub inventory --pretty
+capabilityhub search "work with PDF files" --kind skill --limit 5 --pretty
+capabilityhub health --pretty
+capabilityhub dashboard --project-root /absolute/project/path
 capabilityhub mcp-serve
 ```
 
@@ -112,13 +115,17 @@ Lifecycle, risks, and conflicts remain visible with plain-language explanations.
 and `/helpme home` returns to the CapabilityHub main menu. Every child menu and result
 keeps these navigation choices visible; `/myskills back` returns to the My Skills menu.
 
-`DashboardServer` is a small read-only, standard-library dashboard server. It binds to `127.0.0.1` by default and serves bundled assets plus `GET /api/status`; it does not accept mutations. Start the illustrative local snapshot:
+`DashboardServer` is a small read-only, standard-library dashboard server. It binds to `127.0.0.1` by default and serves bundled assets plus `GET /api/status`; it does not accept mutations. Start the live local Inventory and Health view:
 
 ```bash
-python examples/dashboard.py
+capabilityhub dashboard --project-root /absolute/project/path
 ```
 
-It intentionally shows only injected, JSON-serializable status fields. Do not include credentials, full manifests, Skill bodies, provider output, or sensitive sections in a snapshot. See [the dashboard note](docs/ui-plugin.md) for the same boundary.
+The page refreshes every three seconds and shows five-kind active counts, generation,
+safe exclusion counts, and local wiring checks. It does not show credentials, commands,
+URLs, full manifests, Skill bodies, or provider output. `examples/dashboard.py` remains a
+small injected-snapshot fixture for embedders. See [the dashboard note](docs/ui-plugin.md)
+for the same boundary.
 
 ## Deterministic disclosure benchmark
 

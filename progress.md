@@ -27,3 +27,5 @@
 - Published the local MCP connection, direct `/helpme` and `/myskills` menus, language/back/home navigation, and real Skill/MCP/CLI inventory discovery.
 - Added atomic same-process local catalog generations, lightweight change fingerprints, stable source namespaces, deterministic duplicate/conflict handling, explicit project-root support, and safe fresh/partial/stale diagnostics.
 - Added concurrent refresh, unchanged-generation, stale-reference, stale-fallback, redaction, shared execution-grant, and benchmark-artifact consistency coverage; the current local gate is 90 tests with one platform symlink skip.
+- Added live `inventory`, bounded `search`, and non-scanning `health` CLI commands plus a real-time loopback Dashboard.
+- Isolated returned Inventory JSON, froze published registry generations, rejected mixed project scopes and non-loopback Dashboard bindings, and made Dashboard lifecycle calls thread-safe.

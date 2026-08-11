@@ -24,8 +24,8 @@
       {
         "title": "System",
         "items": {
-          "/helpme status": "(Status: check whether CapabilityHub components are working)",
-          "/helpme dashboard": "(Dashboard: view capabilities, budgets, and alerts in a local browser)",
+          "/helpme status": "(Status: see Inventory freshness and safe local checks)",
+          "/helpme dashboard": "(Dashboard: view capability counts, exclusions, and local checks)",
           "/helpme budget": "(Budget: view and limit tokens, loads, and executions)",
           "/helpme security": "(Security: view permissions, approvals, credentials, and risks)",
           "/helpme settings": "(Settings: change project scope and defaults)",
@@ -38,8 +38,8 @@
   },
   "topics": {
     "overview": {
-      "/helpme overview status": "(Check whether components are running normally)",
-      "/helpme overview dashboard": "(Open the local visual dashboard)",
+      "/helpme overview status": "(View Inventory freshness and local wiring checks)",
+      "/helpme overview dashboard": "(View the read-only local visual dashboard)",
       "/helpme overview version": "(View core, plugin, and protocol versions)",
       "/helpme overview alerts": "(View budget, connection, and security alerts)"
     },
@@ -60,9 +60,9 @@
       "/helpme consumption history": "(Compare consumption across previous tasks)"
     },
     "runtime": {
-      "/helpme runtime services": "(View Dashboard and MCP service status)",
-      "/helpme runtime connections": "(View CLI, API, RAG, and MCP connections)",
-      "/helpme runtime mcp": "(Configure the search, load, and execute MCP tools)",
+      "/helpme runtime services": "(Check Dashboard files and MCP SDK availability)",
+      "/helpme runtime connections": "(View configured capabilities; this does not prove connectivity)",
+      "/helpme runtime mcp": "(View the search, load, and execute MCP tool contract)",
       "/helpme runtime logs": "(View minimized runtime logs and errors)",
       "/helpme runtime health": "(Run a health check without loading the catalog)"
     },

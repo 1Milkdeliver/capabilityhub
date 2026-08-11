@@ -2,9 +2,11 @@
 
 `capabilityhub.webui.DashboardServer` is a read-only standard-library HTTP server. It binds to `127.0.0.1` by default and serves only local bundled assets plus `GET /api/status`. The application injects a JSON-serializable snapshot callback; the UI never receives registry objects or full capability content through chat.
 
-The snapshot may contain `providers`, `active_capabilities`, `loaded_capabilities`, `budget_remaining`, `reasoning_tier`, and `estimated_savings`. It must omit credentials, full manifests, scripts, and sensitive sections.
+The built-in live snapshot contains five-kind active counts, generation and freshness,
+inactive and safe exclusion counts, and local wiring checks. It omits credentials,
+commands, URLs, full manifests, Skill bodies, scripts, and provider output.
 
-The repository-local Codex plugin provides one minimal dashboard-help skill. It can be
+The repository-local Codex plugin provides two minimal menu skills. They can be
 installed as an always-available help entry without loading the catalog into each chat.
 Its `.mcp.json` intentionally stays empty: the Python package and its `mcp` extra are
 separate runtime dependencies, and the public plugin must not embed one developer's
@@ -15,14 +17,15 @@ explicitly:
 codex mcp add capabilityhub-local -- /absolute/path/to/python -m capabilityhub.cli mcp-serve
 ```
 
-Open a new Codex task after registration. The local server builds a read-only startup
-snapshot from approved Skill roots, enabled plugin Skill roots, configured MCP names,
+Open a new Codex task after registration. The local server builds a read-only catalog
+generation from approved Skill roots, enabled plugin Skill roots, configured MCP names,
 the installed CapabilityHub CLI, and project `.capabilityhub/manifests`; it never
 executes discovered code or reports
 credential/connection values. A missing runtime therefore cannot break every Codex
 task, while connected tasks can query actual inventory totals. Search checks a compact
 filesystem fingerprint and publishes a new atomic generation only after inputs change,
-so same-task Skill and manifest updates do not require a restart. Inventory responses
+so same-task Skill and manifest updates do not require a restart. The local Dashboard
+uses the same monitor and polls its safe status endpoint every three seconds. Inventory responses
 identify fresh, partial, or stale state and expose only safe diagnostic codes/counts.
 
 The plugin exposes `helpme` and `myskills`, so the Codex app can present `/helpme` and

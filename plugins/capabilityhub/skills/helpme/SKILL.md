@@ -48,6 +48,18 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
   infer totals from cards or query-level `kind_counts`. If status is `partial`, show only
   non-zero `excluded_by_reason` counts. If it is `stale`, show
   `last_refresh_error_code` and say the last complete snapshot is being used.
+- For `/helpme search <task>`, call `capability.search` for compact cards only. Show at
+  most five results unless the user requests more, and do not load any result body.
+- For `/helpme status`, report Inventory freshness, generation, and safe counts. Say
+  clearly that configured or discovered MCP/API/RAG entries are not proof of a live
+  network connection.
+- For `/helpme dashboard`, give the local `capabilityhub dashboard` command and explain
+  that it shows live Inventory plus local wiring checks. Do not claim that it opens a
+  browser automatically or displays budgets and alerts.
+- For `/helpme runtime health`, use `capabilityhub health --pretty` when local CLI
+  execution is available. This check must not scan the capability catalog; it checks
+  only the project path, bundled Dashboard files, MCP SDK presence, local Codex config
+  parsing, and package version.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

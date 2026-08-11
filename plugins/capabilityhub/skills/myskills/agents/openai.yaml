@@ -1,12 +1,12 @@
 interface:
   display_name: "My Skills"
-  short_description: "Find and manage local Skills"
+  short_description: "Find and inspect local Skills"
   default_prompt: "Use $myskills to show my live Skill inventory."
 dependencies:
   tools:
     - type: "mcp"
       value: "capabilityhub-local"
-      description: "Local CapabilityHub inventory and control runtime"
+      description: "Local CapabilityHub read-only inventory and search runtime"
       transport: "stdio"
 policy:
   allow_implicit_invocation: true

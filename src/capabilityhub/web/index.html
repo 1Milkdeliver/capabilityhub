@@ -1,1 +1,53 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CapabilityHub</title><link rel="stylesheet" href="/style.css"></head><body><main><header><p class="eyebrow">LOCAL · READ ONLY</p><h1>CapabilityHub</h1><p id="state" aria-live="polite">Loading status…</p></header><section aria-labelledby="summary"><h2 id="summary">Control-plane summary</h2><dl class="metrics"><div><dt>Reasoning tier</dt><dd id="tier">—</dd></div><div><dt>Estimated savings</dt><dd id="savings">—</dd></div><div><dt>Budget remaining</dt><dd id="budget">—</dd></div></dl></section><section aria-labelledby="providers"><h2 id="providers">Providers</h2><ul id="provider-list" class="cards"></ul></section><section aria-labelledby="active"><h2 id="active">Active capabilities</h2><ul id="active-list" class="cards"></ul></section><section aria-labelledby="loaded"><h2 id="loaded">Loaded capabilities</h2><ul id="loaded-list" class="cards"></ul></section></main><script src="/app.js"></script></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>CapabilityHub</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main>
+    <header>
+      <p class="eyebrow">LOCAL · READ ONLY</p>
+      <h1>CapabilityHub</h1>
+      <p id="state" aria-live="polite">Loading live Inventory…</p>
+    </header>
+
+    <section aria-labelledby="inventory-title">
+      <h2 id="inventory-title">Inventory</h2>
+      <p class="hint">What Codex can find right now. Professional names stay visible.</p>
+      <dl class="metrics kinds">
+        <div><dt>Skill</dt><dd id="kind-skill">—</dd></div>
+        <div><dt>MCP</dt><dd id="kind-mcp">—</dd></div>
+        <div><dt>CLI</dt><dd id="kind-cli">—</dd></div>
+        <div><dt>API</dt><dd id="kind-api">—</dd></div>
+        <div><dt>RAG</dt><dd id="kind-rag">—</dd></div>
+      </dl>
+    </section>
+
+    <section aria-labelledby="summary-title">
+      <h2 id="summary-title">Status</h2>
+      <dl class="metrics">
+        <div><dt>Snapshot</dt><dd id="snapshot-status">—</dd></div>
+        <div><dt>Generation</dt><dd id="generation">—</dd></div>
+        <div><dt>Active</dt><dd id="active-total">—</dd></div>
+        <div><dt>Inactive</dt><dd id="inactive-total">—</dd></div>
+      </dl>
+    </section>
+
+    <section aria-labelledby="notices-title">
+      <h2 id="notices-title">Notices</h2>
+      <p class="hint">Safe counts only. Paths, commands, URLs, and credentials are hidden.</p>
+      <ul id="notice-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="health-title">
+      <h2 id="health-title">Health</h2>
+      <p class="hint">Checks wiring without loading capability bodies.</p>
+      <ul id="health-list" class="cards"></ul>
+    </section>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>

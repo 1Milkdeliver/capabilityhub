@@ -6,7 +6,7 @@
       "title": "常用功能",
       "items": {
         "/myskills find <task>": "（Search：告诉我想做什么，我来寻找合适的 Skill）",
-        "/myskills list": "（Inventory：查看已经发现的全部 Skills）",
+        "/myskills list": "（Inventory：查看当前可搜索的 Skills，默认显示五项）",
         "/myskills loaded": "（Loaded：查看这个任务已经加载的 Skills）",
         "/myskills show <name>": "（Details：查看一个 Skill 能做什么）"
       }

@@ -67,7 +67,7 @@ The transport-neutral protocol module defines one request/response/error envelop
 
 ## CLI and MCP
 
-The source install exposes twenty-seven local commands:
+The source install exposes twenty-eight local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
@@ -97,6 +97,7 @@ capabilityhub budget-report --pretty
 capabilityhub benchmark
 capabilityhub benchmark --scale
 capabilityhub dashboard --project-root /absolute/project/path
+capabilityhub http-serve --project-root /absolute/project/path
 capabilityhub mcp-serve
 ```
 
@@ -118,6 +119,8 @@ Manifests may be JSON, `.yaml`, or `.yml`. YAML intake uses `safe_load` only aft
 Additional control-plane primitives remain metadata-only: automatic projection analysis hashes routes and filesystem roots before reporting port/route/name/permission collisions; `SqliteScopedState` partitions generic cache and event state by an HMAC of tenant, principal, session, and task without storing those raw identifiers; and `DegradedModePolicy` evaluates fresh/stale/unavailable/unknown registry, index, policy, and provider observations. A degraded result is possible only when an explicit bounded safe fallback matches the affected operation and dependency.
 
 `LoopbackHttpControl` is an authenticated local HTTP transport for the shared protocol envelope. It binds only numeric loopback addresses, exposes one `POST /protocol` endpoint and exactly the three capability operations, requires a 256-bit bearer token, bounds request bodies, and enforces loopback Host/peer plus explicit browser Origin policy. It is an embeddable adapter rather than a remote TLS service. `DrainController` separately coordinates accepting, draining, and retired revisions; it preserves in-flight pins, blocks new admission, requests cancellation only for declared cancellable work, and requires an explicit policy for forced retirement.
+
+`capabilityhub http-serve` connects that transport to a real immutable `CapabilityHubService` catalog snapshot and prints its URL and one-process bearer token once to the launching terminal. Restart it to pick up catalog changes. The same strict service adapter is tested for library, CLI, MCP, and HTTP envelope kinds; this does not turn the endpoint into a remote multi-user deployment. `DrainedCapabilityHubService` is available to embedders that need the drain controller around actual execution admission and provider calls.
 
 `HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
 

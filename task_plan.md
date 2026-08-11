@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 18 — local HTTP, lifecycle draining, and scale evidence.
+Phase 19 — real service adapters and five-kind conformance.
 
 ## Next Step
 
-Integrate authenticated loopback HTTP, revision draining, and 10k/concurrent evidence without widening the always-loaded context.
+Connect the real service to loopback HTTP and drain admission, then verify all five Provider kinds through one security matrix.
 
 ## Phases
 
@@ -174,6 +174,15 @@ Status: complete for the standalone local pre-alpha scope
 - Coordinate accepting, draining, cancellation requests, and retired revision pins.
 - Replay 10k metadata and 100 concurrent read evidence with percentile latency.
 - Keep remote deployment, service drain wiring, 1m RAG, and production-provider claims open.
+
+### Phase 19 — Real service adapters and five-kind conformance
+
+Status: complete for the local pre-alpha scope
+
+- Adapt real search/load/execute calls to the shared library/CLI/MCP/HTTP envelope.
+- Expose a bearer-protected `http-serve` command over an immutable local catalog snapshot.
+- Wrap real service execution with revision drain admission and reliable pin release.
+- Run one table-driven five-kind Provider deny/failure/revision/budget/canary matrix.
 
 | Decision | Reason |
 |---|---|

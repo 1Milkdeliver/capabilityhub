@@ -114,6 +114,7 @@ spec:
         "budget-report",
         "benchmark",
         "dashboard",
+        "http-serve",
         "mcp-serve",
     }
 

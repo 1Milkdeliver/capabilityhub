@@ -293,6 +293,7 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
             OperationSpec("budget-report", OperationType.EXPAND),
             OperationSpec("benchmark", OperationType.EXPAND),
             OperationSpec("dashboard", OperationType.EXPAND),
+            OperationSpec("http-serve", OperationType.EXPAND),
             OperationSpec("mcp-serve", OperationType.EXPAND),
         ),
         source="python://capabilityhub.cli",

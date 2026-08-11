@@ -212,6 +212,12 @@ def build_parser() -> argparse.ArgumentParser:
     dashboard = commands.add_parser("dashboard", help="start the local management dashboard")
     dashboard.add_argument("--port", type=int, default=0)
     _project_argument(dashboard)
+    http = commands.add_parser(
+        "http-serve", help="start the bearer-protected loopback protocol endpoint"
+    )
+    http.add_argument("--port", type=int, default=0)
+    http.add_argument("--grant", action="append")
+    _project_argument(http)
     mcp = commands.add_parser("mcp-serve", help="start the optional MCP server")
     mcp.add_argument(
         "--project-root",
@@ -549,6 +555,23 @@ def _main(argv: Sequence[str] | None = None) -> int:
             pass
         finally:
             server.close()
+        return 0
+    if args.command == "http-serve":
+        http_server, access = runtime.local_http_control(
+            args.project_root,
+            port=args.port,
+            granted_permissions=args.grant,
+        )
+        _print_json(
+            {"bearer_token": access.bearer_token, "url": access.url},
+            pretty=False,
+        )
+        try:
+            Event().wait()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            http_server.close()
         return 0
     runtime.mcp_serve(args.project_root)
     return 0

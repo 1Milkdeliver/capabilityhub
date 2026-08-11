@@ -60,3 +60,4 @@
 - Completed Phase 16 integration: safe YAML discovery, exact activation-lock CLI, scoped secret-broker core, and explicitly certainty-gated service resilience; 366 tests passed with two expected platform skips.
 - Started and completed the standalone Phase 17 cores for privacy-preserving conflict projections, tenant-scoped generic state, and dependency freshness/degraded decisions.
 - Completed Phase 18 standalone cores: authenticated loopback HTTP protocol transport, lifecycle drain/cancel coordination, and replayable 10k/100-read scale evidence.
+- Completed Phase 19: real service protocol adapter, `http-serve` runtime/CLI, drained real-service wrapper, and one five-kind Provider security/conformance matrix.

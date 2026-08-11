@@ -57,6 +57,13 @@ def test_mcp_serve_accepts_an_explicit_project_root() -> None:
     assert args.command == "mcp-serve"
     assert args.project_root == "project with spaces"
 
+    http = build_parser().parse_args(
+        ["http-serve", "--project-root", ".", "--port", "8123", "--grant", "network"]
+    )
+    assert http.command == "http-serve"
+    assert http.port == 8123
+    assert http.grant == ["network"]
+
 
 @pytest.mark.parametrize(
     ("command", "runtime_name", "payload"),

@@ -34,6 +34,7 @@ from capabilityhub.compatibility import (
 )
 from capabilityhub.context_state import LocalContextState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.http_control import HttpControlAccess, LoopbackHttpControl
 from capabilityhub.idempotency import SqliteIdempotencyStore
 from capabilityhub.insights import loaded_view, providers_view, routing_view
 from capabilityhub.lifecycle import StagedUpdateManager
@@ -50,6 +51,7 @@ from capabilityhub.models import (
     SideEffect,
 )
 from capabilityhub.orchestration import ReasoningOrchestrator
+from capabilityhub.protocol import AdapterKind
 from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.reasoning import ReasoningRouter
@@ -60,6 +62,7 @@ from capabilityhub.retention import AuditRetentionManager
 from capabilityhub.search import LexicalCapabilitySearch
 from capabilityhub.secure_audit import SecureAuditLedger
 from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.service_adapter import CapabilityHubServiceAdapter
 from capabilityhub.state import (
     PreferenceScope,
     resolved_preferences,
@@ -1184,6 +1187,45 @@ def local_dashboard(
         approval_provider=approval,
         context_provider=context,
     )
+
+
+def local_http_control(
+    project_root: str | Path | None = None,
+    *,
+    port: int = 0,
+    granted_permissions: list[str] | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> tuple[LoopbackHttpControl, HttpControlAccess]:
+    """Start the authenticated loopback protocol over one immutable catalog snapshot."""
+
+    selected = _select_local_scope(project_root, monitor)
+    generation = selected.snapshot()
+    service = CapabilityHubService(
+        registry=generation.registry,
+        providers=generation.providers,
+        references=ReferenceSigner(token_bytes(32)),
+        audit=_audit_sink(selected.project),
+        idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),
+        provider_supervisor=ProcessProviderSupervisor(),
+    )
+    context = ServiceContext(
+        "local",
+        "operator",
+        "http",
+        granted_permissions=frozenset(granted_permissions or ()),
+    )
+    budget = SqliteBudgetRepository(_state_path(selected.project)).ledger(
+        "local-http", DEFAULT_LOCAL_BUDGETS
+    )
+    adapter = CapabilityHubServiceAdapter(
+        service,
+        kind=AdapterKind.HTTP,
+        context_provider=lambda: context,
+        budget_provider=lambda _task_id: budget,
+        inventory_provider=generation.inventory_json,
+    )
+    control = LoopbackHttpControl(adapter, port=port)
+    return control, control.start()
 
 
 def mcp_serve(project_root: str | Path | None = None) -> object:

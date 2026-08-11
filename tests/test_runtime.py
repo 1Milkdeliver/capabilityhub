@@ -8,6 +8,7 @@ import pytest
 
 from capabilityhub.errors import CapabilityHubError
 from capabilityhub.local_runtime import LocalCatalogMonitor
+from capabilityhub.protocol import protocol_handshake
 from capabilityhub.runtime import (
     discover_skills,
     local_activation_lock,
@@ -22,6 +23,7 @@ from capabilityhub.runtime import (
     local_dashboard,
     local_execute_static,
     local_health,
+    local_http_control,
     local_inventory,
     local_lifecycle,
     local_load,
@@ -155,6 +157,48 @@ def test_local_inventory_search_and_health_share_safe_local_metadata(tmp_path) -
     assert states["skill"]["state"] == "indexed"
     assert states["mcp"]["state"] == "not_configured"
     assert connections["network_probes_performed"] == 0
+
+
+def test_local_http_control_runs_real_service_search(tmp_path) -> None:
+    home = tmp_path / "home"
+    skill = home / ".codex" / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: demo\ndescription: Demo helper\n---\nbody", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    monitor = LocalCatalogMonitor(home=home, project=project)
+    server, access = local_http_control(monitor=monitor)
+    handshake = protocol_handshake()
+    body = json.dumps(
+        {
+            "request_id": "request-1",
+            "correlation_id": "correlation-1",
+            "operation": "capability.search",
+            "payload": {"query": "demo", "task_id": "task-1"},
+            "handshake": {
+                "api_versions": list(handshake.api_versions),
+                "supported_features": list(handshake.supported_features),
+                "required_features": list(handshake.required_features),
+            },
+        }
+    ).encode()
+    request = Request(
+        access.url,
+        data=body,
+        headers={
+            "Authorization": f"Bearer {access.bearer_token}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=5) as raw_response:
+            response = json.loads(raw_response.read())
+    finally:
+        server.close()
+
+    assert response["ok"] is True
+    assert response["result"]["total_matches"] == 1
 
 
 def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> None:

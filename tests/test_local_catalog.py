@@ -77,6 +77,7 @@ enabled = true
         "connections",
         "language",
         "lifecycle",
+        "audit",
         "load",
         "execute",
         "budget-report",

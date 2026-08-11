@@ -63,7 +63,7 @@ Search and load are not permission grants. Search cards are filtered against the
 
 ## CLI and MCP
 
-The source install exposes fourteen local commands:
+The source install exposes fifteen local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
@@ -74,6 +74,7 @@ capabilityhub health --pretty
 capabilityhub connections --pretty
 capabilityhub language show --pretty
 capabilityhub lifecycle list --pretty
+capabilityhub audit --limit 50 --pretty
 capabilityhub load REVISION --section contract --pretty
 capabilityhub execute REVISION read --arguments '{"id": 1}' --fixture-output '{"name": "demo"}' --idempotency-key demo-1 --pretty
 capabilityhub budget-report --pretty
@@ -93,6 +94,8 @@ Embedding applications can opt into `CliProcessProvider`, the first real executi
 Install the `mcp` extra to use `capabilityhub.providers.mcp.McpStdioProvider`, the real upstream MCP adapter. It delegates framing, initialization, tool discovery, calls, cancellation, and stdio process management to the official MCP Python SDK. Each operation maps to one explicitly configured upstream tool on an absolute command with fixed args and an explicit environment; stderr is suppressed from model-visible output, unadvertised tools are denied, the whole session has a deadline, and returned structured content is JSON-checked and budgeted. Persistent sessions, OAuth, HTTP transport, and production gateway pooling remain upstream responsibilities.
 
 Menu language and activation overrides now persist without a model call. Use `capabilityhub language set zh-CN --scope project` (or `en`/`auto`) and `capabilityhub lifecycle set NAMESPACE/NAME disabled --scope project`. Lifecycle supports `enabled`, `disabled`, and `quarantined`; it changes only whether a discovered capability is active in the local catalog and never deletes, updates, or executes its files. Project settings override global settings, JSON writes are atomic, and unrelated configuration keys are preserved.
+
+Local service operations append compact events to `.capabilityhub/audit.jsonl` with a synchronized, flushed write. `capabilityhub audit` returns a bounded redacted tail: task IDs are hashed, arguments and credentials are omitted, and incomplete/corrupt tail records are ignored. The Dashboard shows the latest ten safe project events without placing them in chat context.
 
 `mcp-serve` exposes exactly `capability.search`, `capability.load`, and
 `capability.execute` through the official MCP Python SDK. Its zero-configuration CLI

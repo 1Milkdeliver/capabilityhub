@@ -9,6 +9,7 @@ import pytest
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.runtime import (
     discover_skills,
+    local_audit,
     local_benchmark,
     local_budget_report,
     local_connections,
@@ -148,6 +149,38 @@ def test_language_and_lifecycle_persist_and_refresh_inventory(tmp_path) -> None:
     enabled = local_set_lifecycle(coordinate, "enabled", monitor=monitor)
     assert enabled["active"] is True
     assert local_inventory(monitor=monitor)["active_by_kind"]["skill"] == 1
+
+
+def test_local_load_records_durable_redacted_project_audit(tmp_path) -> None:
+    project = tmp_path / "project"
+    manifest_root = project / ".capabilityhub" / "manifests"
+    manifest_root.mkdir(parents=True)
+    manifest = {
+        "apiVersion": "capabilityhub.io/v1alpha1",
+        "kind": "Capability",
+        "metadata": {
+            "namespace": "local",
+            "name": "audit-demo",
+            "version": "1",
+            "digest": "sha256:" + "9" * 64,
+        },
+        "spec": {
+            "type": "api",
+            "summary": "Audit demo",
+            "provider": "static",
+            "operations": [{"name": "read", "type": "execute"}],
+        },
+    }
+    (manifest_root / "audit.json").write_text(json.dumps(manifest), encoding="utf-8")
+    monitor = LocalCatalogMonitor(home=tmp_path / "home", project=project)
+    revision = "local/audit-demo@1#sha256:" + "9" * 64
+
+    local_load(revision, monitor=monitor)
+    audit = local_audit(limit=10, monitor=monitor)
+
+    assert audit["stored"] == 1
+    assert audit["events"][0]["event_type"] == "load"
+    assert "arguments" not in str(audit)
 
 
 def test_local_monitor_rejects_a_different_explicit_project(tmp_path) -> None:

@@ -262,6 +262,7 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
             OperationSpec("connections", OperationType.EXPAND),
             OperationSpec("language", OperationType.EXPAND),
             OperationSpec("lifecycle", OperationType.EXPAND),
+            OperationSpec("audit", OperationType.EXPAND),
             OperationSpec("load", OperationType.EXPAND),
             OperationSpec("execute", OperationType.EXPAND),
             OperationSpec("budget-report", OperationType.EXPAND),

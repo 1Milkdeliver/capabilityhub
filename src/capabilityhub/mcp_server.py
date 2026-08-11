@@ -18,7 +18,7 @@ from typing import Any, Literal, TypeVar
 from mcp.server import MCPServer
 from mcp_types import CallToolResult, TextContent
 
-from capabilityhub.audit import MemoryAuditSink
+from capabilityhub.audit import JsonlAuditSink
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_runtime import LocalCatalogMonitor
@@ -198,7 +198,7 @@ class _LocalRuntime:
             refresh_interval_seconds=refresh_interval_seconds,
         )
         self._references = ReferenceSigner(secrets.token_bytes(32))
-        self._audit = MemoryAuditSink()
+        self._audit = JsonlAuditSink(self._monitor.project / ".capabilityhub" / "audit.jsonl")
         self._lock = RLock()
         self._state: _MCPRuntimeState | None = None
 

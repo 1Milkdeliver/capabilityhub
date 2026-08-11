@@ -9,6 +9,8 @@ commands, URLs, full manifests, Skill bodies, scripts, and provider output.
 Search returns no more than ten compact cards and never loads a capability body. Dashboard
 lifecycle supports only enabled, disabled, and quarantined catalog states. It cannot delete,
 install, update, run, approve, or change provider credentials.
+The page also shows the latest ten redacted project audit events. It omits arguments,
+credentials, provider output, raw task identifiers, and absolute audit paths.
 
 The repository-local Codex plugin provides two minimal menu skills. They can be
 installed as an always-available help entry without loading the catalog into each chat.

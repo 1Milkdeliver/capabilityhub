@@ -56,6 +56,11 @@ async function refresh() {
       value: item.state,
     }));
     list("connection-list", connections, "No configured connections.");
+    const audit = (payload.audit?.events || []).map((item) => ({
+      name: `${item.sequence}: ${item.event_type} / ${item.outcome}`,
+      value: item.capability_revision || item.reason_codes?.join(", ") || "global",
+    }));
+    list("audit-list", audit, "No audit events recorded yet.");
     document.getElementById("language").value = payload.preferences?.locale || "auto";
     renderLifecycle(payload.lifecycle?.entries || []);
     document.getElementById("state").textContent = "Live snapshot updated.";

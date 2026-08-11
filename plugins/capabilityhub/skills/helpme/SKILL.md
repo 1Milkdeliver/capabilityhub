@@ -74,6 +74,10 @@ in the current interaction only. Report a failed CLI write instead of claiming s
   `capabilityhub lifecycle set <coordinate> <state> --scope <project|global> --pretty`.
   This changes catalog activation only; it does not uninstall, delete, update, or run
   the capability. Require an exact coordinate and confirmation for quarantine.
+- For `/helpme security audit`, use `capabilityhub audit --limit 50 --pretty`. Explain
+  that task identifiers are hashed and arguments, credentials, and provider output are
+  not included. Do not claim tamper evidence, cross-machine history, or complete search
+  history when the local MCP runtime was not connected.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

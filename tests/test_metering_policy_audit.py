@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from capabilityhub.audit import AuditEvent, JsonlAuditSink, MemoryAuditSink
+from capabilityhub.audit import AuditEvent, JsonlAuditSink, MemoryAuditSink, read_jsonl_audit
 from capabilityhub.metering import Utf8Div4Estimator, canonical_json, measure_text
 from capabilityhub.models import (
     CapabilityIdentity,
@@ -73,3 +73,6 @@ def test_audit_sinks_store_structured_events(tmp_path: Path) -> None:
     text = output.read_text(encoding="utf-8")
     assert '"event_type":"search"' in text
     assert text.endswith("\n")
+
+    output.write_text("invalid partial\n" + text, encoding="utf-8")
+    assert read_jsonl_audit(output, limit=1) == (event,)

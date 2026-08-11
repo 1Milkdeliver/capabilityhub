@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import fields, is_dataclass
@@ -11,7 +12,7 @@ from pathlib import Path
 from secrets import token_bytes
 from typing import cast
 
-from capabilityhub.audit import MemoryAuditSink
+from capabilityhub.audit import JsonlAuditSink, read_jsonl_audit
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_runtime import LocalCatalogMonitor
@@ -217,6 +218,32 @@ def local_connections(
     }
 
 
+def local_audit(
+    project_root: str | Path | None = None,
+    *,
+    limit: int = 50,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Return a bounded redacted tail of durable project audit events."""
+
+    selected = _select_local_scope(project_root, monitor)
+    events = read_jsonl_audit(_audit_path(selected.project), limit=limit)
+    rows: list[JsonValue] = [
+        {
+            "capability_revision": event.capability_revision,
+            "event_type": event.event_type,
+            "outcome": event.outcome,
+            "payload_bytes": event.payload_bytes,
+            "portable_tokens": event.portable_tokens,
+            "reason_codes": list(event.reason_codes),
+            "sequence": event.sequence,
+            "task": hashlib.sha256(event.task_id.encode()).hexdigest()[:12],
+        }
+        for event in events
+    ]
+    return {"events": rows, "limit": limit, "scope": "project", "stored": len(rows)}
+
+
 def local_preferences(
     project_root: str | Path | None = None,
     *,
@@ -338,7 +365,7 @@ def local_load(
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
     signer = ReferenceSigner(token_bytes(32))
-    audit = MemoryAuditSink()
+    audit = JsonlAuditSink(_audit_path(selected.project))
     service = CapabilityHubService(
         registry=generation.registry,
         providers=generation.providers,
@@ -418,7 +445,7 @@ def local_execute_static(
         name=manifest.provider,
     )
     signer = ReferenceSigner(token_bytes(32))
-    audit = MemoryAuditSink()
+    audit = JsonlAuditSink(_audit_path(selected.project))
     service = CapabilityHubService(
         registry=generation.registry,
         providers=(provider,),
@@ -532,6 +559,7 @@ def local_dashboard(
             "connections": local_connections(monitor=selected),
             "loaded_capabilities": [],
             "lifecycle": local_lifecycle(monitor=selected),
+            "audit": local_audit(limit=10, monitor=selected),
             "preferences": {"locale": preferences.get("locale", "auto")},
             "providers": providers,
         }
@@ -616,6 +644,10 @@ def _budget_json(snapshot: BudgetSnapshot) -> dict[str, JsonValue]:
         "scope": snapshot.scope,
         "used": dict(snapshot.used),
     }
+
+
+def _audit_path(project: Path) -> Path:
+    return project / ".capabilityhub" / "audit.jsonl"
 
 
 def _jsonable(value: object) -> JsonValue:

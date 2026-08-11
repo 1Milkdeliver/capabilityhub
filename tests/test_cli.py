@@ -30,12 +30,13 @@ def test_mcp_serve_accepts_an_explicit_project_root() -> None:
         ("inventory", "local_inventory", {"active_total": 3}),
         ("health", "local_health", {"status": "ok"}),
         ("connections", "local_connections", {"network_probes_performed": 0}),
+        ("audit", "local_audit", {"events": []}),
     ],
 )
 def test_json_cli_commands_route_without_extra_output(
     command, runtime_name, payload, monkeypatch, capsys
 ) -> None:
-    monkeypatch.setattr(runtime, runtime_name, lambda _project: payload)
+    monkeypatch.setattr(runtime, runtime_name, lambda *_args, **_kwargs: payload)
 
     assert main([command]) == 0
     assert json.loads(capsys.readouterr().out) == payload

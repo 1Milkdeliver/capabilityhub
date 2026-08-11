@@ -52,6 +52,10 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--scope", choices=("project", "global"), default="project")
     _project_argument(lifecycle)
     _pretty_argument(lifecycle)
+    audit = commands.add_parser("audit", help="show a redacted tail of project audit events")
+    audit.add_argument("--limit", type=_audit_limit, default=50)
+    _project_argument(audit)
+    _pretty_argument(audit)
     load = commands.add_parser("load", help="load selected sections from an active revision")
     load.add_argument("revision")
     load.add_argument("--section", action="append")
@@ -171,6 +175,9 @@ def _main(argv: Sequence[str] | None = None) -> int:
             payload = runtime.local_lifecycle(args.project_root)
         _print_json(payload, pretty=args.pretty)
         return 0
+    if args.command == "audit":
+        _print_json(runtime.local_audit(args.project_root, limit=args.limit), pretty=args.pretty)
+        return 0
     if args.command == "load":
         _print_json(
             runtime.local_load(
@@ -271,6 +278,13 @@ def _search_limit(value: str) -> int:
     parsed = int(value)
     if not 1 <= parsed <= 50:
         raise argparse.ArgumentTypeError("must be between 1 and 50")
+    return parsed
+
+
+def _audit_limit(value: str) -> int:
+    parsed = int(value)
+    if not 1 <= parsed <= 500:
+        raise argparse.ArgumentTypeError("must be between 1 and 500")
     return parsed
 
 

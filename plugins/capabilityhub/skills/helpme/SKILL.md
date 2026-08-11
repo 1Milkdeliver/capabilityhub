@@ -1,51 +1,51 @@
 ---
 name: helpme
-description: Show the progressive CapabilityHub help menu and handle its topics. Trigger when the user enters /helpme, /helpme with a topic, or asks for CapabilityHub status, dashboard, budgets, providers, MCP setup, benchmarks, or security help.
+description: Show and navigate the localized progressive CapabilityHub help menu. Trigger for /helpme, /helpme language, /helpme with a menu topic, or requests about CapabilityHub status, capabilities, consumption, runtime, security, evaluation, settings, language, and project information.
 license: MIT
 ---
 
 # CapabilityHub `/helpme`
 
-Treat the first word after `/helpme` as a topic. Never discover or preload the capability
-catalog merely to render help.
+Render help from the static message catalogs in `references/locales/`. Do not ask a
+model to translate catalog messages at runtime.
 
-## Default menu
+## Language selection
 
-For bare `/helpme`, respond with this compact menu and nothing from the catalog:
+Resolve the locale once in this order:
 
-```text
-CapabilityHub
-  /helpme status      运行状态与版本
-  /helpme dashboard   打开本地只读面板
-  /helpme budget      Token、加载与执行预算
-  /helpme providers   Skill / MCP / CLI / API / RAG
-  /helpme mcp         MCP 安装与三工具接入
-  /helpme benchmark   查看节省量验证结果
-  /helpme security    权限、审批与敏感数据边界
+1. Locale explicitly supplied by the current command.
+2. Current-task preference.
+3. Project preference in `.capabilityhub/config.json`.
+4. Global CapabilityHub preference for the current operating system.
+5. Codex or operating-system locale when the preference is `auto`.
+6. `en` as the final fallback.
 
-只加载你选择的主题。
-```
+Supported locales are `zh-CN` and `en`. Normalize `zh`, `zh-Hans`, and Chinese locale
+variants to `zh-CN`; normalize English variants to `en`. Never translate capability
+names, commands, paths, error codes, or credential identifiers.
 
-## Topic routing
+For `/helpme language set <locale>`, use task scope unless another scope was explicitly
+selected. A `project` setting stores only the locale key in `.capabilityhub/config.json`.
+A `global` setting stores only the locale key in the platform's CapabilityHub config
+directory. Never overwrite unrelated configuration keys. `preview` never persists.
 
-- `status`: Report only known plugin/runtime versions and connection state. Do not scan
-  capabilities. If the runtime is unavailable, say so and provide the shortest install
-  or verification command.
-- `dashboard` or `open`: Explain that it is loopback-only and read-only. Start
-  `capabilityhub dashboard` only when execution is available, then open the reported
-  `http://127.0.0.1:<port>` URL. Otherwise show that one command.
-- `budget` or `budgets`: Explain the four counters (`portable_tokens`, `bytes`, `loads`,
-  `executions`) and show live values only when a connected runtime supplies them.
-- `providers`: Show the five supported provider kinds and configured counts only. Do not
-  load provider definitions, Skill bodies, schemas, or credentials.
-- `mcp`: State that the Python package needs the `mcp` extra. Explain the three tools
-  `capability.search`, `capability.load`, and `capability.execute`; do not silently
-  install or launch the runtime.
-- `benchmark`: Summarize the pinned structural-disclosure result and always state that it
-  is oracle-routed, not evidence of semantic routing accuracy or billable-token savings.
-- `security`: Summarize scoped references, budgets, permissions, approvals, audit
-  minimization, and the pre-alpha boundary. Never reveal secrets or sensitive sections.
-- Unknown topic: say `未知主题：<topic>` and render the default menu once.
+## Progressive routing
 
-Keep each topic response under 180 Chinese characters before commands or live values.
-Load detailed state only after the user explicitly selects the relevant topic.
+- Bare `/helpme`: read only the resolved catalog's `root` object and render its items in
+  order.
+- `/helpme <topic>`: read only that topic from the resolved catalog.
+- `/helpme language`: render the catalog's `language` menu.
+- Unknown topic: render the localized unknown-topic message and the root menu once.
+- Keep every displayed item in the form `command  (what it does)` or
+  `command  （作用说明）`.
+- Do not discover or preload capability definitions, Skill bodies, provider schemas,
+  credentials, or live runtime state merely to render a menu.
+- Fetch live state only after the user selects an item that requires it.
+- Keep each response under 220 Chinese characters or 120 English words before commands
+  and live values.
+
+## Dynamic text
+
+Use catalog templates for stable UI text. If the user explicitly asks to translate
+unknown third-party prose, translate only that requested prose and label it as dynamic
+translation. Never save model-generated translations into a locale catalog automatically.

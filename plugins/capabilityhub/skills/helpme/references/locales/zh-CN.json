@@ -1,0 +1,92 @@
+{
+  "locale": "zh-CN",
+  "root": {
+    "title": "CapabilityHub",
+    "items": {
+      "/helpme overview": "（查看整体状态、版本、告警和控制面板）",
+      "/helpme capabilities": "（管理 Skill、MCP、CLI、API、RAG 能力）",
+      "/helpme consumption": "（管理 Token、上下文、缓存和推理强度）",
+      "/helpme runtime": "（管理本地服务、连接、日志和运行环境）",
+      "/helpme security": "（管理权限、审批、凭据、策略和审计）",
+      "/helpme evaluation": "（验证节省效果、路由准确率和性能）",
+      "/helpme settings": "（管理项目配置、默认规则和数据导入导出）",
+      "/helpme language": "（切换菜单、提示和说明文字的语言）",
+      "/helpme about": "（查看文档、版本、更新和项目地址）"
+    },
+    "footer": "只加载你选择的主题。",
+    "unknown": "未知主题：{topic}"
+  },
+  "topics": {
+    "overview": {
+      "/helpme overview status": "（查看组件是否正常运行）",
+      "/helpme overview dashboard": "（打开本地可视化管理面板）",
+      "/helpme overview version": "（查看核心、插件和协议版本）",
+      "/helpme overview alerts": "（查看预算、连接和安全告警）"
+    },
+    "capabilities": {
+      "/helpme capabilities inventory": "（查看五类能力的数量和状态）",
+      "/helpme capabilities search": "（按任务搜索合适能力）",
+      "/helpme capabilities loaded": "（查看当前已加载到上下文的能力）",
+      "/helpme capabilities providers": "（查看各能力由哪个 Provider 提供）",
+      "/helpme capabilities routing": "（查看任务选择某项能力的原因）",
+      "/helpme capabilities lifecycle": "（启用、停用、更新或隔离能力）"
+    },
+    "consumption": {
+      "/helpme consumption summary": "（查看当前任务的总体消耗）",
+      "/helpme consumption budget": "（设置 Token、字节、加载和执行上限）",
+      "/helpme consumption context": "（查看哪些内容占用了上下文）",
+      "/helpme consumption reasoning": "（查看或调整低、中、高推理强度）",
+      "/helpme consumption cache": "（查看缓存命中、驻留和淘汰情况）",
+      "/helpme consumption history": "（对比历史任务的消耗变化）"
+    },
+    "runtime": {
+      "/helpme runtime services": "（查看 Dashboard 和 MCP 服务状态）",
+      "/helpme runtime connections": "（查看 CLI、API、RAG 和 MCP 连接）",
+      "/helpme runtime mcp": "（配置 search、load、execute 三项 MCP 工具）",
+      "/helpme runtime logs": "（查看最小化运行日志和错误）",
+      "/helpme runtime health": "（执行不加载能力目录的健康检查）"
+    },
+    "security": {
+      "/helpme security permissions": "（查看能力需要的权限）",
+      "/helpme security approvals": "（处理高风险或不可逆操作审批）",
+      "/helpme security credentials": "（查看凭据是否已配置但不显示内容）",
+      "/helpme security policies": "（设置允许、拒绝和限制规则）",
+      "/helpme security audit": "（查看搜索、加载和执行审计记录）",
+      "/helpme security risks": "（查看敏感内容和高风险能力）"
+    },
+    "evaluation": {
+      "/helpme evaluation benchmark": "（运行 eager 与 lazy 加载对照测试）",
+      "/helpme evaluation savings": "（查看上下文和 Token 节省比例）",
+      "/helpme evaluation accuracy": "（评估是否选择了正确能力）",
+      "/helpme evaluation regression": "（检查更新后是否变慢或增加消耗）",
+      "/helpme evaluation report": "（导出可复现的验证报告）"
+    },
+    "settings": {
+      "/helpme settings project": "（设置当前项目的能力范围）",
+      "/helpme settings defaults": "（设置预算、推理和安全默认值）",
+      "/helpme settings integrations": "（配置外部网关和 Provider）",
+      "/helpme settings storage": "（设置注册表、缓存和审计存储）",
+      "/helpme settings import": "（导入配置或能力清单）",
+      "/helpme settings export": "（导出配置但不包含敏感凭据）"
+    },
+    "about": {
+      "/helpme about help": "（查看菜单使用方式和示例）",
+      "/helpme about docs": "（打开使用与架构文档）",
+      "/helpme about version": "（查看当前版本）",
+      "/helpme about updates": "（检查可用更新）",
+      "/helpme about github": "（打开开源仓库）"
+    }
+  },
+  "language": {
+    "/helpme language current": "（查看当前使用的语言和生效范围）",
+    "/helpme language auto": "（跟随 Codex 或系统语言）",
+    "/helpme language set zh-CN": "（切换为简体中文）",
+    "/helpme language set en": "（切换为英文）",
+    "/helpme language list": "（查看支持的语言）",
+    "/helpme language preview <locale>": "（预览语言但不保存设置）",
+    "/helpme language scope session": "（仅对当前任务生效）",
+    "/helpme language scope project": "（对当前项目生效）",
+    "/helpme language scope global": "（对所有项目生效）",
+    "/helpme language reset": "（恢复自动语言设置）"
+  }
+}

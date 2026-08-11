@@ -1,0 +1,92 @@
+{
+  "locale": "en",
+  "root": {
+    "title": "CapabilityHub",
+    "items": {
+      "/helpme overview": "(View overall status, versions, alerts, and dashboard)",
+      "/helpme capabilities": "(Manage Skill, MCP, CLI, API, and RAG capabilities)",
+      "/helpme consumption": "(Manage tokens, context, cache, and reasoning effort)",
+      "/helpme runtime": "(Manage local services, connections, logs, and runtime)",
+      "/helpme security": "(Manage permissions, approvals, credentials, policy, and audit)",
+      "/helpme evaluation": "(Validate savings, routing accuracy, and performance)",
+      "/helpme settings": "(Manage project defaults, integrations, import, and export)",
+      "/helpme language": "(Change the language of menus, prompts, and explanations)",
+      "/helpme about": "(View documentation, versions, updates, and project links)"
+    },
+    "footer": "Only the selected topic is loaded.",
+    "unknown": "Unknown topic: {topic}"
+  },
+  "topics": {
+    "overview": {
+      "/helpme overview status": "(Check whether components are running normally)",
+      "/helpme overview dashboard": "(Open the local visual dashboard)",
+      "/helpme overview version": "(View core, plugin, and protocol versions)",
+      "/helpme overview alerts": "(View budget, connection, and security alerts)"
+    },
+    "capabilities": {
+      "/helpme capabilities inventory": "(View counts and states for all five capability kinds)",
+      "/helpme capabilities search": "(Find capabilities for a task)",
+      "/helpme capabilities loaded": "(View capabilities currently loaded into context)",
+      "/helpme capabilities providers": "(View the provider behind each capability)",
+      "/helpme capabilities routing": "(See why a capability was selected)",
+      "/helpme capabilities lifecycle": "(Enable, disable, update, or quarantine capabilities)"
+    },
+    "consumption": {
+      "/helpme consumption summary": "(View total consumption for the current task)",
+      "/helpme consumption budget": "(Set token, byte, load, and execution limits)",
+      "/helpme consumption context": "(See which material occupies the context window)",
+      "/helpme consumption reasoning": "(View or adjust low, medium, and high reasoning effort)",
+      "/helpme consumption cache": "(View cache hits, residency, and eviction)",
+      "/helpme consumption history": "(Compare consumption across previous tasks)"
+    },
+    "runtime": {
+      "/helpme runtime services": "(View Dashboard and MCP service status)",
+      "/helpme runtime connections": "(View CLI, API, RAG, and MCP connections)",
+      "/helpme runtime mcp": "(Configure the search, load, and execute MCP tools)",
+      "/helpme runtime logs": "(View minimized runtime logs and errors)",
+      "/helpme runtime health": "(Run a health check without loading the catalog)"
+    },
+    "security": {
+      "/helpme security permissions": "(View permissions required by capabilities)",
+      "/helpme security approvals": "(Handle approval for high-risk or irreversible operations)",
+      "/helpme security credentials": "(Check credential presence without showing values)",
+      "/helpme security policies": "(Configure allow, deny, and restriction rules)",
+      "/helpme security audit": "(View search, load, and execution audit records)",
+      "/helpme security risks": "(View sensitive content and high-risk capabilities)"
+    },
+    "evaluation": {
+      "/helpme evaluation benchmark": "(Compare eager and lazy capability disclosure)",
+      "/helpme evaluation savings": "(View context and token reduction estimates)",
+      "/helpme evaluation accuracy": "(Evaluate whether the right capability was selected)",
+      "/helpme evaluation regression": "(Detect slower or more expensive updates)",
+      "/helpme evaluation report": "(Export a reproducible validation report)"
+    },
+    "settings": {
+      "/helpme settings project": "(Set the capability scope for the current project)",
+      "/helpme settings defaults": "(Set default budgets, reasoning, and security rules)",
+      "/helpme settings integrations": "(Configure external gateways and providers)",
+      "/helpme settings storage": "(Configure registry, cache, and audit storage)",
+      "/helpme settings import": "(Import configuration or capability manifests)",
+      "/helpme settings export": "(Export configuration without sensitive credentials)"
+    },
+    "about": {
+      "/helpme about help": "(View menu usage and examples)",
+      "/helpme about docs": "(Open usage and architecture documentation)",
+      "/helpme about version": "(View the current version)",
+      "/helpme about updates": "(Check for available updates)",
+      "/helpme about github": "(Open the open-source repository)"
+    }
+  },
+  "language": {
+    "/helpme language current": "(View the current language and scope)",
+    "/helpme language auto": "(Follow the Codex or operating-system language)",
+    "/helpme language set zh-CN": "(Switch to Simplified Chinese)",
+    "/helpme language set en": "(Switch to English)",
+    "/helpme language list": "(List supported languages)",
+    "/helpme language preview <locale>": "(Preview a language without saving it)",
+    "/helpme language scope session": "(Apply only to the current task)",
+    "/helpme language scope project": "(Apply to the current project)",
+    "/helpme language scope global": "(Apply to all projects)",
+    "/helpme language reset": "(Restore automatic language selection)"
+  }
+}

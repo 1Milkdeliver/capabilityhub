@@ -82,7 +82,10 @@ persistent configuration are not part of this pre-alpha release.
 ## Local dashboard
 
 After installing the repository's Codex plugin, enter `/helpme` in a new Codex task to
-open the compact CapabilityHub help entry. It does not preload the capability catalog.
+open the compact, progressive CapabilityHub menu. Use `/helpme language` to select
+Simplified Chinese, English, automatic detection, preview, and task/project/global
+preference scope. Stable menu text comes from static catalogs and does not spend model
+tokens on repeated translation or preload the capability catalog.
 
 `DashboardServer` is a small read-only, standard-library dashboard server. It binds to `127.0.0.1` by default and serves bundled assets plus `GET /api/status`; it does not accept mutations. Start the illustrative local snapshot:
 

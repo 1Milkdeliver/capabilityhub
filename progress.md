@@ -10,3 +10,6 @@
 - Located bundled Git and GitHub CLI outside PATH; GitHub account `1Milkdeliver` is authenticated with repository and workflow scopes.
 - Added reasoning-tier routing as a first-class project requirement.
 - Initialized the local Git repository. First commit/publish attempt stopped safely because repository-local author identity was missing and Git was not visible to `gh`; corrective configuration is scoped to this repository.
+- Published the project bootstrap, validation methodology, and upstream integration boundaries.
+- Completed and reviewed 35 requirement-discovery rounds and the long-term architecture.
+- Scoped release 0.1 to the evidence-producing control core; deferred gateway, sandbox, distributed, and managed-RAG work to avoid duplication and premature complexity.

@@ -6,17 +6,17 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 1 — research, 25+ design-review rounds, architecture, and measurable acceptance criteria.
+Phase 2 — core registry and manifest implementation.
 
 ## Next Step
 
-Inspect available runtimes and upstream projects, then write the design-review record and architecture specification.
+Freeze the core domain contracts, then implement registry, router/budget, and providers in independent file ranges.
 
 ## Phases
 
 ### Phase 1 — Research and design review
 
-Status: in_progress
+Status: complete
 
 - Inspect relevant upstream implementations and licenses.
 - Complete at least 25 explicit internal design-review questions.
@@ -25,7 +25,7 @@ Status: in_progress
 
 ### Phase 2 — Core registry and manifest
 
-Status: pending
+Status: in_progress
 
 - Implement normalized capability schema.
 - Implement discovery, indexing, dependency/conflict validation, and project profiles.

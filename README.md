@@ -28,14 +28,14 @@ CapabilityHub is in its architecture and validation phase. The first release wil
 
 ```text
 search_capabilities(query, filters, budget)
-inspect_capability(id, disclosure_level)
+load_capability(id, sections, budget)
 execute_capability(id, arguments, authorization)
-get_budget_report(scope)
 ```
+
+Budget reporting is a control-plane CLI/API operation rather than a fourth always-visible model tool.
 
 See the evolving planning files and `docs/` for the requirements, architecture, upstream integration decisions, and validation methodology.
 
 ## License
 
 MIT. Third-party integrations retain their own licenses and notices; see `THIRD_PARTY.md` as integrations are added.
-

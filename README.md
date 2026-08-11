@@ -86,6 +86,8 @@ capabilityhub mcp-serve
 
 Embedding applications can opt into `CliProcessProvider`, the first real execution adapter. It accepts only operator-configured absolute executables and fixed argv templates, substitutes scalar values only into complete argv tokens, never invokes a shell, starts with an explicit non-inherited environment, enforces the provider deadline, parses bounded JSON/text output, and redacts stderr. It is not auto-enabled by local discovery and is not a process sandbox; production isolation and resource limits remain pending.
 
+`HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
+
 Menu language and activation overrides now persist without a model call. Use `capabilityhub language set zh-CN --scope project` (or `en`/`auto`) and `capabilityhub lifecycle set NAMESPACE/NAME disabled --scope project`. Lifecycle supports `enabled`, `disabled`, and `quarantined`; it changes only whether a discovered capability is active in the local catalog and never deletes, updates, or executes its files. Project settings override global settings, JSON writes are atomic, and unrelated configuration keys are preserved.
 
 `mcp-serve` exposes exactly `capability.search`, `capability.load`, and

@@ -269,6 +269,7 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
         operations=(
             OperationSpec("validate", OperationType.EXPAND),
             OperationSpec("export-manifest", OperationType.EXPAND),
+            OperationSpec("import-openapi", OperationType.EXPAND),
             OperationSpec("migrate-manifest", OperationType.EXPAND),
             OperationSpec("compatibility", OperationType.EXPAND),
             OperationSpec("activation-lock", OperationType.EXPAND),

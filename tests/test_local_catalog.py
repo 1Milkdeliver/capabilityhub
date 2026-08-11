@@ -90,6 +90,7 @@ spec:
     assert {operation.name for operation in cli.operations} == {
         "validate",
         "export-manifest",
+        "import-openapi",
         "migrate-manifest",
         "compatibility",
         "activation-lock",

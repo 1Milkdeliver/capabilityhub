@@ -23,6 +23,16 @@ def build_parser() -> argparse.ArgumentParser:
     )
     export_manifest.add_argument("path")
     _pretty_argument(export_manifest)
+    import_openapi = commands.add_parser(
+        "import-openapi", help="preview a safe offline OpenAPI capability projection"
+    )
+    import_openapi.add_argument("path")
+    import_openapi.add_argument("--operation-id", action="append", required=True)
+    import_openapi.add_argument("--allow-host", action="append", required=True)
+    import_openapi.add_argument("--namespace", default="imported")
+    import_openapi.add_argument("--name", required=True)
+    import_openapi.add_argument("--version", default="0.1.0")
+    _pretty_argument(import_openapi)
     migrate_manifest = commands.add_parser(
         "migrate-manifest", help="preview an explicit legacy JSON manifest migration"
     )
@@ -244,6 +254,19 @@ def _main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "export-manifest":
         _print_json(runtime.local_manifest_export(args.path), pretty=args.pretty)
+        return 0
+    if args.command == "import-openapi":
+        _print_json(
+            runtime.local_openapi_import(
+                args.path,
+                operation_ids=args.operation_id,
+                allowed_hosts=args.allow_host,
+                namespace=args.namespace,
+                name=args.name,
+                version=args.version,
+            ),
+            pretty=args.pretty,
+        )
         return 0
     if args.command == "migrate-manifest":
         _print_json(runtime.local_manifest_migrate(args.path), pretty=args.pretty)

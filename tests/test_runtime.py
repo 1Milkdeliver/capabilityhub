@@ -30,6 +30,7 @@ from capabilityhub.runtime import (
     local_loaded,
     local_manifest_export,
     local_manifest_migrate,
+    local_openapi_import,
     local_preferences,
     local_providers,
     local_reasoning,
@@ -77,6 +78,43 @@ def test_validate_and_discover_skills(tmp_path) -> None:
 
     exported = local_manifest_export(file)
     assert exported["apiVersion"] == "capabilityhub.io/v1alpha1"
+
+
+def test_openapi_import_runtime_is_offline_and_explicit(tmp_path) -> None:
+    source = tmp_path / "pets.json"
+    source.write_text(
+        json.dumps(
+            {
+                "openapi": "3.0.3",
+                "info": {"title": "Pets", "version": "1"},
+                "servers": [{"url": "https://api.example.com"}],
+                "paths": {
+                    "/pets": {
+                        "get": {
+                            "operationId": "listPets",
+                            "responses": {"200": {"description": "ok"}},
+                        }
+                    }
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    result = local_openapi_import(
+        source,
+        operation_ids=["listPets"],
+        allowed_hosts=["api.example.com"],
+        namespace="demo",
+        name="pets",
+        version="1.0.0",
+    )
+
+    assert result["selected_operation_ids"] == ["listPets"]
+    manifest = result["manifest"]
+    assert isinstance(manifest, dict)
+    assert manifest["spec"]["type"] == "api"
+    assert manifest["spec"]["operations"][0]["name"] == "listpets"
 
 
 def test_activation_lock_runtime_round_trip(tmp_path) -> None:

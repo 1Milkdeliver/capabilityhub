@@ -79,6 +79,10 @@ in the current interaction only. Report a failed CLI write instead of claiming s
 - For `/helpme runtime connections`, use `capabilityhub connections --pretty` when
   available. Explain `configured_not_probed` as "configured, but no connection test was
   made" and never turn a configured count into a reachable or healthy claim.
+- If the user explicitly asks for the local API, provide `capabilityhub http-serve
+  --project-root <absolute path>`. Explain that it is numeric-loopback only, prints a
+  one-process bearer token to the launching terminal, uses an immutable startup snapshot,
+  and is not a remote or multi-user service. Never repeat that token into chat.
 - For `/helpme lifecycle`, use `capabilityhub lifecycle list --pretty`. A user may set a
   discovered coordinate to `enabled`, `disabled`, or `quarantined` through
   `capabilityhub lifecycle set <coordinate> <state> --scope <project|global> --pretty`.

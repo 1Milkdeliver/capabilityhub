@@ -63,15 +63,16 @@ Search and load are not permission grants. Search cards are filtered against the
 
 Embedders can additionally attach a `ParameterAuthorizer` to the caller context. The same deny-by-default decision then filters search and execution, intersects dependency privileges, and constrains normalized filesystem roots, hosts, HTTP methods, commands, profiles, and secret aliases. Raw secret-bearing argument fields are rejected and authorization results contain only stable reason codes.
 
-The transport-neutral protocol module defines one request/response/error envelope and feature handshake for library, CLI, MCP, and future HTTP adapters, including explicit streaming and cancellation negotiation. It is a conformance contract, not a claim that CapabilityHub currently ships a remote HTTP control-plane service.
+The transport-neutral protocol module defines one request/response/error envelope and feature handshake for library, CLI, MCP, and loopback HTTP adapters, including explicit streaming and cancellation negotiation. It is a conformance contract, not a claim that CapabilityHub ships a remote HTTP control-plane service.
 
 ## CLI and MCP
 
-The source install exposes twenty-eight local commands:
+The source install exposes twenty-nine local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
 capabilityhub export-manifest examples/manifest-api.json --pretty
+capabilityhub import-openapi /path/to/openapi.json --operation-id listPets --allow-host api.example.com --name pets --pretty
 capabilityhub migrate-manifest /path/to/legacy.json --pretty
 capabilityhub compatibility --required-feature security.example --pretty
 capabilityhub activation-lock export --pretty
@@ -114,9 +115,13 @@ The supply-chain module can verify artifact bytes against the manifest digest an
 
 Manifests may be JSON, `.yaml`, or `.yml`. YAML intake uses `safe_load` only after enforcing byte, node, and depth limits and rejecting aliases, custom tags, and multiple documents. `activation-lock export` captures exact active revisions plus dependency closure without loading providers; `activation-lock verify FILE` fails closed on missing, extra, or drifted capabilities.
 
+`import-openapi` is an offline preview: it reads one local OpenAPI 3 JSON/YAML file, projects only explicitly selected operation IDs from one allowlisted fixed origin, and emits an inert API manifest. It rejects remote references, callbacks, webhooks, server overrides, embedded credentials, and security bindings; it never fetches a URL or writes an activation file.
+
 `ScopedSecretBroker` issues short-lived, scope-bound, use-limited handles for trusted local provider callbacks. It resolves an environment alias only after atomic handle admission and never offers a plaintext lookup API or stores secrets on disk. This is an embedding API, not an OS keychain. `ResilientProviderExecutor` adds opt-in bounded circuit breaking and retries only when a typed error is retryable, the operation is safe or idempotent, and the embedder explicitly classifies the failure as not applied; uncertain failures are never retried.
 
 Additional control-plane primitives remain metadata-only: automatic projection analysis hashes routes and filesystem roots before reporting port/route/name/permission collisions; `SqliteScopedState` partitions generic cache and event state by an HMAC of tenant, principal, session, and task without storing those raw identifiers; and `DegradedModePolicy` evaluates fresh/stale/unavailable/unknown registry, index, policy, and provider observations. A degraded result is possible only when an explicit bounded safe fallback matches the affected operation and dependency.
+
+`SQLiteHierarchicalBudgetStore` supplies restart-safe parent/child reservations whose admission is atomic across every ancestor and whose raw tenant/task scope never lands in SQLite. `InMemoryObservability` and `SqliteMetricStore` provide bounded, low-cardinality spans and aggregate metrics with hashed correlation domains; arguments, outputs, URLs, paths, secrets, and raw identities are not accepted as telemetry fields. These are embedding cores and are not yet the default local runtime accounting or an external telemetry exporter.
 
 `LoopbackHttpControl` is an authenticated local HTTP transport for the shared protocol envelope. It binds only numeric loopback addresses, exposes one `POST /protocol` endpoint and exactly the three capability operations, requires a 256-bit bearer token, bounds request bodies, and enforces loopback Host/peer plus explicit browser Origin policy. It is an embeddable adapter rather than a remote TLS service. `DrainController` separately coordinates accepting, draining, and retired revisions; it preserves in-flight pins, blocks new admission, requests cancellation only for declared cancellable work, and requires an explicit policy for forced retirement.
 

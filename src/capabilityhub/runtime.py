@@ -50,6 +50,7 @@ from capabilityhub.models import (
     ReasoningTier,
     SideEffect,
 )
+from capabilityhub.openapi_import import OpenApiSelection, import_openapi_file
 from capabilityhub.orchestration import ReasoningOrchestrator
 from capabilityhub.protocol import AdapterKind
 from capabilityhub.providers.skill import SkillProvider
@@ -104,6 +105,40 @@ def local_manifest_export(path: str | Path) -> dict[str, JsonValue]:
     """Export one validated manifest deterministically without invoking a Provider."""
 
     return manifest_to_document(load_manifest(path))
+
+
+def local_openapi_import(
+    path: str | Path,
+    *,
+    operation_ids: list[str],
+    allowed_hosts: list[str],
+    namespace: str,
+    name: str,
+    version: str,
+) -> dict[str, JsonValue]:
+    """Preview an offline, allowlisted OpenAPI projection as a capability manifest."""
+
+    try:
+        selection = OpenApiSelection(
+            namespace=namespace,
+            name=name,
+            version=version,
+            operation_ids=tuple(operation_ids),
+            allowed_hosts=tuple(allowed_hosts),
+        )
+    except ValueError as error:
+        raise CapabilityHubError(
+            code="openapi_selection_invalid",
+            category=ErrorCategory.INPUT,
+            safe_message="The OpenAPI operation or host selection is invalid.",
+        ) from error
+    result = import_openapi_file(path, selection=selection)
+    return {
+        "manifest": manifest_to_document(result.manifest),
+        "selected_operation_ids": list(result.selected_operation_ids),
+        "server_origin": result.server_origin,
+        "source_digest": result.source_digest,
+    }
 
 
 def local_activation_lock(

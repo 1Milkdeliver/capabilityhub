@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 19 — real service adapters and five-kind conformance.
+Phase 20 - bounded hierarchy, observability, and OpenAPI intake.
 
 ## Next Step
 
-Connect the real service to loopback HTTP and drain admission, then verify all five Provider kinds through one security matrix.
+Wire standalone safety cores into real runtime paths without overstating production readiness.
 
 ## Phases
 
@@ -49,7 +49,7 @@ Status: complete (reference adapters only; production execution remains out of s
 
 ### Phase 5 — MCP server and CLI
 
-Status: complete (pre-alpha local surface; twenty-seven commands and three MCP tools)
+Status: complete (pre-alpha local surface; twenty-nine commands and three MCP tools)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
 - Provide local validation, discovery, dashboard, and MCP serving commands.
@@ -90,6 +90,15 @@ Status: complete
 - Validate concurrent refresh, stale fallback, add/change/remove behavior, token bounds, and redaction.
 
 ## Decisions Made
+
+### Phase 20 - bounded hierarchy, observability, and OpenAPI intake
+
+Status: complete for standalone cores and offline OpenAPI CLI preview
+
+- Add durable parent/child budget admission with opaque HMAC scopes and restart-safe reservations.
+- Add bounded privacy-safe spans and aggregate metric persistence without arbitrary metadata.
+- Add offline, allowlisted OpenAPI 3 projection and expose it as a read-only CLI preview.
+- Keep hierarchy and observability marked as embedding cores until default runtime wiring is verified.
 
 ### Phase 10 — Live local operations
 

@@ -23,12 +23,33 @@ def test_manifest_and_compatibility_commands_route(monkeypatch, capsys) -> None:
     monkeypatch.setattr(runtime, "local_manifest_migrate", lambda *_args: {"report": {}})
     monkeypatch.setattr(
         runtime,
+        "local_openapi_import",
+        lambda *_args, **_kwargs: {"source_digest": "sha256:demo"},
+    )
+    monkeypatch.setattr(
+        runtime,
         "local_compatibility",
         lambda **_kwargs: {"decision": {"compatible": False}},
     )
 
     assert main(["export-manifest", "manifest.json"]) == 0
     assert json.loads(capsys.readouterr().out)["kind"] == "Capability"
+    assert (
+        main(
+            [
+                "import-openapi",
+                "api.json",
+                "--operation-id",
+                "readPet",
+                "--allow-host",
+                "api.example.com",
+                "--name",
+                "pets",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["source_digest"] == "sha256:demo"
     assert main(["migrate-manifest", "legacy.json"]) == 0
     assert json.loads(capsys.readouterr().out) == {"report": {}}
     assert main(["compatibility", "--required-feature", "security.future"]) == 0

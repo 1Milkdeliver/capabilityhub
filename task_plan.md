@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 17 — conflict projection, tenancy, and degraded operation.
+Phase 18 — local HTTP, lifecycle draining, and scale evidence.
 
 ## Next Step
 
-Integrate automatic resource projections, tenant-scoped state, and dependency freshness decisions without widening the always-loaded context.
+Integrate authenticated loopback HTTP, revision draining, and 10k/concurrent evidence without widening the always-loaded context.
 
 ## Phases
 
@@ -165,6 +165,15 @@ Status: complete for the standalone local control-plane scope
 - Partition generic SQLite KV/cache/events by opaque tenant/principal/session/task scope.
 - Evaluate operation-specific dependency freshness and explicit safe fallbacks.
 - Keep automatic registry/business-store/live-observer wiring visible as remaining work.
+
+### Phase 18 — Local HTTP, lifecycle draining, and scale evidence
+
+Status: complete for the standalone local pre-alpha scope
+
+- Serve the shared request envelope over a bearer-protected numeric loopback endpoint.
+- Coordinate accepting, draining, cancellation requests, and retired revision pins.
+- Replay 10k metadata and 100 concurrent read evidence with percentile latency.
+- Keep remote deployment, service drain wiring, 1m RAG, and production-provider claims open.
 
 | Decision | Reason |
 |---|---|

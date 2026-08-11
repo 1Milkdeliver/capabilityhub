@@ -35,6 +35,8 @@ Security invariants below describe the intended and tested core boundary; they a
 - Automatic projection analysis hashes HTTP routes and filesystem roots before emitting decisions. It does not return raw endpoints or absolute paths in collisions or errors.
 - Generic scoped state derives HMAC partitions from tenant, principal, session, and task and stores only scope/key digests. Expiry cleanup is always limited to one explicit scope and a bounded row count.
 - Dependency health treats missing, future-dated, expired, and unknown policy/provider evidence as unsafe. Degraded operation requires a named, operation-specific, age-bounded fallback.
+- The HTTP control adapter accepts only numeric loopback binding/peers/Hosts, one bounded JSON POST endpoint, and a high-entropy bearer token whose digest alone remains in the server. It is not a remote TLS/authentication profile.
+- Draining blocks new admissions while preserving every in-flight revision pin. Cancellation is requested only for operations declared cancellable; forced retirement requires an explicit policy and bounded reason code.
 - Secrets are references resolved outside model-visible payloads.
 - Provider output is untrusted and budget bounded.
 - External gateways, sandboxes, and credential stores remain separate integrations.

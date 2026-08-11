@@ -138,6 +138,7 @@ def test_load_execute_budget_and_benchmark_commands_route(monkeypatch, capsys) -
     )
     monkeypatch.setattr(runtime, "local_budget_report", lambda *_args: {"budget": True})
     monkeypatch.setattr(runtime, "local_benchmark", lambda **_kwargs: {"thresholds_passed": True})
+    monkeypatch.setattr(runtime, "local_scale_benchmark", lambda: {"capability_count": 10_000})
 
     assert main(["load", "demo/item@1#digest"]) == 0
     assert json.loads(capsys.readouterr().out) == {"loaded": True}
@@ -160,6 +161,10 @@ def test_load_execute_budget_and_benchmark_commands_route(monkeypatch, capsys) -
     assert json.loads(capsys.readouterr().out) == {"budget": True}
     assert main(["benchmark"]) == 0
     assert json.loads(capsys.readouterr().out) == {"thresholds_passed": True}
+    assert main(["benchmark", "--scale"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"capability_count": 10_000}
+    assert main(["benchmark", "--scale", "--no-enforce"]) == 2
+    assert "does not accept --no-enforce" in capsys.readouterr().err
 
 
 def test_language_and_lifecycle_commands_route(monkeypatch, capsys) -> None:

@@ -205,6 +205,9 @@ def build_parser() -> argparse.ArgumentParser:
         "benchmark", help="run the deterministic eager-versus-lazy release gate"
     )
     benchmark.add_argument("--no-enforce", action="store_true")
+    benchmark.add_argument(
+        "--scale", action="store_true", help="run the 10k metadata/100-read scale evidence"
+    )
     _pretty_argument(benchmark)
     dashboard = commands.add_parser("dashboard", help="start the local management dashboard")
     dashboard.add_argument("--port", type=int, default=0)
@@ -524,6 +527,11 @@ def _main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "benchmark":
+        if args.scale:
+            if args.no_enforce:
+                raise _usage("benchmark --scale does not accept --no-enforce")
+            _print_json(runtime.local_scale_benchmark(), pretty=args.pretty)
+            return 0
         _print_json(
             runtime.local_benchmark(enforce_thresholds=not args.no_enforce),
             pretty=args.pretty,

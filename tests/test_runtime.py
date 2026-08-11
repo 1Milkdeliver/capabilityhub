@@ -32,6 +32,7 @@ from capabilityhub.runtime import (
     local_providers,
     local_reasoning,
     local_routing,
+    local_scale_benchmark,
     local_search,
     local_secure_audit,
     local_set_lifecycle,
@@ -471,6 +472,14 @@ def test_budget_report_and_benchmark_are_machine_readable(tmp_path) -> None:
     assert budget["storage"] == "sqlite"
     assert benchmark["thresholds_passed"] is True
     assert benchmark["capability_count"] == 100
+
+
+def test_scale_benchmark_reports_bounded_scope_and_concurrency() -> None:
+    report = local_scale_benchmark()
+
+    assert report["capability_count"] == 10_000
+    assert report["concurrent_read_target"] >= 100
+    assert "not a 1m-document RAG claim" in report["scope_limits"]
 
 
 def test_local_reasoning_persists_budget_aware_anti_loop_state(tmp_path) -> None:

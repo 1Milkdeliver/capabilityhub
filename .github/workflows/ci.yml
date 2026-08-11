@@ -30,7 +30,9 @@ jobs:
       - name: Test
         run: python -m pytest --cov=capabilityhub --cov-report=term-missing
       - name: Deterministic benchmark gate
-        run: capabilityhub benchmark
+        run: |
+          capabilityhub benchmark
+          capabilityhub benchmark --scale
       - name: Replay validation artifacts
         run: python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
       - name: Build wheel
@@ -43,6 +45,7 @@ jobs:
           .wheel-smoke/bin/capabilityhub health --project-root .
           .wheel-smoke/bin/capabilityhub budget-report
           .wheel-smoke/bin/capabilityhub benchmark
+          .wheel-smoke/bin/capabilityhub benchmark --scale
 
   windows-smoke:
     runs-on: windows-latest
@@ -62,6 +65,7 @@ jobs:
         run: |
           python -m pytest
           capabilityhub benchmark
+          capabilityhub benchmark --scale
           python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
       - name: Build and smoke-test wheel
         shell: pwsh
@@ -72,3 +76,4 @@ jobs:
           .\.wheel-smoke\Scripts\python.exe -m pip install --disable-pip-version-check $wheel
           .\.wheel-smoke\Scripts\capabilityhub.exe health --project-root .
           .\.wheel-smoke\Scripts\capabilityhub.exe benchmark
+          .\.wheel-smoke\Scripts\capabilityhub.exe benchmark --scale

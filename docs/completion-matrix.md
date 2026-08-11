@@ -34,11 +34,11 @@ run does not upgrade a row by itself.
 | R25 | Hierarchical budgets | Partial | Local runtime uses atomic restart-safe SQLite accounting; durable hierarchical child scopes remain open |
 | R26 | Context residency and eviction | Partial | Local load records metadata-only residency, atomically persists access/pins and exposes real evictions; model-client context removal cannot be enforced by the current transport |
 | R27 | Tenant/session isolation | Partial | References bind scopes and a generic SQLite KV/cache/event store HMAC-partitions tenant/principal/session/task with cross-tenant concurrency tests; business stores and authenticated principals remain open |
-| R28 | Multi-client consistency | Partial | A shared request/error envelope, feature handshake and stream/cancel conformance fixture cover library/CLI/MCP/HTTP adapter boundaries; the HTTP server and real transport-wide suite remain open |
-| R29 | Concurrency and idempotency | Partial | SQLite conservative idempotency exists; lifecycle drain/cancel and distributed storage remain open |
+| R28 | Multi-client consistency | Partial | A shared envelope/handshake plus a real authenticated loopback HTTP roundtrip and conformance fixture cover library/CLI/MCP/HTTP boundaries; one suite against every production transport remains open |
+| R29 | Concurrency and idempotency | Partial | SQLite conservative idempotency plus accepting/draining/retired admission pins and cancellable deadline requests exist; service wiring and distributed storage remain open |
 | R30 | Observable, private audit | Partial | Redacted views plus optional HMAC chain, checkpoint, bounded retention and verified export exist; external metrics/traces and OS-backed key management remain open |
 | R31 | Degraded operation | Partial | Atomic last-good catalog fallback plus a TTL-aware registry/index/policy/provider matrix fail closed unless an explicit bounded safe fallback applies; live dependency observation wiring remains open |
-| R32 | Scale evidence | Partial | 100-definition deterministic gate exists; 10k/1m/concurrency/p95 evidence remains open |
+| R32 | Scale evidence | Partial | CI measures fixed-seed 10k metadata, top-8 fixtures, cold/warm and 100 concurrent reads with p50/p95/max; 1m RAG chunks and production-provider scale remain open |
 | R33 | Compatibility and migration | Partial | Feature handshake fails closed on unknown required semantics and v1alpha0 aliases migrate idempotently; published deprecation windows and old-client/new-server transport conformance remain open |
 | R34 | Self-hosted operation | Partial | Clean local wheel, CLI, Dashboard and adapters run; production profile and isolated workers remain open |
 | R35 | Release gates | Partial | Linux 3.11-3.13 and Windows 3.12 CI run Ruff/mypy/pytest/benchmark/artifact replay/wheel smoke; automated browser, real-provider adversarial and model-backed gates remain open |

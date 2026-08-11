@@ -95,6 +95,7 @@ capabilityhub context list --pretty
 capabilityhub reasoning state TASK_ID --pretty
 capabilityhub budget-report --pretty
 capabilityhub benchmark
+capabilityhub benchmark --scale
 capabilityhub dashboard --project-root /absolute/project/path
 capabilityhub mcp-serve
 ```
@@ -115,6 +116,8 @@ Manifests may be JSON, `.yaml`, or `.yml`. YAML intake uses `safe_load` only aft
 `ScopedSecretBroker` issues short-lived, scope-bound, use-limited handles for trusted local provider callbacks. It resolves an environment alias only after atomic handle admission and never offers a plaintext lookup API or stores secrets on disk. This is an embedding API, not an OS keychain. `ResilientProviderExecutor` adds opt-in bounded circuit breaking and retries only when a typed error is retryable, the operation is safe or idempotent, and the embedder explicitly classifies the failure as not applied; uncertain failures are never retried.
 
 Additional control-plane primitives remain metadata-only: automatic projection analysis hashes routes and filesystem roots before reporting port/route/name/permission collisions; `SqliteScopedState` partitions generic cache and event state by an HMAC of tenant, principal, session, and task without storing those raw identifiers; and `DegradedModePolicy` evaluates fresh/stale/unavailable/unknown registry, index, policy, and provider observations. A degraded result is possible only when an explicit bounded safe fallback matches the affected operation and dependency.
+
+`LoopbackHttpControl` is an authenticated local HTTP transport for the shared protocol envelope. It binds only numeric loopback addresses, exposes one `POST /protocol` endpoint and exactly the three capability operations, requires a 256-bit bearer token, bounds request bodies, and enforces loopback Host/peer plus explicit browser Origin policy. It is an embeddable adapter rather than a remote TLS service. `DrainController` separately coordinates accepting, draining, and retired revisions; it preserves in-flight pins, blocks new admission, requests cancellation only for declared cancellable work, and requires an explicit policy for forced retirement.
 
 `HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
 
@@ -192,6 +195,8 @@ The benchmark is local, fixture-based, and has no model, network, or paid-servic
 ```bash
 capabilityhub benchmark
 ```
+
+`capabilityhub benchmark --scale` adds a fixed-seed synthetic run over 10,000 metadata capabilities, top-8 quality fixtures, cold/warm search, and 100 concurrent read targets with p50/p95/max and replay-environment metadata. It does not claim one-million-document RAG scale, model quality, or production-provider latency.
 
 The pinned [reference run](benchmarks/reference-run.json) uses 100 definitions across all five kinds. Ten natural-language tasks are routed by the actual deterministic lexical search; expected revisions are used only for scoring. The current fixture records 10/10 selection, five expected failure paths, and 40 cold/warm/invalidation events with zero stale use. This is deterministic fixture evidence, not model reasoning quality, real provider latency, hidden reasoning tokens, or production monetary cost. Read [benchmarks/README.md](benchmarks/README.md) and [docs/validation-plan.md](docs/validation-plan.md) before making a performance claim.
 

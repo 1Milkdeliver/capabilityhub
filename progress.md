@@ -59,3 +59,4 @@
 - Phase 15 GitHub CI passed on Linux/Python 3.11-3.13 and the new Windows/Python 3.12 full smoke path.
 - Completed Phase 16 integration: safe YAML discovery, exact activation-lock CLI, scoped secret-broker core, and explicitly certainty-gated service resilience; 366 tests passed with two expected platform skips.
 - Started and completed the standalone Phase 17 cores for privacy-preserving conflict projections, tenant-scoped generic state, and dependency freshness/degraded decisions.
+- Completed Phase 18 standalone cores: authenticated loopback HTTP protocol transport, lifecycle drain/cancel coordination, and replayable 10k/100-read scale evidence.

@@ -1111,6 +1111,16 @@ def local_benchmark(*, enforce_thresholds: bool = True) -> dict[str, JsonValue]:
     return payload
 
 
+def local_scale_benchmark() -> dict[str, JsonValue]:
+    """Run the synthetic 10k metadata and 100-concurrent-read evidence path."""
+
+    from benchmarks.scale import run_scale_benchmark
+
+    payload = _jsonable(run_scale_benchmark())
+    assert isinstance(payload, dict)
+    return payload
+
+
 def local_dashboard(
     project_root: str | Path | None = None,
     *,

@@ -33,3 +33,11 @@ jobs:
         run: capabilityhub benchmark
       - name: Build wheel
         run: python -m pip wheel --no-deps --wheel-dir dist .
+      - name: Smoke-test clean base wheel
+        shell: bash
+        run: |
+          python -m venv .wheel-smoke
+          .wheel-smoke/bin/python -m pip install --disable-pip-version-check dist/*.whl
+          .wheel-smoke/bin/capabilityhub health --project-root .
+          .wheel-smoke/bin/capabilityhub budget-report
+          .wheel-smoke/bin/capabilityhub benchmark

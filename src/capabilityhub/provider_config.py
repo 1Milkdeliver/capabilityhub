@@ -10,7 +10,6 @@ from capabilityhub.models import CapabilityManifest
 from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.cli import CliInvocation, CliProcessFixture, CliProcessProvider
 from capabilityhub.providers.http import HttpApiFixture, HttpApiProvider, HttpInvocation
-from capabilityhub.providers.mcp import McpStdioFixture, McpStdioProvider
 from capabilityhub.providers.rag import LocalRagFixture, LocalRagProvider
 
 
@@ -47,6 +46,8 @@ def project_providers(
     if groups["local-rag"]:
         providers.append(LocalRagProvider(groups["local-rag"], name="local-rag"))  # type: ignore[arg-type]
     if groups["mcp-stdio"]:
+        from capabilityhub.providers.mcp import McpStdioProvider
+
         providers.append(McpStdioProvider(groups["mcp-stdio"], name="mcp-stdio"))  # type: ignore[arg-type]
     return tuple(providers), invalid
 
@@ -82,6 +83,8 @@ def _fixture(
             max_files=_positive_int(config, "maxFiles", 500),
             max_file_bytes=_positive_int(config, "maxFileBytes", 512_000),
         )
+    from capabilityhub.providers.mcp import McpStdioFixture
+
     return McpStdioFixture(
         manifest,
         _absolute_file(config, "command"),

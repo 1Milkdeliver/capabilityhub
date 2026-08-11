@@ -45,3 +45,4 @@
 - Added durable project JSONL audit for local service/MCP operations, synchronized and flushed writes, bounded tolerant tail reading, hashed task IDs, a new `audit` CLI command, and a ten-event Dashboard view without arguments or credentials.
 - Added atomic SQLite idempotency admission across process restarts, digest-bound conflict detection, explicit startup recovery to uncertain state, default no-output persistence, optional reviewed result replay, and local CLI duplicate blocking without a second provider call.
 - Wired four opt-in project-manifest adapters into normal local discovery, load, and execute; invalid drivers remain non-executable and appear in Inventory diagnostics.
+- Preserved the MCP SDK as a lazy optional dependency and added a clean base-wheel CI smoke gate for Health, Budget, and Benchmark commands.

@@ -107,6 +107,22 @@ def test_json_rejects_non_json_constants() -> None:
         parse_manifest_json('{"apiVersion": NaN}')
 
 
+def test_rejects_invalid_inline_json_schema() -> None:
+    raw = document()
+    spec = raw["spec"]
+    assert isinstance(spec, dict)
+    operations = spec["operations"]
+    assert isinstance(operations, list)
+    operation = operations[0]
+    assert isinstance(operation, dict)
+    operation["inputSchema"] = {"type": "not-a-json-type"}
+
+    with pytest.raises(CapabilityHubError) as error:
+        parse_manifest(raw)
+
+    assert error.value.code == "invalid_json_schema"
+
+
 def test_models_are_immutable() -> None:
     manifest = parse_manifest(json.loads(json.dumps(document())))
 

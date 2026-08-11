@@ -10,9 +10,9 @@ htmlcov/
 .venv/
 dist/
 build/
+.artifacts/
 .env
 .env.*
 !.env.example
 .capabilityhub/cache/
 .capabilityhub/state/
-

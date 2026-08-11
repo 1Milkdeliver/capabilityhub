@@ -6,6 +6,7 @@ import pytest
 
 from capabilityhub import runtime
 from capabilityhub.cli import build_parser, main
+from capabilityhub.errors import CapabilityHubError, ErrorCategory
 
 
 def test_cli_discover_skills(tmp_path, capsys) -> None:
@@ -72,3 +73,52 @@ def test_inventory_rejects_missing_explicit_project_root(tmp_path) -> None:
         main(["inventory", "--project-root", str(tmp_path / "missing")])
 
     assert error.value.code == 2
+
+
+def test_load_execute_budget_and_benchmark_commands_route(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(runtime, "local_load", lambda *_args, **_kwargs: {"loaded": True})
+    monkeypatch.setattr(
+        runtime, "local_execute_static", lambda *_args, **_kwargs: {"executed": True}
+    )
+    monkeypatch.setattr(runtime, "local_budget_report", lambda *_args: {"budget": True})
+    monkeypatch.setattr(
+        runtime, "local_benchmark", lambda **_kwargs: {"thresholds_passed": True}
+    )
+
+    assert main(["load", "demo/item@1#digest"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"loaded": True}
+    assert (
+        main(
+            [
+                "execute",
+                "demo/item@1#digest",
+                "read",
+                "--arguments",
+                '{"id":1}',
+                "--fixture-output",
+                '{"ok":true}',
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out) == {"executed": True}
+    assert main(["budget-report", "--portable-tokens", "12"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"budget": True}
+    assert main(["benchmark"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"thresholds_passed": True}
+
+
+def test_cli_renders_structured_safe_runtime_errors(monkeypatch, capsys) -> None:
+    def fail(*_args, **_kwargs):
+        raise CapabilityHubError(
+            code="stale_revision",
+            category=ErrorCategory.REFERENCE,
+            safe_message="The revision is stale.",
+        )
+
+    monkeypatch.setattr(runtime, "local_load", fail)
+
+    assert main(["load", "missing"]) == 2
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "stale_revision"
+    assert error["safe_message"] == "The revision is stale."

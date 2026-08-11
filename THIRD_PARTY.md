@@ -16,6 +16,15 @@ Use upstream software through documented protocols, a separately installed execu
 | [Datalayer agent-skills](https://github.com/datalayer/agent-skills) | Optional Python adapter extra / format reference | BSD-3-Clause | Retain copyright, conditions, disclaimer; do not use contributor names for endorsement | No core dependency; optional adapter needs exact package notice |
 | [AWS Labs CLI Agent Orchestrator](https://github.com/awslabs/cli-agent-orchestrator) | Optional separately deployed orchestration target | Apache-2.0 | Preserve license and notices; state material changes; include any `NOTICE` file if supplied | Do not bundle or reimplement its runtime |
 
+## Shipped Python dependencies added by CapabilityHub
+
+| Package | Purpose | License | Source |
+|---|---|---|---|
+| `jsonschema` | Validate inline Draft 2020-12 capability input and output contracts | MIT | [python-jsonschema/jsonschema](https://github.com/python-jsonschema/jsonschema) |
+| `types-jsonschema` (development only) | Static type information for the JSON Schema integration | Apache-2.0 | [python/typeshed](https://github.com/python/typeshed) |
+
+Release artifacts must include the complete transitive dependency and license inventory produced from the locked build environment; this table records the direct dependency decision only.
+
 ## Protocols and content formats
 
 - [Model Context Protocol](https://modelcontextprotocol.io/specification/) and the [Agent Skills specification](https://agentskills.io/specification) are interoperability specifications, not a grant to copy a particular implementation's source or branded assets. Verify their current licensing/terms at the point of distribution.

@@ -3,18 +3,37 @@
 from __future__ import annotations
 
 import tomllib
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
+from dataclasses import fields, is_dataclass
+from enum import Enum
 from importlib import import_module, metadata, util
 from pathlib import Path
+from secrets import token_bytes
 from typing import cast
 
+from capabilityhub.audit import MemoryAuditSink
+from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.manifest import load_manifest
-from capabilityhub.models import CapabilityKind, CapabilityManifest, JsonValue
+from capabilityhub.models import (
+    CapabilityKind,
+    CapabilityManifest,
+    ExecutionRequest,
+    JsonValue,
+)
 from capabilityhub.providers.skill import SkillProvider
+from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.search import LexicalCapabilitySearch
+from capabilityhub.service import CapabilityHubService, ServiceContext
 from capabilityhub.webui import DashboardServer, StatusSnapshot
+
+DEFAULT_LOCAL_BUDGETS = {
+    "bytes": 1_000_000,
+    "executions": 10,
+    "loads": 100,
+    "portable_tokens": 100_000,
+}
 
 
 def validate(paths: list[str | Path]) -> int:
@@ -175,6 +194,186 @@ def local_connections(
     }
 
 
+def local_load(
+    revision: str,
+    *,
+    section_names: list[str] | None = None,
+    operation_names: list[str] | None = None,
+    granted_permissions: list[str] | None = None,
+    max_output_tokens: int = 2_000,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Load selected material from one active revision through the service boundary."""
+
+    selected = _select_local_scope(project_root, monitor)
+    generation = selected.snapshot()
+    signer = ReferenceSigner(token_bytes(32))
+    audit = MemoryAuditSink()
+    service = CapabilityHubService(
+        registry=generation.registry,
+        providers=generation.providers,
+        references=signer,
+        audit=audit,
+    )
+    context = _local_context(granted_permissions)
+    budget = BudgetLedger("local-cli", DEFAULT_LOCAL_BUDGETS)
+    load_ref = signer.issue(
+        revision=revision,
+        scope=context.reference_scope,
+        purpose="load",
+        ttl_seconds=60,
+    )
+    loaded = service.load(
+        load_ref,
+        task_id="local-cli",
+        context=context,
+        budget=budget,
+        section_names=section_names,
+        operation_names=operation_names,
+        max_output_tokens=max_output_tokens,
+    )
+    return {
+        "budget": _budget_json(budget.snapshot()),
+        "execution_ref": None,
+        "execution_requires_same_process_session": bool(loaded.execution_ref),
+        "omitted_sections": list(loaded.omitted_sections),
+        "operations": [
+            {
+                "input_schema": dict(operation.input_schema),
+                "name": operation.name,
+                "operation_type": operation.operation_type.value,
+                "output_schema": dict(operation.output_schema),
+                "requires_approval": operation.requires_approval,
+                "side_effect": operation.side_effect.value,
+            }
+            for operation in loaded.operations
+        ],
+        "permissions": list(loaded.permissions),
+        "portable_tokens": loaded.portable_tokens,
+        "revision": loaded.revision,
+        "sections": [
+            {
+                "content": section.content,
+                "media_type": section.media_type,
+                "name": section.name,
+                "portable_tokens": section.portable_tokens,
+                "sensitive": section.sensitive,
+            }
+            for section in loaded.sections
+        ],
+    }
+
+
+def local_execute_static(
+    revision: str,
+    operation: str,
+    arguments: dict[str, JsonValue],
+    fixture_output: JsonValue,
+    *,
+    granted_permissions: list[str] | None = None,
+    approved: bool = False,
+    allow_irreversible: bool = False,
+    idempotency_key: str | None = None,
+    max_output_tokens: int = 2_000,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Execute one deterministic static fixture through load, policy, and budget gates."""
+
+    selected = _select_local_scope(project_root, monitor)
+    generation = selected.snapshot()
+    manifest = generation.registry.revision(revision)
+    provider = StaticProvider(
+        (StaticFixture(manifest, {operation: fixture_output}),),
+        name=manifest.provider,
+    )
+    signer = ReferenceSigner(token_bytes(32))
+    audit = MemoryAuditSink()
+    service = CapabilityHubService(
+        registry=generation.registry,
+        providers=(provider,),
+        references=signer,
+        audit=audit,
+    )
+    context = _local_context(
+        granted_permissions,
+        allow_irreversible=allow_irreversible,
+    )
+    budget = BudgetLedger("local-cli", DEFAULT_LOCAL_BUDGETS)
+    load_ref = signer.issue(
+        revision=revision,
+        scope=context.reference_scope,
+        purpose="load",
+        ttl_seconds=60,
+    )
+    loaded = service.load(
+        load_ref,
+        task_id="local-cli",
+        context=context,
+        budget=budget,
+        section_names=(),
+        operation_names=(operation,),
+        max_output_tokens=max_output_tokens,
+    )
+    approval_ref = (
+        service.issue_approval(
+            revision=revision,
+            operation=operation,
+            arguments=arguments,
+            task_id="local-cli",
+            context=context,
+            ttl_seconds=60,
+        )
+        if approved
+        else None
+    )
+    result = service.execute(
+        ExecutionRequest(
+            loaded.execution_ref,
+            operation,
+            arguments,
+            "local-cli",
+            approval_ref=approval_ref,
+            idempotency_key=idempotency_key,
+        ),
+        context=context,
+        budget=budget,
+        max_output_tokens=max_output_tokens,
+    )
+    return {
+        "audit_id": result.audit_id,
+        "budget": _budget_json(budget.snapshot()),
+        "capability_revision": result.capability_revision,
+        "operation": result.operation,
+        "output": result.output,
+        "portable_tokens": result.portable_tokens,
+        "provider": result.provider,
+    }
+
+
+def local_budget_report(
+    limits: dict[str, int] | None = None,
+) -> dict[str, JsonValue]:
+    """Return a fresh local CLI budget envelope without scanning the catalog."""
+
+    return _budget_json(BudgetLedger("local-cli", limits or DEFAULT_LOCAL_BUDGETS).snapshot())
+
+
+def local_benchmark(*, enforce_thresholds: bool = True) -> dict[str, JsonValue]:
+    """Run the packaged deterministic disclosure benchmark."""
+
+    from benchmarks.harness import assert_release_thresholds, run_benchmark
+
+    report = run_benchmark()
+    if enforce_thresholds:
+        assert_release_thresholds(report)
+    payload = _jsonable(report)
+    assert isinstance(payload, dict)
+    payload["thresholds_passed"] = True if enforce_thresholds else None
+    return payload
+
+
 def local_dashboard(
     project_root: str | Path | None = None,
     *,
@@ -241,3 +440,41 @@ def _select_local_scope(
     if project_root is not None and _catalog_project(project_root) != monitor.project:
         raise ValueError("project_root does not match the supplied local monitor")
     return monitor
+
+
+def _local_context(
+    granted_permissions: list[str] | None,
+    *,
+    allow_irreversible: bool = False,
+) -> ServiceContext:
+    return ServiceContext(
+        "local",
+        "operator",
+        "cli",
+        granted_permissions=frozenset(granted_permissions or ()),
+        allow_irreversible=allow_irreversible,
+    )
+
+
+def _budget_json(snapshot: BudgetSnapshot) -> dict[str, JsonValue]:
+    return {
+        "limits": dict(snapshot.limits),
+        "remaining": dict(snapshot.remaining),
+        "reserved": dict(snapshot.reserved),
+        "scope": snapshot.scope,
+        "used": dict(snapshot.used),
+    }
+
+
+def _jsonable(value: object) -> JsonValue:
+    if value is None or isinstance(value, (bool, int, float, str)):
+        return value
+    if isinstance(value, Enum):
+        return str(value.value)
+    if is_dataclass(value) and not isinstance(value, type):
+        return {field.name: _jsonable(getattr(value, field.name)) for field in fields(value)}
+    if isinstance(value, Mapping):
+        return {str(key): _jsonable(item) for key, item in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_jsonable(item) for item in value]
+    raise TypeError(f"Unsupported benchmark value: {type(value).__name__}")

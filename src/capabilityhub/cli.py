@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import argparse
 import json
+import sys
 from collections.abc import Sequence
 from pathlib import Path
 from threading import Event
 
 from capabilityhub import runtime
+from capabilityhub.errors import CapabilityHubError
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -35,6 +37,39 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _project_argument(connections)
     _pretty_argument(connections)
+    load = commands.add_parser("load", help="load selected sections from an active revision")
+    load.add_argument("revision")
+    load.add_argument("--section", action="append")
+    load.add_argument("--operation", action="append")
+    load.add_argument("--grant", action="append")
+    load.add_argument("--max-output-tokens", type=_positive_int, default=2_000)
+    _project_argument(load)
+    _pretty_argument(load)
+    execute = commands.add_parser(
+        "execute", help="execute a deterministic static fixture through policy gates"
+    )
+    execute.add_argument("revision")
+    execute.add_argument("operation")
+    execute.add_argument("--arguments", type=_json_object, default={})
+    execute.add_argument("--fixture-output", type=_json_value, required=True)
+    execute.add_argument("--grant", action="append")
+    execute.add_argument("--approved", action="store_true")
+    execute.add_argument("--allow-irreversible", action="store_true")
+    execute.add_argument("--idempotency-key")
+    execute.add_argument("--max-output-tokens", type=_positive_int, default=2_000)
+    _project_argument(execute)
+    _pretty_argument(execute)
+    budget = commands.add_parser("budget-report", help="show fresh local hard budget limits")
+    budget.add_argument("--bytes", type=_non_negative_int)
+    budget.add_argument("--portable-tokens", type=_non_negative_int)
+    budget.add_argument("--loads", type=_non_negative_int)
+    budget.add_argument("--executions", type=_non_negative_int)
+    _pretty_argument(budget)
+    benchmark = commands.add_parser(
+        "benchmark", help="run the deterministic eager-versus-lazy release gate"
+    )
+    benchmark.add_argument("--no-enforce", action="store_true")
+    _pretty_argument(benchmark)
     dashboard = commands.add_parser("dashboard", help="start a local read-only dashboard")
     dashboard.add_argument("--port", type=int, default=0)
     _project_argument(dashboard)
@@ -47,6 +82,17 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> int:
+    try:
+        return _main(argv)
+    except CapabilityHubError as error:
+        print(
+            json.dumps(error.as_dict(), ensure_ascii=False, sort_keys=True),
+            file=sys.stderr,
+        )
+        return 2
+
+
+def _main(argv: Sequence[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     if args.command == "validate":
         print(json.dumps({"valid": runtime.validate(args.paths)}))
@@ -78,6 +124,55 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "connections":
         _print_json(runtime.local_connections(args.project_root), pretty=args.pretty)
+        return 0
+    if args.command == "load":
+        _print_json(
+            runtime.local_load(
+                args.revision,
+                section_names=args.section,
+                operation_names=args.operation,
+                granted_permissions=args.grant,
+                max_output_tokens=args.max_output_tokens,
+                project_root=args.project_root,
+            ),
+            pretty=args.pretty,
+        )
+        return 0
+    if args.command == "execute":
+        _print_json(
+            runtime.local_execute_static(
+                args.revision,
+                args.operation,
+                args.arguments,
+                args.fixture_output,
+                granted_permissions=args.grant,
+                approved=args.approved,
+                allow_irreversible=args.allow_irreversible,
+                idempotency_key=args.idempotency_key,
+                max_output_tokens=args.max_output_tokens,
+                project_root=args.project_root,
+            ),
+            pretty=args.pretty,
+        )
+        return 0
+    if args.command == "budget-report":
+        requested = {
+            key: value
+            for key, value in {
+                "bytes": args.bytes,
+                "executions": args.executions,
+                "loads": args.loads,
+                "portable_tokens": args.portable_tokens,
+            }.items()
+            if value is not None
+        }
+        _print_json(runtime.local_budget_report(requested or None), pretty=args.pretty)
+        return 0
+    if args.command == "benchmark":
+        _print_json(
+            runtime.local_benchmark(enforce_thresholds=not args.no_enforce),
+            pretty=args.pretty,
+        )
         return 0
     if args.command == "dashboard":
         server = runtime.local_dashboard(
@@ -132,6 +227,34 @@ def _search_limit(value: str) -> int:
     parsed = int(value)
     if not 1 <= parsed <= 50:
         raise argparse.ArgumentTypeError("must be between 1 and 50")
+    return parsed
+
+
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def _non_negative_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be non-negative")
+    return parsed
+
+
+def _json_value(value: str) -> object:
+    try:
+        return json.loads(value)
+    except json.JSONDecodeError as error:
+        raise argparse.ArgumentTypeError("must be valid JSON") from error
+
+
+def _json_object(value: str) -> dict[str, object]:
+    parsed = _json_value(value)
+    if not isinstance(parsed, dict):
+        raise argparse.ArgumentTypeError("must be a JSON object")
     return parsed
 
 

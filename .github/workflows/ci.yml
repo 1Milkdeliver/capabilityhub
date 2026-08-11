@@ -24,8 +24,12 @@ jobs:
       - name: Install
         run: python -m pip install --disable-pip-version-check -e '.[dev]'
       - name: Lint
-        run: python -m ruff check src tests
+        run: python -m ruff check src tests benchmarks
       - name: Type check
-        run: python -m mypy src/capabilityhub
+        run: python -m mypy
       - name: Test
         run: python -m pytest --cov=capabilityhub --cov-report=term-missing
+      - name: Deterministic benchmark gate
+        run: capabilityhub benchmark
+      - name: Build wheel
+        run: python -m pip wheel --no-deps --wheel-dir dist .

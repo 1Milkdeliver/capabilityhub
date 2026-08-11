@@ -2,9 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
 from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from threading import RLock
+
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError, ValidationError
 
 from capabilityhub.audit import AuditEvent, AuditSink
 from capabilityhub.budget import BudgetLedger, BudgetReservation
@@ -19,6 +23,7 @@ from capabilityhub.models import (
     LoadedCapability,
     OperationSpec,
     SectionDescriptor,
+    SideEffect,
 )
 from capabilityhub.policy import PolicyContext, PolicyOutcome, ReferencePolicy
 from capabilityhub.providers.base import CapabilityProvider, ProviderContext
@@ -62,8 +67,16 @@ class _ExecutionGrant:
 
 
 @dataclass(slots=True)
+class _IdempotencyRecord:
+    arguments_digest: str
+    status: str
+    result: ExecutionResult | None = None
+
+
+@dataclass(slots=True)
 class _SharedServiceState:
     grants: dict[str, _ExecutionGrant]
+    idempotency: dict[tuple[str, str, str, str, str], _IdempotencyRecord]
     sequence: int
     lock: RLock
 
@@ -101,7 +114,7 @@ class CapabilityHubService:
         )
         self._load_ref_ttl = load_ref_ttl_seconds
         self._execution_ttl = execution_ref_ttl_seconds
-        self._shared = _shared_state or _SharedServiceState({}, 0, RLock())
+        self._shared = _shared_state or _SharedServiceState({}, {}, 0, RLock())
 
     def fork_catalog(
         self,
@@ -144,6 +157,7 @@ class CapabilityHubService:
                 max_output_tokens=max_output_tokens,
                 include_cards=include_cards,
                 inventory=inventory,
+                allowed_revisions=self._visible_revisions(context),
             )
             budget.spend(
                 {"portable_tokens": response.portable_tokens, "bytes": response.payload_bytes}
@@ -248,6 +262,42 @@ class CapabilityHubService:
         )
         return loaded
 
+    def issue_approval(
+        self,
+        *,
+        revision: str,
+        operation: str,
+        arguments: Mapping[str, JsonValue],
+        task_id: str,
+        context: ServiceContext,
+        ttl_seconds: int = 300,
+    ) -> str:
+        """Issue a short-lived approval bound to one exact execution intent.
+
+        This is a control-plane library operation and is deliberately not exposed as
+        a model-facing MCP tool.
+        """
+
+        manifest = self._active_manifest(revision)
+        if manifest.operation(operation) is None:
+            raise _reference(
+                "unknown_operation", "The capability does not declare this operation."
+            )
+        approval_ref = self._references.issue(
+            revision=revision,
+            scope=_approval_scope(context, operation, arguments),
+            purpose="approval",
+            ttl_seconds=ttl_seconds,
+        )
+        self._emit(
+            task_id,
+            "approval_issue",
+            revision,
+            "success",
+            metadata={"operation": operation},
+        )
+        return approval_ref
+
     def execute(
         self,
         request: ExecutionRequest,
@@ -259,6 +309,7 @@ class CapabilityHubService:
         limit = context.max_output_tokens if max_output_tokens is None else max_output_tokens
         manifest: CapabilityManifest | None = None
         reservation: BudgetReservation | None = None
+        idempotency_slot: tuple[str, str, str, str, str] | None = None
         try:
             _positive_budget(limit)
             claims = self._references.verify(
@@ -286,12 +337,24 @@ class CapabilityHubService:
                 raise _reference(
                     "unknown_operation", "The capability does not declare this operation."
                 )
+            _validate_arguments(operation, request.arguments)
+            approved = False
+            if request.approval_ref is not None:
+                self._references.verify(
+                    request.approval_ref,
+                    expected_scope=_approval_scope(
+                        context, request.operation, request.arguments
+                    ),
+                    expected_revision=manifest.identity.revision,
+                    expected_purpose="approval",
+                )
+                approved = True
             decision = self._policy.decide(
                 manifest,
                 operation,
                 PolicyContext(
                     context.granted_permissions,
-                    approved=context.approved,
+                    approved=approved,
                     allow_irreversible=context.allow_irreversible,
                 ),
             )
@@ -307,6 +370,16 @@ class CapabilityHubService:
                     safe_message="Execution was not allowed by policy.",
                     details={"reason_codes": decision.reason_codes},
                 )
+            if (
+                operation.side_effect
+                in {SideEffect.REVERSIBLE_WRITE, SideEffect.IRREVERSIBLE}
+                and request.idempotency_key is None
+            ):
+                raise CapabilityHubError(
+                    code="idempotency_key_required",
+                    category=ErrorCategory.POLICY,
+                    safe_message="Write operations require an idempotency key.",
+                )
             provider = self._providers.get(manifest.provider)
             if provider is None:
                 raise CapabilityHubError(
@@ -315,6 +388,27 @@ class CapabilityHubService:
                     safe_message="The capability's named provider is not configured.",
                 )
             reservation = budget.reserve({"executions": 1, "portable_tokens": limit})
+            try:
+                replay, idempotency_slot = self._admit_idempotency(
+                    request, context, manifest.identity.revision
+                )
+            except Exception:
+                reservation.cancel()
+                reservation = None
+                raise
+            if replay is not None:
+                reservation.cancel()
+                reservation = None
+                self._emit(
+                    request.task_id,
+                    "execute",
+                    manifest.identity.revision,
+                    "success",
+                    portable_tokens=replay.portable_tokens,
+                    reason_codes=("idempotent_replay",),
+                    metadata={"operation": replay.operation, "provider": replay.provider},
+                )
+                return replay
             result = provider.execute(
                 manifest.identity,
                 request,
@@ -327,6 +421,7 @@ class CapabilityHubService:
                 ),
             )
             result = self._normalize_result(result, manifest, request, provider.name)
+            _validate_provider_output(operation, result.output)
             if result.portable_tokens > limit:
                 reservation.reconcile({"executions": 1, "portable_tokens": limit})
                 reservation = None
@@ -337,9 +432,11 @@ class CapabilityHubService:
                 )
             reservation.reconcile({"executions": 1, "portable_tokens": result.portable_tokens})
             reservation = None
+            self._complete_idempotency(idempotency_slot, result)
         except CapabilityHubError as error:
             if reservation is not None and reservation.active:
                 reservation.reconcile({"executions": 1})
+            self._mark_idempotency_uncertain(idempotency_slot)
             self._emit(
                 request.task_id,
                 "execute",
@@ -351,6 +448,7 @@ class CapabilityHubService:
         except Exception as error:
             if reservation is not None and reservation.active:
                 reservation.reconcile({"executions": 1})
+            self._mark_idempotency_uncertain(idempotency_slot)
             self._emit(
                 request.task_id,
                 "execute",
@@ -398,6 +496,87 @@ class CapabilityHubService:
                 "The execution reference was not issued by this service instance.",
             )
         return grant
+
+    def _visible_revisions(self, context: ServiceContext) -> frozenset[str]:
+        return frozenset(
+            revision
+            for revision in self._registry.activations.values()
+            if set(self._registry.revision(revision).permissions)
+            <= context.granted_permissions
+        )
+
+    def _admit_idempotency(
+        self,
+        request: ExecutionRequest,
+        context: ServiceContext,
+        revision: str,
+    ) -> tuple[ExecutionResult | None, tuple[str, str, str, str, str] | None]:
+        key = request.idempotency_key
+        if key is None:
+            return None, None
+        if not isinstance(key, str) or not key or len(key) > 256:
+            raise CapabilityHubError(
+                code="invalid_idempotency_key",
+                category=ErrorCategory.INPUT,
+                safe_message="idempotency_key must contain 1 to 256 characters.",
+            )
+        slot = (
+            context.reference_scope,
+            request.task_id,
+            revision,
+            request.operation,
+            key,
+        )
+        arguments_digest = _json_digest(dict(request.arguments))
+        with self._shared.lock:
+            existing = self._shared.idempotency.get(slot)
+            if existing is None:
+                self._shared.idempotency[slot] = _IdempotencyRecord(
+                    arguments_digest, "in_progress"
+                )
+                return None, slot
+            if existing.arguments_digest != arguments_digest:
+                raise CapabilityHubError(
+                    code="idempotency_conflict",
+                    category=ErrorCategory.CONFLICT,
+                    safe_message="The idempotency key is already bound to different arguments.",
+                )
+            if existing.status == "complete" and existing.result is not None:
+                return existing.result, slot
+            code = (
+                "idempotency_in_progress"
+                if existing.status == "in_progress"
+                else "idempotency_outcome_unknown"
+            )
+            raise CapabilityHubError(
+                code=code,
+                category=ErrorCategory.CONFLICT,
+                safe_message="The idempotent execution cannot be replayed safely yet.",
+                retryable=existing.status == "in_progress",
+            )
+
+    def _complete_idempotency(
+        self,
+        slot: tuple[str, str, str, str, str] | None,
+        result: ExecutionResult,
+    ) -> None:
+        if slot is None:
+            return
+        with self._shared.lock:
+            record = self._shared.idempotency.get(slot)
+            if record is not None:
+                record.status = "complete"
+                record.result = result
+
+    def _mark_idempotency_uncertain(
+        self, slot: tuple[str, str, str, str, str] | None
+    ) -> None:
+        if slot is None:
+            return
+        with self._shared.lock:
+            record = self._shared.idempotency.get(slot)
+            if record is not None and record.status == "in_progress":
+                record.status = "uncertain"
 
     @staticmethod
     def _normalize_result(
@@ -582,3 +761,53 @@ def _budget(code: str, message: str, **details: JsonValue) -> CapabilityHubError
         safe_message=message,
         details=details,
     )
+
+
+def _approval_scope(
+    context: ServiceContext,
+    operation: str,
+    arguments: Mapping[str, JsonValue],
+) -> str:
+    arguments_digest = _json_digest(dict(arguments))
+    actor_digest = hashlib.sha256(context.reference_scope.encode("utf-8")).hexdigest()
+    return canonical_json(
+        {
+            "actor_sha256": actor_digest,
+            "arguments_sha256": arguments_digest,
+            "operation": operation,
+        }
+    )
+
+
+def _json_digest(value: JsonValue) -> str:
+    return hashlib.sha256(canonical_json(value).encode("utf-8")).hexdigest()
+
+
+def _validate_arguments(
+    operation: OperationSpec, arguments: Mapping[str, JsonValue]
+) -> None:
+    schema = dict(operation.input_schema)
+    if not schema or set(schema) == {"$ref"}:
+        return
+    try:
+        Draft202012Validator(schema).validate(dict(arguments))
+    except (SchemaError, ValidationError) as error:
+        raise CapabilityHubError(
+            code="invalid_operation_arguments",
+            category=ErrorCategory.INPUT,
+            safe_message="Execution arguments do not satisfy the operation schema.",
+        ) from error
+
+
+def _validate_provider_output(operation: OperationSpec, output: JsonValue) -> None:
+    schema = dict(operation.output_schema)
+    if not schema or set(schema) == {"$ref"}:
+        return
+    try:
+        Draft202012Validator(schema).validate(output)
+    except (SchemaError, ValidationError) as error:
+        raise CapabilityHubError(
+            code="invalid_provider_result",
+            category=ErrorCategory.PROVIDER,
+            safe_message="The provider output does not satisfy the operation schema.",
+        ) from error

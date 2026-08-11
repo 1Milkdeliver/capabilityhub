@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from dataclasses import dataclass, field
 
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
@@ -61,6 +61,7 @@ class LexicalCapabilitySearch:
         max_output_tokens: int = 900,
         include_cards: bool = True,
         inventory: dict[str, JsonValue] | None = None,
+        allowed_revisions: Collection[str] | None = None,
     ) -> SearchResponse:
         if not isinstance(query, str):
             raise _input("invalid_search_query", "Search query must be text.")
@@ -81,6 +82,8 @@ class LexicalCapabilitySearch:
         query_terms = frozenset(_tokens(query))
         ranked: list[tuple[int, str, CapabilityManifest, tuple[str, ...]]] = []
         for coordinate, revision in sorted(self._registry.activations.items()):
+            if allowed_revisions is not None and revision not in allowed_revisions:
+                continue
             manifest = self._registry.revision(revision)
             if selected_kinds is not None and manifest.kind not in selected_kinds:
                 continue

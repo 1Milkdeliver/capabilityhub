@@ -13,10 +13,10 @@ deployment hardening guide.
 | Area | Evidence | Release interpretation |
 |---|---|---|
 | Manifest and registry | JSON `v1alpha1` parsing, immutable revisions, activation pointers, dependency/conflict checks | Suitable for local/core experimentation; not a compatibility guarantee |
-| Search/load/execute core | Deterministic lexical search, scope-bound references, section/operation loading, policy/budget/audit tests | Python-library behavior only; no public transport contract |
+| Search/load/execute core | Permission-filtered lexical search, scope-bound references, section/operation loading, JSON Schema validation, exact-intent approvals, in-process idempotency, policy/budget/audit tests | Pre-alpha library/CLI/MCP behavior; idempotency and approvals are not yet durable across process restarts |
 | Skill intake | Filesystem-only `SKILL.md` discovery without script execution | Content discovery, not Skill execution or sandboxing |
 | Local dashboard | Read-only loopback server with live Inventory and local Health snapshot | Local inspection only; no remote connection probe, authentication, or mutations |
-| CLI and MCP | Eight local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; connection state is configuration-only and catalog generations refresh atomically after a lightweight change check |
+| CLI and MCP | Twelve local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; execute is a static-fixture verification path, connection state is configuration-only, and catalog generations refresh atomically after a lightweight change check |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
 
 ## Benchmark claim boundary
@@ -42,7 +42,8 @@ From the repository root after installing development dependencies:
 python -m pytest
 python -m ruff check src tests benchmarks
 python -m mypy
-python -c "from benchmarks.harness import assert_release_thresholds, run_benchmark; assert_release_thresholds(run_benchmark())"
+capabilityhub benchmark
+python -m pip wheel --no-deps --wheel-dir dist .
 ```
 
 The final command only verifies the deterministic fixture gate. It is necessary for a benchmark artifact update, but it is not sufficient for a software release decision.

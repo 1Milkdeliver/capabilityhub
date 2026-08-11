@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 9 — live local inventory hardening.
+Phase 11 — security admission and Release 0.1 CLI completion.
 
 ## Next Step
 
-Publish and validate atomic same-process inventory refresh, safe diagnostics, stable Skill identities, and explicit project-root discovery.
+Publish and validate permission-filtered search, exact-intent approvals, schema enforcement, idempotency, and the complete Release 0.1 CLI surface; then add durable lifecycle and preference state.
 
 ## Phases
 
@@ -49,7 +49,7 @@ Status: complete (reference adapters only; production execution remains out of s
 
 ### Phase 5 — MCP server and CLI
 
-Status: complete (pre-alpha local surface)
+Status: complete (pre-alpha local surface; twelve commands and three MCP tools)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
 - Provide local validation, discovery, dashboard, and MCP serving commands.
@@ -65,7 +65,7 @@ Status: complete for the deterministic release gate
 
 ### Phase 7 — Visual UI and Codex plugin
 
-Status: complete (repository plugin; personal installation pending release verification)
+Status: complete (repository plugin installed and release-validated; management actions remain planned)
 
 - Add a loopback-only management dashboard whose detailed data stays outside chat context.
 - Package a minimal Codex plugin entrypoint and repo-local marketplace entry.
@@ -100,6 +100,26 @@ Status: complete
 - Make returned Inventory data isolated, freeze published registries, and reject mixed project scopes.
 - Keep search output at or below 900 portable tokens and reject oversized result limits.
 - Preserve the exact three-tool MCP surface.
+
+### Phase 11 — Security admission and CLI completeness
+
+Status: in_progress
+
+- Filter search disclosure by caller permissions.
+- Bind approval references to exact actor, task, revision, operation, arguments, and expiry.
+- Validate inline JSON Schema contracts at registration and execution boundaries.
+- Prevent duplicate or uncertain replay with scoped idempotency records.
+- Expose `load`, static-fixture `execute`, `budget-report`, and `benchmark` commands.
+- Validate the built wheel in an isolated environment and publish an honest capability matrix.
+
+### Phase 12 — Durable management and real adapters
+
+Status: pending
+
+- Add persistent language, lifecycle, policy, approval, audit, budget, and idempotency state.
+- Connect menu and Dashboard actions only where a real backend exists.
+- Add allowlisted process-level MCP, CLI, HTTP/API, and RAG adapters without copying upstream implementations.
+- Add semantic, failure, cold/warm cache, browser, plugin, and production-adapter validation evidence.
 
 | Decision | Reason |
 |---|---|

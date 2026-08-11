@@ -75,6 +75,10 @@ enabled = true
         "search",
         "health",
         "connections",
+        "load",
+        "execute",
+        "budget-report",
+        "benchmark",
         "dashboard",
         "mcp-serve",
     }

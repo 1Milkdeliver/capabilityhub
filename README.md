@@ -59,11 +59,11 @@ The fixture is in [examples/manifest-api.json](examples/manifest-api.json). It d
 2. `load(capability_ref, ...)` to choose sections and operations; and
 3. `execute(request, ...)` only for non-Skill capability kinds with an execution reference issued by `load`.
 
-Search and load are not permission grants. Skill content is load-only, and execution authorization is checked by the reference policy. The unit tests under `tests/test_service.py` are the most complete executable example of this flow today.
+Search and load are not permission grants. Search cards are filtered against the caller's granted permissions before disclosure. Skill content is load-only, and execution authorization is checked by the reference policy. Approval-required operations accept only short-lived approval references bound to the exact capability revision, operation, normalized arguments, actor scope, and task. Inline input and output contracts are validated with JSON Schema. The unit tests under `tests/test_service.py` are the most complete executable example of this flow today.
 
 ## CLI and MCP
 
-The source install exposes eight local commands:
+The source install exposes twelve local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
@@ -72,9 +72,15 @@ capabilityhub inventory --pretty
 capabilityhub search "work with PDF files" --kind skill --limit 5 --pretty
 capabilityhub health --pretty
 capabilityhub connections --pretty
+capabilityhub load REVISION --section contract --pretty
+capabilityhub execute REVISION read --arguments '{"id": 1}' --fixture-output '{"name": "demo"}' --idempotency-key demo-1 --pretty
+capabilityhub budget-report --pretty
+capabilityhub benchmark
 capabilityhub dashboard --project-root /absolute/project/path
 capabilityhub mcp-serve
 ```
+
+`load` exercises the real reference, permission, section, and disclosure-budget path. The current `execute` command is deliberately limited to a deterministic, side-effect-free static fixture supplied by the operator; it is a control-core verification command, not a shell, network, MCP, API, or RAG executor. Write-like fixture operations require an idempotency key, and approval-required operations additionally require `--approved`, which asks the trusted local control path to issue an exact-intent approval reference. Production adapters remain pending.
 
 `mcp-serve` exposes exactly `capability.search`, `capability.load`, and
 `capability.execute` through the official MCP Python SDK. Its zero-configuration CLI
@@ -136,7 +142,7 @@ for the same boundary.
 The benchmark is local, fixture-based, and has no model, network, or paid-service calls:
 
 ```bash
-python -c "from benchmarks.harness import run_benchmark; print(run_benchmark())"
+capabilityhub benchmark
 ```
 
 The pinned [reference run](benchmarks/reference-run.json) uses 100 definitions across all five kinds. It compares eager full-definition exposure with a lazy sequence of fixed meta-tools, one expected search card, and one selected definition. It proves structural disclosure/accounting properties under an **oracle-supplied target revision**. It does **not** measure semantic search accuracy, model reasoning quality, real provider latency, hidden reasoning tokens, or production monetary cost. Read [benchmarks/README.md](benchmarks/README.md) and [docs/validation-plan.md](docs/validation-plan.md) before making a performance claim.

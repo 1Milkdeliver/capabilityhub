@@ -9,6 +9,9 @@ from enum import StrEnum
 from pathlib import Path
 from typing import Any, TypeVar
 
+from jsonschema import Draft202012Validator
+from jsonschema.exceptions import SchemaError
+
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.models import (
     CapabilityIdentity,
@@ -155,6 +158,8 @@ def _operations(value: object, capability_kind: CapabilityKind) -> tuple[Operati
         operation_type = _operation_type(raw_type, capability_kind, name)
         input_schema = _schema(raw, "inputSchema", "input_schema", "inputSchemaRef")
         output_schema = _schema(raw, "outputSchema", "output_schema", "outputSchemaRef")
+        _validate_json_schema(input_schema, f"spec.operations[{index}].inputSchema")
+        _validate_json_schema(output_schema, f"spec.operations[{index}].outputSchema")
         side_effect = _enum(
             SideEffect, raw.get("sideEffect", raw.get("side_effect", "none")), "sideEffect"
         )
@@ -172,6 +177,15 @@ def _operations(value: object, capability_kind: CapabilityKind) -> tuple[Operati
             )
         )
     return tuple(operations)
+
+
+def _validate_json_schema(schema: Mapping[str, Any], field: str) -> None:
+    if not schema or set(schema) == {"$ref"}:
+        return
+    try:
+        Draft202012Validator.check_schema(schema)
+    except SchemaError as error:
+        raise _invalid("invalid_json_schema", f"{field} must be valid JSON Schema.") from error
 
 
 def _operation_type(value: object, kind: CapabilityKind, name: str) -> OperationType:

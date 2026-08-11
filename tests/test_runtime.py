@@ -8,10 +8,14 @@ import pytest
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.runtime import (
     discover_skills,
+    local_benchmark,
+    local_budget_report,
     local_connections,
     local_dashboard,
+    local_execute_static,
     local_health,
     local_inventory,
+    local_load,
     local_search,
     validate,
 )
@@ -129,3 +133,69 @@ def test_health_marks_invalid_codex_config_degraded_without_loading_catalog(
     assert checks["codex_config"] == "invalid"
     assert health["status"] == "degraded"
     assert health["catalog_loaded"] is False
+
+
+def test_local_load_and_static_execute_use_service_policy_and_budget(tmp_path) -> None:
+    project = tmp_path / "project"
+    manifests = project / ".capabilityhub" / "manifests"
+    manifests.mkdir(parents=True)
+    document = {
+        "apiVersion": "capabilityhub.io/v1alpha1",
+        "kind": "Capability",
+        "metadata": {
+            "namespace": "demo",
+            "name": "records",
+            "version": "1",
+            "digest": "sha256:" + "b" * 64,
+        },
+        "spec": {
+            "type": "api",
+            "summary": "Static records fixture",
+            "provider": "static",
+            "operations": [
+                {
+                    "name": "read",
+                    "inputSchema": {
+                        "type": "object",
+                        "properties": {"id": {"type": "integer"}},
+                        "required": ["id"],
+                    },
+                    "outputSchema": {"type": "object", "required": ["name"]},
+                }
+            ],
+            "sections": {"contract": {"content": "read one record", "tokens": 4}},
+        },
+    }
+    (manifests / "records.json").write_text(json.dumps(document), encoding="utf-8")
+    monitor = LocalCatalogMonitor(
+        home=tmp_path / "home", project=project, refresh_interval_seconds=0
+    )
+    revision = "demo/records@1#sha256:" + "b" * 64
+
+    loaded = local_load(
+        revision,
+        section_names=["contract"],
+        operation_names=["read"],
+        monitor=monitor,
+    )
+    executed = local_execute_static(
+        revision,
+        "read",
+        {"id": 7},
+        {"name": "demo"},
+        monitor=monitor,
+    )
+
+    assert loaded["sections"][0]["content"] == "read one record"
+    assert loaded["execution_ref"] is None
+    assert executed["output"] == {"name": "demo"}
+    assert executed["budget"]["used"]["executions"] == 1
+
+
+def test_budget_report_and_benchmark_are_machine_readable() -> None:
+    budget = local_budget_report({"portable_tokens": 12})
+    benchmark = local_benchmark()
+
+    assert budget["remaining"]["portable_tokens"] == 12
+    assert benchmark["thresholds_passed"] is True
+    assert benchmark["capability_count"] == 100

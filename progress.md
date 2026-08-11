@@ -32,3 +32,6 @@
 - Coalesced burst fingerprint checks into a 250 ms window; repeated in-process snapshot checks fell from about 81 ms to effectively constant-time while preserving bounded refresh visibility.
 - Added configuration-only `connections` CLI and Dashboard status so MCP/API/RAG discovery is never mislabeled as proven network connectivity.
 - Marked invalid Codex configuration as degraded Health and separated dependency, conflict, and unknown activation exclusions in safe Inventory diagnostics.
+- Added permission-filtered search, exact-intent approval references, inline JSON Schema validation, and scoped in-process idempotency with safe uncertain-outcome handling.
+- Completed the Release 0.1 CLI command set with `load`, side-effect-free fixture `execute`, `budget-report`, and `benchmark`; packaged benchmark fixtures and typing metadata into the wheel.
+- Verified 125 tests with one platform symlink skip, Ruff, full strict mypy, the deterministic benchmark gate, and a clean isolated wheel install whose packaged CLI can run budget and benchmark commands.

@@ -8,6 +8,7 @@ import pytest
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.runtime import (
     discover_skills,
+    local_connections,
     local_dashboard,
     local_health,
     local_inventory,
@@ -71,6 +72,12 @@ def test_local_inventory_search_and_health_share_safe_local_metadata(tmp_path) -
     assert health["scope"] == "local_wiring"
     assert health["status"] == "ok"
 
+    connections = local_connections(monitor=monitor)
+    states = {item["kind"]: item for item in connections["connections"]}
+    assert states["skill"]["state"] == "indexed"
+    assert states["mcp"]["state"] == "not_configured"
+    assert connections["network_probes_performed"] == 0
+
 
 def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> None:
     home = tmp_path / "home"
@@ -93,6 +100,7 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert payload["inventory"]["active_by_kind"]["skill"] == 1
     assert payload["health"]["catalog_loaded"] is False
     assert payload["active_capabilities"] == []
+    assert payload["connections"]["scope"] == "configuration_only"
     assert refreshed["inventory"]["active_by_kind"]["skill"] == 2
     assert refreshed["inventory"]["generation"] == 2
 

@@ -49,6 +49,11 @@ async function refresh() {
       value: item.status,
     }));
     list("health-list", checks, "No health checks available.");
+    const connections = (payload.connections?.connections || []).map((item) => ({
+      name: `${item.kind} (${item.active}/${item.configured})`,
+      value: item.state,
+    }));
+    list("connection-list", connections, "No configured connections.");
     document.getElementById("state").textContent = "Live snapshot updated.";
   } catch {
     document.getElementById("state").textContent = "Snapshot unavailable; retrying.";

@@ -132,6 +132,42 @@ def local_health(project_root: str | Path | None = None) -> dict[str, JsonValue]
     }
 
 
+def local_connections(
+    project_root: str | Path | None = None,
+    *,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Describe configured local capability connections without dialing providers."""
+
+    selected = _select_local_scope(project_root, monitor)
+    snapshot = selected.snapshot()
+    active = snapshot.inventory.get("active_by_kind")
+    active_counts = active if isinstance(active, dict) else {}
+    connections: list[JsonValue] = []
+    for kind in CapabilityKind:
+        configured = len(snapshot.registry.by_kind(kind))
+        if kind is CapabilityKind.SKILL:
+            state = "indexed" if configured else "not_found"
+        elif kind is CapabilityKind.CLI:
+            state = "available" if configured else "not_found"
+        else:
+            state = "configured_not_probed" if configured else "not_configured"
+        connections.append(
+            {
+                "active": active_counts.get(kind.value, 0),
+                "configured": configured,
+                "kind": kind.value,
+                "state": state,
+            }
+        )
+    return {
+        "connections": connections,
+        "generation": snapshot.inventory.get("generation"),
+        "network_probes_performed": 0,
+        "scope": "configuration_only",
+    }
+
+
 def local_dashboard(
     project_root: str | Path | None = None,
     *,
@@ -157,6 +193,7 @@ def local_dashboard(
             "active_capabilities": [],
             "health": local_health(selected.project),
             "inventory": inventory,
+            "connections": local_connections(monitor=selected),
             "loaded_capabilities": [],
             "providers": providers,
         }

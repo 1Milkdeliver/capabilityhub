@@ -28,6 +28,7 @@ def test_mcp_serve_accepts_an_explicit_project_root() -> None:
     [
         ("inventory", "local_inventory", {"active_total": 3}),
         ("health", "local_health", {"status": "ok"}),
+        ("connections", "local_connections", {"network_probes_performed": 0}),
     ],
 )
 def test_json_cli_commands_route_without_extra_output(

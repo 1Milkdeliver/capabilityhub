@@ -60,6 +60,9 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
   execution is available. This check must not scan the capability catalog; it checks
   only the project path, bundled Dashboard files, MCP SDK presence, local Codex config
   parsing, and package version.
+- For `/helpme runtime connections`, use `capabilityhub connections --pretty` when
+  available. Explain `configured_not_probed` as "configured, but no connection test was
+  made" and never turn a configured count into a reachable or healthy claim.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

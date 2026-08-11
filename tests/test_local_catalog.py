@@ -71,6 +71,10 @@ enabled = true
     assert {operation.name for operation in cli.operations} == {
         "validate",
         "discover-skills",
+        "inventory",
+        "search",
+        "health",
+        "connections",
         "dashboard",
         "mcp-serve",
     }

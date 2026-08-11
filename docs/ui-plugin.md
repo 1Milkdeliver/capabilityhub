@@ -3,7 +3,8 @@
 `capabilityhub.webui.DashboardServer` is a read-only standard-library HTTP server. It binds to `127.0.0.1` by default and serves only local bundled assets plus `GET /api/status`. The application injects a JSON-serializable snapshot callback; the UI never receives registry objects or full capability content through chat.
 
 The built-in live snapshot contains five-kind active counts, generation and freshness,
-inactive and safe exclusion counts, and local wiring checks. It omits credentials,
+inactive and safe exclusion counts, local wiring checks, and configuration-only
+connection state. It does not dial providers and omits credentials,
 commands, URLs, full manifests, Skill bodies, scripts, and provider output.
 
 The repository-local Codex plugin provides two minimal menu skills. They can be

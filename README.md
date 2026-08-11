@@ -63,7 +63,7 @@ Search and load are not permission grants. Skill content is load-only, and execu
 
 ## CLI and MCP
 
-The source install exposes seven local commands:
+The source install exposes eight local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
@@ -71,6 +71,7 @@ capabilityhub discover-skills /path/to/approved/skills
 capabilityhub inventory --pretty
 capabilityhub search "work with PDF files" --kind skill --limit 5 --pretty
 capabilityhub health --pretty
+capabilityhub connections --pretty
 capabilityhub dashboard --project-root /absolute/project/path
 capabilityhub mcp-serve
 ```
@@ -124,7 +125,8 @@ capabilityhub dashboard --project-root /absolute/project/path
 ```
 
 The page refreshes every three seconds and shows five-kind active counts, generation,
-safe exclusion counts, and local wiring checks. It does not show credentials, commands,
+safe exclusion counts, local wiring checks, and configuration-only connection state.
+It performs no provider network probes and does not show credentials, commands,
 URLs, full manifests, Skill bodies, or provider output. `examples/dashboard.py` remains a
 small injected-snapshot fixture for embedders. See [the dashboard note](docs/ui-plugin.md)
 for the same boundary.

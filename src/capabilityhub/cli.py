@@ -30,6 +30,11 @@ def build_parser() -> argparse.ArgumentParser:
     health = commands.add_parser("health", help="check local wiring without loading the catalog")
     _project_argument(health, must_exist=False)
     _pretty_argument(health)
+    connections = commands.add_parser(
+        "connections", help="show configured capability connection state without probing"
+    )
+    _project_argument(connections)
+    _pretty_argument(connections)
     dashboard = commands.add_parser("dashboard", help="start a local read-only dashboard")
     dashboard.add_argument("--port", type=int, default=0)
     _project_argument(dashboard)
@@ -70,6 +75,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "health":
         _print_json(runtime.local_health(args.project_root), pretty=args.pretty)
+        return 0
+    if args.command == "connections":
+        _print_json(runtime.local_connections(args.project_root), pretty=args.pretty)
         return 0
     if args.command == "dashboard":
         server = runtime.local_dashboard(

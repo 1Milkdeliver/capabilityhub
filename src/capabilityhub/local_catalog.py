@@ -242,6 +242,10 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
         operations=(
             OperationSpec("validate", OperationType.EXPAND),
             OperationSpec("discover-skills", OperationType.EXPAND),
+            OperationSpec("inventory", OperationType.EXPAND),
+            OperationSpec("search", OperationType.EXPAND),
+            OperationSpec("health", OperationType.EXPAND),
+            OperationSpec("connections", OperationType.EXPAND),
             OperationSpec("dashboard", OperationType.EXPAND),
             OperationSpec("mcp-serve", OperationType.EXPAND),
         ),

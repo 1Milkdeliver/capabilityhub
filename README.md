@@ -84,6 +84,8 @@ capabilityhub mcp-serve
 
 `load` exercises the real reference, permission, section, and disclosure-budget path. The current `execute` command is deliberately limited to a deterministic, side-effect-free static fixture supplied by the operator; it is a control-core verification command, not a shell, network, MCP, API, or RAG executor. Write-like fixture operations require an idempotency key, and approval-required operations additionally require `--approved`, which asks the trusted local control path to issue an exact-intent approval reference. Production adapters remain pending.
 
+Embedding applications can opt into `CliProcessProvider`, the first real execution adapter. It accepts only operator-configured absolute executables and fixed argv templates, substitutes scalar values only into complete argv tokens, never invokes a shell, starts with an explicit non-inherited environment, enforces the provider deadline, parses bounded JSON/text output, and redacts stderr. It is not auto-enabled by local discovery and is not a process sandbox; production isolation and resource limits remain pending.
+
 Menu language and activation overrides now persist without a model call. Use `capabilityhub language set zh-CN --scope project` (or `en`/`auto`) and `capabilityhub lifecycle set NAMESPACE/NAME disabled --scope project`. Lifecycle supports `enabled`, `disabled`, and `quarantined`; it changes only whether a discovered capability is active in the local catalog and never deletes, updates, or executes its files. Project settings override global settings, JSON writes are atomic, and unrelated configuration keys are preserved.
 
 `mcp-serve` exposes exactly `capability.search`, `capability.load`, and

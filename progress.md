@@ -37,3 +37,4 @@
 - Verified 125 tests with one platform symlink skip, Ruff, full strict mypy, the deterministic benchmark gate, and a clean isolated wheel install whose packaged CLI can run budget and benchmark commands.
 - Added atomic project/global language settings and lifecycle activation overrides with project precedence, unknown-key preservation, catalog fingerprint refresh, and honest enable/disable/quarantine semantics.
 - Connected `/helpme` and `/myskills` instructions to the real language and lifecycle CLI paths while keeping update, deletion, provider execution, and network health claims unavailable.
+- Added the first real execution adapter: an opt-in, allowlisted CLI process provider with absolute executable pinning, shell-free argv, explicit environment, deadline enforcement, bounded parsing, redacted errors, and end-to-end service admission coverage.

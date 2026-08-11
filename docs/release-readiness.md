@@ -18,6 +18,7 @@ deployment hardening guide.
 | Local dashboard | Read-only loopback server with live Inventory and local Health snapshot | Local inspection only; no remote connection probe, authentication, or mutations |
 | CLI and MCP | Fourteen local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; execute is a static-fixture verification path, connection state is configuration-only, and catalog generations refresh atomically after a lightweight change check |
 | Local preferences/lifecycle | Atomic project/global locale and enabled/disabled/quarantined overrides with project precedence | Local catalog activation only; no install, update, rollback, process draining, or durable execution ledger |
+| CLI process adapter | Opt-in absolute-executable, fixed-argv, shell-free provider with explicit environment, deadline, output parsing, redacted failures, and full service admission test | Embedding API only; no sandbox, OS resource limits, durable cancellation, or automatic local enablement |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
 
 ## Benchmark claim boundary

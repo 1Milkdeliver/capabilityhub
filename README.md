@@ -61,6 +61,10 @@ The fixture is in [examples/manifest-api.json](examples/manifest-api.json). It d
 
 Search and load are not permission grants. Search cards are filtered against the caller's granted permissions before disclosure. Skill content is load-only, and execution authorization is checked by the reference policy. Approval-required operations accept only short-lived approval references bound to the exact capability revision, operation, normalized arguments, actor scope, and task. Inline input and output contracts are validated with JSON Schema. The unit tests under `tests/test_service.py` are the most complete executable example of this flow today.
 
+Embedders can additionally attach a `ParameterAuthorizer` to the caller context. The same deny-by-default decision then filters search and execution, intersects dependency privileges, and constrains normalized filesystem roots, hosts, HTTP methods, commands, profiles, and secret aliases. Raw secret-bearing argument fields are rejected and authorization results contain only stable reason codes.
+
+The transport-neutral protocol module defines one request/response/error envelope and feature handshake for library, CLI, MCP, and future HTTP adapters, including explicit streaming and cancellation negotiation. It is a conformance contract, not a claim that CapabilityHub currently ships a remote HTTP control-plane service.
+
 ## CLI and MCP
 
 The source install exposes twenty-six local commands:
@@ -102,6 +106,8 @@ supported driver is explicitly configured; `execute` uses that provider by defau
 `load` exercises the real reference, permission, section, disclosure-budget, and resident-context path. `execute` uses an explicitly configured project Provider by default and runs it through a supervised spawned worker; `--fixture-output` remains a deterministic test path. Write-like operations require an idempotency key. Approval-required configured operations use the durable `approvals request` → `approve`/`deny` → `execute --approval-id` flow; the `--approved` shortcut is fixture-only.
 
 Project manifests can opt into the CLI process, fixed-origin HTTP API, local RAG, and MCP stdio adapters. The process supervisor enforces wall-clock termination and bounded JSON IPC, but it is not an OS CPU/memory/filesystem sandbox; those production hardening gates remain open.
+
+The supply-chain module can verify artifact bytes against the manifest digest and an explicit publisher/registry policy. Its current signed profile uses standard-library HMAC-SHA256 for local shared-key deployments, with key IDs, expiry, and revocation. Production policy rejects unsigned artifacts. HMAC is not public publisher identity or third-party non-repudiation; a future public distribution profile must use a standard public-key/Sigstore implementation.
 
 `HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
 

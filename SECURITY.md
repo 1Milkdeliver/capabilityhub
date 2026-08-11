@@ -27,6 +27,8 @@ Security invariants below describe the intended and tested core boundary; they a
 - The local durable idempotency store records argument digests and outcome state, not raw arguments. Result persistence is disabled by default; completed duplicates are denied instead of re-executed.
 - Optional secure audit uses an environment-supplied HMAC key, verifies the full chain and signed checkpoint before append/export, and allowlists metadata. The key value, arguments, credentials, and provider output are never written into its records.
 - Staged revision activation requires an explicit health result and compare-and-swap active pointer; rollback retains the prior immutable revision. This is not artifact signature verification or a sandbox health probe.
+- Optional parameter authorization applies the same dependency-aware eligibility decision before search disclosure and execution, then checks normalized path, host, method, command, profile, and secret-alias constraints. It never accepts raw secret values.
+- Local artifact attestations use HMAC-SHA256 only for shared-key deployments and are not a substitute for public-key publisher identity. Production policy fails closed on unsigned, expired, revoked, untrusted, or digest-mismatched artifacts.
 - Secrets are references resolved outside model-visible payloads.
 - Provider output is untrusted and budget bounded.
 - External gateways, sandboxes, and credential stores remain separate integrations.

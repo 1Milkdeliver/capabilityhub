@@ -48,3 +48,9 @@
 - Wired four opt-in project-manifest adapters into normal local discovery, load, and execute; invalid drivers remain non-executable and appear in Inventory diagnostics.
 - Preserved the MCP SDK as a lazy optional dependency and added a clean base-wheel CI smoke gate for Health, Budget, and Benchmark commands.
 - Added restart-safe SQLite project budgets, spawned-worker supervision for configured execution, and live Loaded/Providers/Routing CLI and Dashboard views.
+- Added durable exact-intent approval decisions, metadata-only Context residency and eviction, and persistent budget-aware Reasoning/anti-loop state with bounded CLI and Dashboard controls.
+- Added staged revision health gates, compare-and-swap activation pointers, live-catalog rollback, and in-flight revision pins.
+- Added deterministic JSON manifest export, explicit v1alpha0 migration, and fail-closed v1alpha1 feature compatibility decisions.
+- Added opt-in HMAC-chained audit with signed checkpoints, verified rotation/export, bounded retention, and secret-free records.
+- Published Batch 14 as commit `3e421ae`; 273 tests passed with two expected Windows symlink skips, plus Ruff, strict mypy, benchmark replay, plugin validation, and wheel build.
+- Started Phase 15 in parallel: supply-chain trust, argument-level permission attenuation, and transport-neutral client conformance.

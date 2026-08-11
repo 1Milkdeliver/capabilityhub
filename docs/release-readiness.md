@@ -4,9 +4,9 @@
 
 **Do not label the current tree production-ready.** It is a pre-alpha, local Python
 control core with a tested CLI, experimental MCP SDK adapter, and deterministic
-structural-disclosure benchmark. It does not yet have a production provider adapter,
-secret broker, sandbox, persistence layer, authentication/tenant boundary, or
-deployment hardening guide.
+structural-disclosure benchmark. It has local SQLite/JSON persistence and supervised
+reference adapters, but no secret broker, OS sandbox, authenticated tenant boundary,
+production provider profile, or deployment hardening guide.
 
 ## Evidence currently available
 
@@ -17,11 +17,14 @@ deployment hardening guide.
 | Skill intake | Filesystem-only `SKILL.md` discovery without script execution | Content discovery, not Skill execution or sandboxing |
 | Local dashboard | Loopback server with live Inventory/Health, bounded compact search, Routing reasons, Providers, Loaded, approvals, Context and Reasoning state, plus CSRF/same-origin protected safe controls | Local management only; no remote connection probe, user authentication, install/update/delete, or provider execution from the browser |
 | CLI and MCP | Twenty-six local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; execute supports explicit project drivers plus a test-only static fixture, connection state is configuration-only, and catalog generations refresh atomically after a lightweight change check |
-| Local audit | Synchronized, flushed project JSONL events plus bounded redacted CLI/Dashboard tail; malformed partial records are ignored | No tamper-evident chain, rotation/retention policy, external export, or multi-process sequence allocator |
+| Local audit | Synchronized, flushed project JSONL events plus bounded redacted CLI/Dashboard tail; malformed partial records are ignored | Compatibility fallback only; opt into the secure ledger for tamper evidence, while multi-process sequencing remains open |
 | Durable idempotency | SQLite atomic key reservation, argument-digest conflict checks, explicit startup recovery to uncertain state, default no-result persistence, and opt-in replay result storage | No encrypted result store, TTL/cleanup policy, distributed database, or recovery UI |
 | Durable budget | SQLite atomic reserve/reconcile/cancel, cross-process hard limits, restart-safe used/reserved state, and real project `budget-report` | One local runtime scope; durable hierarchical child scopes and distributed accounting remain open |
 | Staged updates | SQLite stage/health/activate/rollback CAS pointers, previous revision retention and in-flight pins wired into live catalog generations | Health evidence is operator supplied; no artifact fetch/signature verification or process draining |
 | Secure audit | Optional environment-keyed HMAC chain with checkpoint verification, atomic segment rotation, bounded retention and verified export | Local opt-in only; no OS-backed key broker, remote log sink, or multi-process sequence allocator |
+| Parameter authorization | Optional service context shares dependency-aware search/execute eligibility and constrains normalized paths, hosts, methods, commands, profiles, and secret aliases | Embedders must still supply reviewed caller grants; configured providers do not yet derive them automatically |
+| Supply-chain trust | Manifest digest verification plus publisher/registry allowlists, expiry, revocation and a local HMAC attestation profile | Shared-key local evidence only; no public-key/Sigstore identity or staged artifact acquisition gate |
+| Client protocol | One versioned request/response/error envelope, correlation ID, feature negotiation and stream/cancel conformance fixture for library/CLI/MCP/HTTP boundaries | Contract core only; no remote HTTP server or real four-transport conformance run |
 | Provider supervision | Local configured execution uses a spawned worker, wall-clock termination, bounded JSON result envelopes, and safe crash/timeout/protocol errors | No OS CPU/memory/filesystem sandbox or long-lived worker pool |
 | Local preferences/lifecycle | Atomic project/global locale and enabled/disabled/quarantined overrides with project precedence | Local catalog activation only; no install, update, rollback, process draining, or durable execution ledger |
 | CLI process adapter | Opt-in absolute-executable, fixed-argv, shell-free provider with explicit environment, deadline, output parsing, redacted failures, project-manifest wiring, and full service admission test | No sandbox, OS resource limits, or durable cancellation |
@@ -29,7 +32,7 @@ deployment hardening guide.
 | Local RAG adapter | Opt-in bounded `.md`/`.txt` retrieval with containment checks, deterministic chunk ranking, relative line citations, deadline/output limits, and service admission test | Small read-only reference adapter; no vector index, ACL backend, embedding model, persistence, or million-chunk scale evidence |
 | MCP stdio adapter | Optional official-SDK client with fixed absolute command/args/environment, initialization and advertised-tool validation, whole-session deadline, JSON/budget checks, safe failures, and service admission test | One process/session per call; no OAuth, HTTP pooling, persistent sessions, streaming passthrough, or production gateway profile |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
-| Packaging | CI builds a wheel, installs it without optional MCP dependencies in a clean environment, and runs Health, Budget, and Benchmark smoke checks | Guards base-package contents and lazy optional imports; not a cross-platform installer test |
+| Packaging | Linux 3.11-3.13 and Windows 3.12 CI build a wheel, run the full local gate, and smoke-test the base install without optional MCP dependencies | Guards package contents, lazy imports and two OS families; not a signed native installer test |
 
 ## Benchmark claim boundary
 
@@ -40,7 +43,7 @@ Describe 10/10 only as deterministic lexical selection accuracy on the pinned fi
 ## Required before a beta or production claim
 
 - Stabilize and version the CLI/MCP contracts beyond the current pre-alpha adapter.
-- Add authenticated tenant/principal handling, durable state, lifecycle/rollback, and a documented deployment profile.
+- Add authenticated tenant/principal handling, distributed durable state, process draining around lifecycle/rollback, and a documented deployment profile.
 - Add OS resource sandboxing, secret brokering, network/filesystem policy enforcement, and explicit incident/recovery procedures beyond the current spawned-worker boundary.
 - Run adversarial, failure, cache-invalidation, authorization, and multi-tenant validation against actual adapters.
 - Add model-backed, stratified evaluation for semantic selection accuracy and report model/version, reasoning tier, prompts, seeds, latency, tool calls, tokenizer, and pricing assumptions separately.

@@ -5,6 +5,7 @@ from dataclasses import replace
 import pytest
 
 from capabilityhub.audit import MemoryAuditSink
+from capabilityhub.authorization import ParameterAuthorizer, PermissionConstraint
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError
 from capabilityhub.models import (
@@ -169,6 +170,52 @@ def test_search_filters_capabilities_before_disclosure_by_permission() -> None:
     assert hidden.cards == ()
     assert hidden.total_matches == 0
     assert [card.revision for card in allowed.cards] == [restricted.identity.revision]
+
+
+def test_parameter_authorizer_filters_search_and_denies_out_of_scope_execution(tmp_path) -> None:
+    allowed_root = tmp_path / "allowed"
+    allowed_root.mkdir()
+    manifest = replace(
+        _manifest(),
+        permissions=("filesystem.read",),
+        operations=(
+            OperationSpec(
+                "find",
+                OperationType.EXECUTE,
+                input_schema={
+                    "type": "object",
+                    "properties": {"path": {"type": "string"}},
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+            ),
+        ),
+    )
+    service, context, budget, _ = _setup(manifest, outputs={"find": {"items": []}})
+    authorizer = ParameterAuthorizer(
+        {"filesystem.read": PermissionConstraint(path_roots=(allowed_root,))}
+    )
+    constrained = replace(
+        context,
+        granted_permissions=frozenset({"filesystem.read"}),
+        parameter_authorizer=authorizer,
+    )
+    _, execution_ref = _search_and_load(service, constrained, budget)
+
+    with pytest.raises(CapabilityHubError) as denied:
+        service.execute(
+            ExecutionRequest(
+                execution_ref,
+                "find",
+                {"path": str(tmp_path / "outside.txt")},
+                "task",
+            ),
+            context=constrained,
+            budget=budget,
+        )
+
+    assert denied.value.code == "argument_authorization_denied"
+    assert denied.value.details == {"reason_codes": ("path_outside_allowed_roots",)}
 
 
 def test_execute_requires_an_exact_bound_approval_reference() -> None:

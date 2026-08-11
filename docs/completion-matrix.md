@@ -22,10 +22,10 @@ run does not upgrade a row by itself.
 | R13 | Dependency resolution and lock | Partial | Constraints/cycles are validated; persistent activation lock export remains open |
 | R14 | Conflict detection and policy | Partial | Declared typed conflicts are enforced; automatic port/path/route projection policies remain open |
 | R15 | Lifecycle state machine | Partial | Persistent enabled/disabled/quarantined overrides exist; install/update/retire/drain remains open |
-| R16 | Staged update and rollback | Partial | SQLite stage/health/activate/rollback CAS pointers and in-flight pins drive live catalog generations; artifact acquisition/signature verification and worker draining remain open |
-| R17 | Least-privilege permissions | Partial | Manifest permissions are denied by default; argument/path/host/secret attenuation remains open |
+| R16 | Staged update and rollback | Partial | SQLite stage/health/activate/rollback CAS pointers and in-flight pins drive live catalog generations; artifact acquisition, mandatory trust-verifier wiring, and worker draining remain open |
+| R17 | Least-privilege permissions | Partial | The optional service authorizer now shares search/execute decisions and attenuates dependency permissions plus path/host/method/command/profile/secret-alias arguments; automatic grant derivation for every configured provider remains open |
 | R18 | Exact-intent approvals | Partial | Durable single-use queue binds actor/task/revision/operation/argument digest/side effect/policy/expiry and has CLI/Dashboard decisions; authenticated remote approver identity remains open |
-| R19 | Supply-chain trust | Partial | Digests, sources and trust tiers exist; signatures, attestations and publisher policy remain open |
+| R19 | Supply-chain trust | Partial | Artifact digests, publisher/registry policy, revocation, expiry and a local HMAC attestation profile exist; public-key/Sigstore identity and staged-acquisition enforcement remain open |
 | R20 | Secret broker | Partial | Environment-name indirection and redaction exist; brokered scoped secret handles remain open |
 | R21 | Provider isolation | Partial | Local configured execution uses supervised spawned workers with bounded JSON IPC; OS resource sandboxing remains open |
 | R22 | Typed failure and retry | Partial | Safe structured errors exist; class-wide retry/idempotency conformance remains open |
@@ -34,14 +34,14 @@ run does not upgrade a row by itself.
 | R25 | Hierarchical budgets | Partial | Local runtime uses atomic restart-safe SQLite accounting; durable hierarchical child scopes remain open |
 | R26 | Context residency and eviction | Partial | Local load records metadata-only residency, atomically persists access/pins and exposes real evictions; model-client context removal cannot be enforced by the current transport |
 | R27 | Tenant/session isolation | Partial | References bind scopes; authenticated principals and cross-tenant storage tests remain open |
-| R28 | Multi-client consistency | Partial | Library, CLI and MCP exist; HTTP adapter, handshake, stream/cancel conformance remains open |
+| R28 | Multi-client consistency | Partial | A shared request/error envelope, feature handshake and stream/cancel conformance fixture cover library/CLI/MCP/HTTP adapter boundaries; the HTTP server and real transport-wide suite remain open |
 | R29 | Concurrency and idempotency | Partial | SQLite conservative idempotency exists; lifecycle drain/cancel and distributed storage remain open |
 | R30 | Observable, private audit | Partial | Redacted views plus optional HMAC chain, checkpoint, bounded retention and verified export exist; external metrics/traces and OS-backed key management remain open |
 | R31 | Degraded operation | Partial | Atomic last-good catalog fallback exists; dependency freshness matrix remains open |
 | R32 | Scale evidence | Partial | 100-definition deterministic gate exists; 10k/1m/concurrency/p95 evidence remains open |
 | R33 | Compatibility and migration | Partial | Feature handshake fails closed on unknown required semantics and v1alpha0 aliases migrate idempotently; published deprecation windows and old-client/new-server transport conformance remain open |
 | R34 | Self-hosted operation | Partial | Clean local wheel, CLI, Dashboard and adapters run; production profile and isolated workers remain open |
-| R35 | Release gates | Partial | Ruff/mypy/pytest/wheel smoke plus non-oracle lexical, failure and cache artifacts exist; browser, real-provider adversarial and model-backed gates remain open |
+| R35 | Release gates | Partial | Linux 3.11-3.13 and Windows 3.12 CI run Ruff/mypy/pytest/benchmark/artifact replay/wheel smoke; automated browser, real-provider adversarial and model-backed gates remain open |
 | R36 | Context-external UI/plugin | Partial | Loopback Dashboard manages search/lifecycle/language/approvals/context and shows reasoning; packaged installation freshness and remaining menu action coverage remain open |
 
 ## Completion rule

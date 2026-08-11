@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 12 — durable local management and real adapters.
+Phase 15 — trust, least privilege, and client conformance.
 
 ## Next Step
 
-Publish and validate persistent language and activation controls, then connect safe Dashboard/menu actions and process-level real adapters.
+Integrate supply-chain verification, argument-level authorization, and transport-neutral client conformance without widening the always-loaded context.
 
 ## Phases
 
@@ -49,7 +49,7 @@ Status: complete (reference adapters only; production execution remains out of s
 
 ### Phase 5 — MCP server and CLI
 
-Status: complete (pre-alpha local surface; eighteen commands and three MCP tools)
+Status: complete (pre-alpha local surface; twenty-six commands and three MCP tools)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
 - Provide local validation, discovery, dashboard, and MCP serving commands.
@@ -65,7 +65,7 @@ Status: complete for the deterministic release gate
 
 ### Phase 7 — Visual UI and Codex plugin
 
-Status: complete (repository plugin installed and release-validated; management actions remain planned)
+Status: complete (repository plugin release-validated; supported local management actions are connected)
 
 - Add a loopback-only management dashboard whose detailed data stays outside chat context.
 - Package a minimal Codex plugin entrypoint and repo-local marketplace entry.
@@ -114,12 +114,39 @@ Status: complete
 
 ### Phase 12 — Durable management and real adapters
 
+Status: complete for the local pre-alpha scope
+
+- Add persistent language and activation lifecycle state. (Locale, enabled/disabled/quarantined overrides, redacted project audit, conservative SQLite idempotency, exact-intent approvals, and budgets are complete.)
+- Connect menu and Dashboard actions only where a real backend exists.
+- Add allowlisted process-level MCP, CLI, HTTP/API, and RAG adapters without copying upstream implementations. (Reference adapters, project-manifest wiring, and spawned-worker supervision are complete; OS resource confinement remains open.)
+- Add semantic, failure, cold/warm cache, browser, and plugin validation evidence. Production-adapter evidence remains an explicit release gate.
+
+### Phase 13 — Durable approvals, Context, and Reasoning
+
+Status: complete for the local pre-alpha scope
+
+- Persist exact-intent single-use approvals without storing arguments.
+- Persist metadata-only context residency, pinning, access order, and observable eviction.
+- Persist budget-aware reasoning advice and anti-loop decisions without storing prompts.
+- Expose bounded CLI and Dashboard views and actions.
+
+### Phase 14 — Staged updates, portability, and secure audit
+
+Status: complete for the local pre-alpha scope
+
+- Stage, health-gate, atomically activate, and roll back immutable revisions.
+- Export and migrate JSON manifests and negotiate v1alpha1 optional/required features.
+- Add opt-in HMAC-chained audit, verified rotation, bounded retention, and export.
+- Verify all additions through the CLI, live catalog, Dashboard assets, and full release gates.
+
+### Phase 15 — Trust, least privilege, and client conformance
+
 Status: in_progress
 
-- Add persistent language and activation lifecycle state. (Locale, enabled/disabled/quarantined overrides, redacted project audit, and conservative SQLite idempotency persistence complete; policy, approval, and budget persistence pending.)
-- Connect menu and Dashboard actions only where a real backend exists.
-- Add allowlisted process-level MCP, CLI, HTTP/API, and RAG adapters without copying upstream implementations. (Reference adapters and project-manifest wiring complete; worker isolation remains.)
-- Add semantic, failure, cold/warm cache, browser, plugin, and production-adapter validation evidence.
+- Verify artifacts against explicit publisher and registry trust policy.
+- Attenuate permissions against normalized arguments and dependency privileges.
+- Define one request/error/feature envelope for library, CLI, MCP, and future HTTP clients.
+- Connect only proven backends to CLI, Dashboard, and plugin documentation.
 
 | Decision | Reason |
 |---|---|

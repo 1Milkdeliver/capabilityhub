@@ -11,6 +11,7 @@ from jsonschema import Draft202012Validator
 from jsonschema.exceptions import SchemaError, ValidationError
 
 from capabilityhub.audit import AuditEvent, AuditSink
+from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetReservation
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.idempotency import IdempotencyRecord, IdempotencySlot, IdempotencyStore
@@ -40,6 +41,7 @@ class ServiceContext:
     principal_id: str
     session_id: str
     granted_permissions: frozenset[str] = frozenset()
+    parameter_authorizer: ParameterAuthorizer | None = None
     approved: bool = False
     allow_irreversible: bool = False
     deadline_ms: int = 30_000
@@ -344,6 +346,19 @@ class CapabilityHubService:
                     "unknown_operation", "The capability does not declare this operation."
                 )
             _validate_arguments(operation, request.arguments)
+            if context.parameter_authorizer is not None:
+                authorization = context.parameter_authorizer.authorize(
+                    manifest,
+                    dependencies=self._dependency_manifests(manifest),
+                    normalized_arguments=request.arguments,
+                )
+                if not authorization.allowed:
+                    raise CapabilityHubError(
+                        code="argument_authorization_denied",
+                        category=ErrorCategory.POLICY,
+                        safe_message="Execution arguments were not allowed by policy.",
+                        details={"reason_codes": authorization.reason_codes},
+                    )
             approved = False
             if request.approval_ref is not None:
                 self._references.verify(
@@ -503,10 +518,26 @@ class CapabilityHubService:
         return grant
 
     def _visible_revisions(self, context: ServiceContext) -> frozenset[str]:
+        if context.parameter_authorizer is not None:
+            return frozenset(
+                revision
+                for revision in self._registry.activations.values()
+                if context.parameter_authorizer.eligible(
+                    self._registry.revision(revision),
+                    self._dependency_manifests(self._registry.revision(revision)),
+                ).allowed
+            )
         return frozenset(
             revision
             for revision in self._registry.activations.values()
             if set(self._registry.revision(revision).permissions) <= context.granted_permissions
+        )
+
+    def _dependency_manifests(self, manifest: CapabilityManifest) -> tuple[CapabilityManifest, ...]:
+        return tuple(
+            self._registry.active(dependency.coordinate)
+            for dependency in manifest.dependencies
+            if dependency.coordinate in self._registry.activations
         )
 
     def _admit_idempotency(

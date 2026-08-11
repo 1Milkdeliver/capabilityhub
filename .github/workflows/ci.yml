@@ -43,3 +43,32 @@ jobs:
           .wheel-smoke/bin/capabilityhub health --project-root .
           .wheel-smoke/bin/capabilityhub budget-report
           .wheel-smoke/bin/capabilityhub benchmark
+
+  windows-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install --disable-pip-version-check -e '.[dev]'
+      - name: Static checks
+        run: |
+          python -m ruff check src tests benchmarks
+          python -m mypy
+      - name: Test and benchmark
+        run: |
+          python -m pytest
+          capabilityhub benchmark
+          python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
+      - name: Build and smoke-test wheel
+        shell: pwsh
+        run: |
+          python -m pip wheel --no-deps --wheel-dir dist .
+          python -m venv .wheel-smoke
+          $wheel = (Get-ChildItem dist\*.whl | Select-Object -First 1).FullName
+          .\.wheel-smoke\Scripts\python.exe -m pip install --disable-pip-version-check $wheel
+          .\.wheel-smoke\Scripts\capabilityhub.exe health --project-root .
+          .\.wheel-smoke\Scripts\capabilityhub.exe benchmark

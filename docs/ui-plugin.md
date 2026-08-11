@@ -12,13 +12,14 @@ separate runtime dependencies, and a plugin must not pretend that an uninstalled
 configure `capabilityhub mcp-serve` explicitly. The plugin is therefore useful even
 when the MCP runtime is disabled, and a missing runtime cannot break every Codex task.
 
-The plugin exposes a skill named `helpme`, so the Codex app can present and trigger it
-as `/helpme`. It does not override the built-in `/help` command. Bare `/helpme` returns
-only the first-level menu; selecting `overview`, `capabilities`, `consumption`,
-`runtime`, `security`, `evaluation`, `settings`, `language`, or `about` loads only that
-branch. Every menu item includes a parenthesized explanation.
+The plugin exposes `helpme` and `myskills`, so the Codex app can present `/helpme` and
+`/myskills`. It does not override built-in `/help`, `/skills`, `/status`, or `/mcp`
+commands. Bare `/helpme` keeps Inventory, Providers, Routing, Lifecycle, and MCP visible
+with plain parenthesized explanations. Bare `/myskills` goes directly to Skill search,
+inventory, loaded state, details, providers, routing, lifecycle, risks, and conflicts.
+Both menus accept visible numbers, exact commands, and explicit natural-language intent.
 
-Stable UI text comes from the bundled `zh-CN` and `en` JSON message catalogs. Language
+Stable UI text comes from bundled `zh-CN` and `en` JSON message catalogs. Language
 selection follows explicit command, task, project, global, then system preference, with
 English as the final fallback. Model translation is reserved for third-party prose that
 the user explicitly asks to translate; it is never written back into the catalogs

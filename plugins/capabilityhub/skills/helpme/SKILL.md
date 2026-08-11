@@ -31,13 +31,23 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
 
 ## Progressive routing
 
-- Bare `/helpme`: read only the resolved catalog's `root` object and render its items in
-  order.
+- Bare `/helpme`: read only the resolved catalog's `root` object and render every group
+  and item in order. Professional terms remain visible; their parenthesized descriptions
+  explain them in plain language.
+- `/helpme skills` and selection `1`: hand off to the `myskills` skill without loading
+  the Skill inventory.
+- Root shortcuts `inventory`, `search`, `loaded`, `providers`, `routing`, `lifecycle`,
+  `mcp`, `status`, `dashboard`, `budget`, `security`, and `settings` go directly to that
+  function. Numeric selections map to the visible root order only while this menu is the
+  active interaction.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - Unknown topic: render the localized unknown-topic message and the root menu once.
 - Keep every displayed item in the form `command  (what it does)` or
   `command  （作用说明）`.
+- Never claim that a planned management action is live. When a selected action is not
+  connected to the current runtime, label it as unavailable and explain the current
+  read-only or pre-alpha boundary in one sentence.
 - Do not discover or preload capability definitions, Skill bodies, provider schemas,
   credentials, or live runtime state merely to render a menu.
 - Fetch live state only after the user selects an item that requires it.

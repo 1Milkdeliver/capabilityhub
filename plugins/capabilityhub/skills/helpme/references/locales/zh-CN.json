@@ -2,17 +2,36 @@
   "locale": "zh-CN",
   "root": {
     "title": "CapabilityHub",
-    "items": {
-      "/helpme overview": "（查看整体状态、版本、告警和控制面板）",
-      "/helpme capabilities": "（管理 Skill、MCP、CLI、API、RAG 能力）",
-      "/helpme consumption": "（管理 Token、上下文、缓存和推理强度）",
-      "/helpme runtime": "（管理本地服务、连接、日志和运行环境）",
-      "/helpme security": "（管理权限、审批、凭据、策略和审计）",
-      "/helpme evaluation": "（验证节省效果、路由准确率和性能）",
-      "/helpme settings": "（管理项目配置、默认规则和数据导入导出）",
-      "/helpme language": "（切换菜单、提示和说明文字的语言）",
-      "/helpme about": "（查看文档、版本、更新和项目地址）"
-    },
+    "groups": [
+      {
+        "title": "常用功能",
+        "items": {
+          "/myskills": "（Skills：查找和管理可以教 Codex 做事的说明与方法）",
+          "/helpme inventory": "（Inventory：查看当前有哪些 Skill、MCP、CLI、API 和 RAG 能力）",
+          "/helpme search": "（Search：按你想做的事情寻找合适能力）",
+          "/helpme loaded": "（Loaded：查看这个任务已经加载了哪些能力）"
+        }
+      },
+      {
+        "title": "管理功能",
+        "items": {
+          "/helpme providers": "（Providers：查看每项能力从哪里接入）",
+          "/helpme routing": "（Routing：查看为什么选择或排除某项能力）",
+          "/helpme lifecycle": "（Lifecycle：启用、暂停、更新或隔离能力）",
+          "/helpme mcp": "（MCP：通过标准协议连接外部工具和服务）"
+        }
+      },
+      {
+        "title": "系统功能",
+        "items": {
+          "/helpme status": "（Status：检查 CapabilityHub 各组件是否正常）",
+          "/helpme dashboard": "（Dashboard：在本机浏览器查看能力、预算和告警）",
+          "/helpme budget": "（Budget：查看和控制 Token、加载及执行次数）",
+          "/helpme security": "（Security：查看权限、审批、凭据和风险）",
+          "/helpme settings": "（Settings：修改语言、项目范围和默认规则）"
+        }
+      }
+    ],
     "footer": "只加载你选择的主题。",
     "unknown": "未知主题：{topic}"
   },

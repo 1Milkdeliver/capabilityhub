@@ -1,0 +1,27 @@
+{
+  "locale": "zh-CN",
+  "title": "My Skills",
+  "groups": [
+    {
+      "title": "常用功能",
+      "items": {
+        "/myskills find <task>": "（Search：告诉我想做什么，我来寻找合适的 Skill）",
+        "/myskills list": "（Inventory：查看已经发现的全部 Skills）",
+        "/myskills loaded": "（Loaded：查看这个任务已经加载的 Skills）",
+        "/myskills show <name>": "（Details：查看一个 Skill 能做什么）"
+      }
+    },
+    {
+      "title": "专业功能",
+      "items": {
+        "/myskills providers": "（Providers：查看 Skills 来自本地、插件还是其他来源）",
+        "/myskills routing <name>": "（Routing：查看为什么选择或排除这个 Skill）",
+        "/myskills lifecycle <name>": "（Lifecycle：启用、暂停、更新或隔离 Skill）",
+        "/myskills risks <name>": "（Risks：查看 Skill 的权限和安全风险）",
+        "/myskills conflicts": "（Conflicts：检查重复、冲突、格式和依赖问题）"
+      }
+    }
+  ],
+  "footer": "回复数字、Skill 名称，或者直接说你想做什么。",
+  "unknown": "我不明白这个 Skill 操作：{topic}"
+}

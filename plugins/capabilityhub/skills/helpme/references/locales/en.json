@@ -2,17 +2,36 @@
   "locale": "en",
   "root": {
     "title": "CapabilityHub",
-    "items": {
-      "/helpme overview": "(View overall status, versions, alerts, and dashboard)",
-      "/helpme capabilities": "(Manage Skill, MCP, CLI, API, and RAG capabilities)",
-      "/helpme consumption": "(Manage tokens, context, cache, and reasoning effort)",
-      "/helpme runtime": "(Manage local services, connections, logs, and runtime)",
-      "/helpme security": "(Manage permissions, approvals, credentials, policy, and audit)",
-      "/helpme evaluation": "(Validate savings, routing accuracy, and performance)",
-      "/helpme settings": "(Manage project defaults, integrations, import, and export)",
-      "/helpme language": "(Change the language of menus, prompts, and explanations)",
-      "/helpme about": "(View documentation, versions, updates, and project links)"
-    },
+    "groups": [
+      {
+        "title": "Everyday",
+        "items": {
+          "/myskills": "(Skills: find and manage instructions that teach Codex how to do things)",
+          "/helpme inventory": "(Inventory: see available Skill, MCP, CLI, API, and RAG capabilities)",
+          "/helpme search": "(Search: find capabilities for what you want to do)",
+          "/helpme loaded": "(Loaded: see capabilities already loaded for this task)"
+        }
+      },
+      {
+        "title": "Management",
+        "items": {
+          "/helpme providers": "(Providers: see where each capability comes from)",
+          "/helpme routing": "(Routing: see why a capability was selected or rejected)",
+          "/helpme lifecycle": "(Lifecycle: enable, pause, update, or quarantine capabilities)",
+          "/helpme mcp": "(MCP: connect external tools and services through a standard protocol)"
+        }
+      },
+      {
+        "title": "System",
+        "items": {
+          "/helpme status": "(Status: check whether CapabilityHub components are working)",
+          "/helpme dashboard": "(Dashboard: view capabilities, budgets, and alerts in a local browser)",
+          "/helpme budget": "(Budget: view and limit tokens, loads, and executions)",
+          "/helpme security": "(Security: view permissions, approvals, credentials, and risks)",
+          "/helpme settings": "(Settings: change language, project scope, and defaults)"
+        }
+      }
+    ],
     "footer": "Only the selected topic is loaded.",
     "unknown": "Unknown topic: {topic}"
   },

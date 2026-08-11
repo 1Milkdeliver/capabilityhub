@@ -87,6 +87,11 @@ Simplified Chinese, English, automatic detection, preview, and task/project/glob
 preference scope. Stable menu text comes from static catalogs and does not spend model
 tokens on repeated translation or preload the capability catalog.
 
+Enter `/myskills` to open the direct Skill menu. It supports numbered choices, exact
+commands, and explicit natural-language requests while leaving Codex's native `/skills`,
+`/status`, `/mcp`, and other slash commands untouched. Inventory, Providers, Routing,
+Lifecycle, risks, and conflicts remain visible with plain-language explanations.
+
 `DashboardServer` is a small read-only, standard-library dashboard server. It binds to `127.0.0.1` by default and serves bundled assets plus `GET /api/status`; it does not accept mutations. Start the illustrative local snapshot:
 
 ```bash

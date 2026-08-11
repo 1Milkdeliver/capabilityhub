@@ -1,0 +1,27 @@
+{
+  "locale": "en",
+  "title": "My Skills",
+  "groups": [
+    {
+      "title": "Everyday",
+      "items": {
+        "/myskills find <task>": "(Search: tell me what you want to do and I will find a Skill)",
+        "/myskills list": "(Inventory: see all discovered Skills)",
+        "/myskills loaded": "(Loaded: see Skills loaded for this task)",
+        "/myskills show <name>": "(Details: see what a Skill can do)"
+      }
+    },
+    {
+      "title": "Professional",
+      "items": {
+        "/myskills providers": "(Providers: see whether Skills come from local files, plugins, or elsewhere)",
+        "/myskills routing <name>": "(Routing: see why this Skill was selected or rejected)",
+        "/myskills lifecycle <name>": "(Lifecycle: enable, pause, update, or quarantine a Skill)",
+        "/myskills risks <name>": "(Risks: view the permissions and security risks of a Skill)",
+        "/myskills conflicts": "(Conflicts: check duplicates, conflicts, formatting, and dependencies)"
+      }
+    }
+  ],
+  "footer": "Reply with a number, a Skill name, or simply say what you want to do.",
+  "unknown": "I do not understand this Skill action: {topic}"
+}

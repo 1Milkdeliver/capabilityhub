@@ -16,8 +16,8 @@ jobs:
       matrix:
         python-version: ["3.11", "3.12", "3.13"]
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
           cache: pip
@@ -29,4 +29,3 @@ jobs:
         run: python -m mypy src/capabilityhub
       - name: Test
         run: python -m pytest --cov=capabilityhub --cov-report=term-missing
-

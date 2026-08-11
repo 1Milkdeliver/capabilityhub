@@ -185,8 +185,18 @@ def serve(
 class _LocalRuntime:
     """Atomically refresh a read-only local catalog only when its fingerprint changes."""
 
-    def __init__(self, *, home: Path | None, project: Path | None) -> None:
-        self._monitor = LocalCatalogMonitor(home=home, project=project)
+    def __init__(
+        self,
+        *,
+        home: Path | None,
+        project: Path | None,
+        refresh_interval_seconds: float = 0.25,
+    ) -> None:
+        self._monitor = LocalCatalogMonitor(
+            home=home,
+            project=project,
+            refresh_interval_seconds=refresh_interval_seconds,
+        )
         self._references = ReferenceSigner(secrets.token_bytes(32))
         self._audit = MemoryAuditSink()
         self._lock = RLock()
@@ -225,6 +235,7 @@ def create_empty_mcp_server(
     name: str = "CapabilityHub",
     home: Path | None = None,
     project: Path | None = None,
+    refresh_interval_seconds: float = 0.25,
 ) -> MCPServer:
     """Create the safe local-discovery server used by the CLI entry point.
 
@@ -233,7 +244,11 @@ def create_empty_mcp_server(
     and all state live only for this process.
     """
 
-    runtime = _LocalRuntime(home=home, project=project)
+    runtime = _LocalRuntime(
+        home=home,
+        project=project,
+        refresh_interval_seconds=refresh_interval_seconds,
+    )
     initial = runtime.state()
     context = ServiceContext("local", "anonymous", "mcp-stdio")
     ledgers: dict[str, BudgetLedger] = {}

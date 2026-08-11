@@ -23,8 +23,9 @@ the installed CapabilityHub CLI, and project `.capabilityhub/manifests`; it neve
 executes discovered code or reports
 credential/connection values. A missing runtime therefore cannot break every Codex
 task, while connected tasks can query actual inventory totals. Search checks a compact
-filesystem fingerprint and publishes a new atomic generation only after inputs change,
-so same-task Skill and manifest updates do not require a restart. The local Dashboard
+filesystem fingerprint and publishes a new atomic generation only after inputs change.
+A 250 ms window coalesces burst requests, so same-task Skill and manifest updates remain
+visible without a restart or repeated scans. The local Dashboard
 uses the same monitor and polls its safe status endpoint every three seconds. Inventory responses
 identify fresh, partial, or stale state and expose only safe diagnostic codes/counts.
 

@@ -6,6 +6,7 @@ from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
+from time import monotonic
 
 from capabilityhub.errors import CapabilityHubError
 from capabilityhub.local_catalog import discover_local_catalog, local_catalog_fingerprint
@@ -31,22 +32,35 @@ class LocalCatalogGeneration:
 class LocalCatalogMonitor:
     """Single-flight local refresh with last-complete-snapshot fallback."""
 
-    def __init__(self, *, home: Path | None = None, project: Path | None = None) -> None:
+    def __init__(
+        self,
+        *,
+        home: Path | None = None,
+        project: Path | None = None,
+        refresh_interval_seconds: float = 0.25,
+    ) -> None:
+        if refresh_interval_seconds < 0:
+            raise ValueError("refresh_interval_seconds must be non-negative")
         self._home = (home or Path.home()).resolve()
         self._project = (project or Path.cwd()).resolve()
+        self._refresh_interval_seconds = refresh_interval_seconds
         self._lock = RLock()
         self._fingerprint = ""
         self._generation = 0
+        self._next_check = 0.0
         self._snapshot: LocalCatalogGeneration | None = None
 
     @property
     def project(self) -> Path:
         return self._project
 
-    def snapshot(self) -> LocalCatalogGeneration:
+    def snapshot(self, *, force: bool = False) -> LocalCatalogGeneration:
         """Return a complete current generation, refreshing only after input changes."""
 
         with self._lock:
+            now = monotonic()
+            if not force and self._snapshot is not None and now < self._next_check:
+                return self._snapshot
             try:
                 fingerprint = local_catalog_fingerprint(home=self._home, project=self._project)
                 if self._snapshot is None or fingerprint != self._fingerprint:
@@ -54,6 +68,7 @@ class LocalCatalogMonitor:
                     self._snapshot = refreshed
                     self._fingerprint = fingerprint
             except Exception:
+                self._next_check = monotonic() + self._refresh_interval_seconds
                 if self._snapshot is None:
                     raise
                 inventory = dict(self._snapshot.inventory)
@@ -64,6 +79,7 @@ class LocalCatalogMonitor:
                     self._snapshot.providers,
                     inventory,
                 )
+            self._next_check = monotonic() + self._refresh_interval_seconds
             return self._snapshot
 
     def _build_snapshot(self) -> LocalCatalogGeneration:

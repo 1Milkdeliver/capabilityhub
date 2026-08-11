@@ -95,7 +95,9 @@ codex mcp add capabilityhub-local -- /absolute/path/to/python -m capabilityhub.c
 
 Open a new Codex task after registration. Before each search, the runtime checks a
 lightweight filesystem fingerprint and atomically refreshes only when inputs changed;
-same-task Skill and manifest changes therefore receive a new inventory generation.
+same-task Skill and manifest changes therefore receive a new inventory generation. A
+250 ms coalescing window lets burst requests share one fingerprint scan; it never loads
+Skill bodies and bounds normal change visibility to roughly a quarter second.
 For a fixed project catalog, append `--project-root /absolute/project/path` to the MCP
 command instead of relying on the server process working directory.
 

@@ -150,7 +150,9 @@ def test_local_server_refreshes_inventory_atomically_in_the_same_process(tmp_pat
     home.mkdir()
     project = tmp_path / "project"
     project.mkdir()
-    server = create_empty_mcp_server(home=home, project=project)
+    server = create_empty_mcp_server(
+        home=home, project=project, refresh_interval_seconds=0
+    )
 
     async def inventory(client: Client, *, task: str) -> dict[str, object]:
         result = await client.call_tool(
@@ -232,7 +234,11 @@ def test_local_server_refreshes_inventory_atomically_in_the_same_process(tmp_pat
 def test_local_server_keeps_last_complete_snapshot_when_refresh_check_fails(
     tmp_path, monkeypatch
 ) -> None:
-    server = create_empty_mcp_server(home=tmp_path, project=tmp_path)
+    server = create_empty_mcp_server(
+        home=tmp_path,
+        project=tmp_path,
+        refresh_interval_seconds=0,
+    )
 
     def fail_fingerprint(**_kwargs: object) -> str:
         raise OSError("SECRET-CANARY must not escape")

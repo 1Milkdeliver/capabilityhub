@@ -29,3 +29,4 @@
 - Added concurrent refresh, unchanged-generation, stale-reference, stale-fallback, redaction, shared execution-grant, and benchmark-artifact consistency coverage; the current local gate is 90 tests with one platform symlink skip.
 - Added live `inventory`, bounded `search`, and non-scanning `health` CLI commands plus a real-time loopback Dashboard.
 - Isolated returned Inventory JSON, froze published registry generations, rejected mixed project scopes and non-loopback Dashboard bindings, and made Dashboard lifecycle calls thread-safe.
+- Coalesced burst fingerprint checks into a 250 ms window; repeated in-process snapshot checks fell from about 81 ms to effectively constant-time while preserving bounded refresh visibility.

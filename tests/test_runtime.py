@@ -54,7 +54,9 @@ def test_local_inventory_search_and_health_share_safe_local_metadata(tmp_path) -
     skill.write_text("---\nname: demo\ndescription: Demo helper\n---\nbody", encoding="utf-8")
     project = tmp_path / "project"
     project.mkdir()
-    monitor = LocalCatalogMonitor(home=home, project=project)
+    monitor = LocalCatalogMonitor(
+        home=home, project=project, refresh_interval_seconds=0
+    )
 
     inventory = local_inventory(monitor=monitor)
     result = local_search("demo", kinds=["skill"], monitor=monitor)
@@ -77,7 +79,9 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     skill.write_text("---\nname: demo\n---\nbody", encoding="utf-8")
     project = tmp_path / "project"
     project.mkdir()
-    monitor = LocalCatalogMonitor(home=home, project=project)
+    monitor = LocalCatalogMonitor(
+        home=home, project=project, refresh_interval_seconds=0
+    )
 
     with local_dashboard(project, monitor=monitor) as server:
         payload = _get_json(f"{server.url}/api/status")

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from capabilityhub.errors import CapabilityHubError
@@ -10,7 +12,9 @@ def test_monitor_refreshes_only_when_local_inputs_change(tmp_path) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
     project.mkdir()
-    monitor = LocalCatalogMonitor(home=home, project=project)
+    monitor = LocalCatalogMonitor(
+        home=home, project=project, refresh_interval_seconds=0
+    )
 
     first = monitor.snapshot()
     unchanged = monitor.snapshot()
@@ -41,7 +45,9 @@ def test_monitor_refreshes_only_when_local_inputs_change(tmp_path) -> None:
 def test_monitor_keeps_last_complete_generation_when_refresh_fails(
     tmp_path, monkeypatch
 ) -> None:
-    monitor = LocalCatalogMonitor(home=tmp_path / "home", project=tmp_path)
+    monitor = LocalCatalogMonitor(
+        home=tmp_path / "home", project=tmp_path, refresh_interval_seconds=0
+    )
     complete = monitor.snapshot()
     monkeypatch.setattr(
         "capabilityhub.local_runtime.local_catalog_fingerprint",
@@ -66,3 +72,30 @@ def test_generation_inventory_copy_and_registry_are_read_only(tmp_path) -> None:
     assert generation.inventory_json()["active_by_kind"]["skill"] != 999
     with pytest.raises(CapabilityHubError, match="read-only"):
         generation.registry.activate("missing")
+
+
+def test_refresh_window_coalesces_concurrent_fingerprint_checks(
+    tmp_path, monkeypatch
+) -> None:
+    calls = 0
+
+    def fingerprint(**_kwargs) -> str:
+        nonlocal calls
+        calls += 1
+        return "stable"
+
+    monkeypatch.setattr(
+        "capabilityhub.local_runtime.local_catalog_fingerprint", fingerprint
+    )
+    monitor = LocalCatalogMonitor(
+        home=tmp_path / "home",
+        project=tmp_path,
+        refresh_interval_seconds=10,
+    )
+    monitor.snapshot()
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        snapshots = list(pool.map(lambda _: monitor.snapshot(), range(20)))
+
+    assert calls == 1
+    assert {item.inventory["generation"] for item in snapshots} == {1}

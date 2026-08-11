@@ -18,6 +18,23 @@ def build_parser() -> argparse.ArgumentParser:
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate", help="validate JSON manifests")
     validate.add_argument("paths", nargs="+")
+    export_manifest = commands.add_parser(
+        "export-manifest", help="export one validated manifest as deterministic JSON"
+    )
+    export_manifest.add_argument("path")
+    _pretty_argument(export_manifest)
+    migrate_manifest = commands.add_parser(
+        "migrate-manifest", help="preview an explicit legacy JSON manifest migration"
+    )
+    migrate_manifest.add_argument("path")
+    _pretty_argument(migrate_manifest)
+    compatibility = commands.add_parser(
+        "compatibility", help="negotiate API versions and required features"
+    )
+    compatibility.add_argument("--api-version", action="append")
+    compatibility.add_argument("--supported-feature", action="append")
+    compatibility.add_argument("--required-feature", action="append")
+    _pretty_argument(compatibility)
     discover = commands.add_parser("discover-skills", help="discover local SKILL.md packages")
     discover.add_argument("directories", nargs="+")
     inventory = commands.add_parser("inventory", help="show live local capability counts")
@@ -65,10 +82,45 @@ def build_parser() -> argparse.ArgumentParser:
     lifecycle.add_argument("--scope", choices=("project", "global"), default="project")
     _project_argument(lifecycle)
     _pretty_argument(lifecycle)
+    updates = commands.add_parser(
+        "updates", help="stage, health-gate, activate, rollback, or pin revisions"
+    )
+    updates.add_argument(
+        "action",
+        nargs="?",
+        choices=(
+            "list",
+            "stage",
+            "health-pass",
+            "health-fail",
+            "activate",
+            "rollback",
+            "pin",
+            "release",
+        ),
+        default="list",
+    )
+    updates.add_argument("target", nargs="?")
+    updates.add_argument("--expected-active")
+    updates.add_argument("--pin-id")
+    updates.add_argument("--limit", type=_positive_int, default=100)
+    _project_argument(updates)
+    _pretty_argument(updates)
     audit = commands.add_parser("audit", help="show a redacted tail of project audit events")
     audit.add_argument("--limit", type=_audit_limit, default=50)
     _project_argument(audit)
     _pretty_argument(audit)
+    secure_audit = commands.add_parser(
+        "secure-audit", help="verify, rotate, list, or export the opt-in HMAC audit ledger"
+    )
+    secure_audit.add_argument(
+        "action", nargs="?", choices=("verify", "list", "rotate", "export"), default="verify"
+    )
+    secure_audit.add_argument("--source", default="current")
+    secure_audit.add_argument("--destination")
+    secure_audit.add_argument("--max-segments", type=_positive_int, default=10)
+    _project_argument(secure_audit)
+    _pretty_argument(secure_audit)
     load = commands.add_parser("load", help="load selected sections from an active revision")
     load.add_argument("revision")
     load.add_argument("--section", action="append")
@@ -172,6 +224,22 @@ def _main(argv: Sequence[str] | None = None) -> int:
     if args.command == "validate":
         print(json.dumps({"valid": runtime.validate(args.paths)}))
         return 0
+    if args.command == "export-manifest":
+        _print_json(runtime.local_manifest_export(args.path), pretty=args.pretty)
+        return 0
+    if args.command == "migrate-manifest":
+        _print_json(runtime.local_manifest_migrate(args.path), pretty=args.pretty)
+        return 0
+    if args.command == "compatibility":
+        _print_json(
+            runtime.local_compatibility(
+                api_versions=args.api_version,
+                supported_features=args.supported_feature,
+                required_features=args.required_feature,
+            ),
+            pretty=args.pretty,
+        )
+        return 0
     if args.command == "discover-skills":
         manifests = runtime.discover_skills(args.directories)
         print(
@@ -248,8 +316,54 @@ def _main(argv: Sequence[str] | None = None) -> int:
             payload = runtime.local_lifecycle(args.project_root)
         _print_json(payload, pretty=args.pretty)
         return 0
+    if args.command == "updates":
+        if args.action == "list":
+            if args.target is not None:
+                raise _usage("updates list does not accept a target")
+            payload = runtime.local_updates(
+                args.project_root,
+                limit=args.limit,
+            )
+        else:
+            if args.target is None:
+                raise _usage(f"updates {args.action} requires a target")
+            if args.action == "pin" and args.pin_id is None:
+                raise _usage("updates pin requires --pin-id")
+            if args.action != "pin" and args.pin_id is not None:
+                raise _usage(f"updates {args.action} does not accept --pin-id")
+            action = args.action
+            health_passed = None
+            if action in {"health-pass", "health-fail"}:
+                health_passed = action == "health-pass"
+                action = "health"
+            payload = runtime.local_update_action(
+                action,
+                args.target,
+                expected_active_revision=args.expected_active,
+                health_passed=health_passed,
+                pin_id=args.pin_id,
+                project_root=args.project_root,
+            )
+        _print_json(payload, pretty=args.pretty)
+        return 0
     if args.command == "audit":
         _print_json(runtime.local_audit(args.project_root, limit=args.limit), pretty=args.pretty)
+        return 0
+    if args.command == "secure-audit":
+        if args.action == "export" and args.destination is None:
+            raise _usage("secure-audit export requires --destination")
+        if args.action != "export" and (args.source != "current" or args.destination is not None):
+            raise _usage(f"secure-audit {args.action} does not accept export options")
+        _print_json(
+            runtime.local_secure_audit(
+                args.action,
+                source=args.source,
+                destination=args.destination,
+                max_segments=args.max_segments,
+                project_root=args.project_root,
+            ),
+            pretty=args.pretty,
+        )
         return 0
     if args.command == "load":
         _print_json(

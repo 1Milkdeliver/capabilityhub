@@ -72,6 +72,13 @@ async function refresh() {
     setText("reasoning-tier", payload.reasoning?.current_tier || "not selected");
     setText("reasoning-budget", payload.reasoning?.budget?.remaining);
     setText("reasoning-escalations", payload.reasoning?.escalations_used ?? 0);
+    const updates = (payload.updates?.states || []).map((item) => ({
+      name: item.coordinate,
+      value: `active ${text(item.active_revision)} / staged ${text(item.staged_revision)} / health ${text(item.health_status)}`,
+    }));
+    list("update-list", updates, "No staged update state.");
+    setText("secure-audit-status", payload.secure_audit?.configured ? "configured" : "not configured");
+    setText("secure-audit-key", payload.secure_audit?.key_environment);
     const audit = (payload.audit?.events || []).map((item) => ({
       name: `${item.sequence}: ${item.event_type} / ${item.outcome}`,
       value: item.capability_revision || item.reason_codes?.join(", ") || "global",

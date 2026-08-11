@@ -11,6 +11,8 @@ lifecycle supports only enabled, disabled, and quarantined catalog states. Appro
 can approve or deny an already-created exact-intent request; Context controls can pin, unpin,
 or forget residency metadata. The page cannot delete source files, install, update, run a
 provider, create arbitrary approvals, or change provider credentials.
+It also displays staged update pointers/pins and whether the optional secure audit key
+setting is present, without exposing the key or adding browser-side update actions.
 The page also shows the latest ten redacted project audit events. It omits arguments,
 credentials, provider output, raw task identifiers, and absolute audit paths.
 

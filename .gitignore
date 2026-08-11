@@ -19,3 +19,4 @@ build/
 .capabilityhub/state.sqlite3*
 .capabilityhub/audit.jsonl
 .capabilityhub/context-state.json
+.capabilityhub/secure-audit/

@@ -18,6 +18,23 @@ def test_cli_discover_skills(tmp_path, capsys) -> None:
     assert json.loads(capsys.readouterr().out)["count"] == 1
 
 
+def test_manifest_and_compatibility_commands_route(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(runtime, "local_manifest_export", lambda *_args: {"kind": "Capability"})
+    monkeypatch.setattr(runtime, "local_manifest_migrate", lambda *_args: {"report": {}})
+    monkeypatch.setattr(
+        runtime,
+        "local_compatibility",
+        lambda **_kwargs: {"decision": {"compatible": False}},
+    )
+
+    assert main(["export-manifest", "manifest.json"]) == 0
+    assert json.loads(capsys.readouterr().out)["kind"] == "Capability"
+    assert main(["migrate-manifest", "legacy.json"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"report": {}}
+    assert main(["compatibility", "--required-feature", "security.future"]) == 0
+    assert json.loads(capsys.readouterr().out)["decision"]["compatible"] is False
+
+
 def test_mcp_serve_accepts_an_explicit_project_root() -> None:
     args = build_parser().parse_args(["mcp-serve", "--project-root", "project with spaces"])
 
@@ -233,6 +250,38 @@ def test_reasoning_command_routes_explicit_advice(monkeypatch, capsys) -> None:
     assert json.loads(capsys.readouterr().out)["tier"] == "medium"
     assert seen["risk"] == "reversible_write"
     assert seen["attempt_id"] == "attempt-1"
+
+
+def test_secure_audit_command_routes(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(
+        runtime,
+        "local_secure_audit",
+        lambda *_args, **_kwargs: {"verification": {"valid": True}},
+    )
+
+    assert main(["secure-audit", "verify"]) == 0
+    assert json.loads(capsys.readouterr().out)["verification"]["valid"] is True
+    assert main(["secure-audit", "export"]) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "invalid_command_arguments"
+
+
+def test_updates_commands_route(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(runtime, "local_updates", lambda *_args, **_kwargs: {"states": []})
+    monkeypatch.setattr(
+        runtime,
+        "local_update_action",
+        lambda action, target, **_kwargs: {"action": action, "target": target},
+    )
+
+    assert main(["updates"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"states": []}
+    assert main(["updates", "health-pass", "demo/tool@2#digest"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "action": "health",
+        "target": "demo/tool@2#digest",
+    }
+    assert main(["updates", "pin", "demo/tool"]) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "invalid_command_arguments"
 
 
 @pytest.mark.parametrize(

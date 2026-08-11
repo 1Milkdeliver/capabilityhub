@@ -76,6 +76,8 @@ def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
     assert "/api/approval" in assets
     assert "/api/context" in assets
     assert "reasoning-tier" in assets
+    assert "update-list" in assets
+    assert "secure-audit-status" in assets
     assert "\u0431" not in assets
     assert "\ufffd" not in assets
 

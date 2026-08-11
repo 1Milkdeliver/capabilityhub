@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import hashlib
+import json
+import os
 import tomllib
 from collections.abc import Callable, Mapping
 from dataclasses import fields, is_dataclass
@@ -18,15 +20,23 @@ from capabilityhub.approval_store import (
     ApprovalStatus,
     SqliteApprovalStore,
 )
-from capabilityhub.audit import JsonlAuditSink, read_jsonl_audit
+from capabilityhub.audit import AuditEvent, AuditSink, JsonlAuditSink, read_jsonl_audit
 from capabilityhub.budget import BudgetSnapshot
 from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
+from capabilityhub.compatibility import (
+    FeatureHandshake,
+    decide_compatibility,
+    v1alpha1_handshake,
+)
 from capabilityhub.context_state import LocalContextState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.idempotency import SqliteIdempotencyStore
 from capabilityhub.insights import loaded_view, providers_view, routing_view
+from capabilityhub.lifecycle import StagedUpdateManager
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.manifest import load_manifest
+from capabilityhub.manifest_export import manifest_to_document
+from capabilityhub.migration import migrate_manifest
 from capabilityhub.models import (
     CapabilityKind,
     CapabilityManifest,
@@ -42,7 +52,9 @@ from capabilityhub.reasoning import ReasoningRouter
 from capabilityhub.reasoning_store import SQLiteReasoningStore
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.residency import ResidentSection
+from capabilityhub.retention import AuditRetentionManager
 from capabilityhub.search import LexicalCapabilitySearch
+from capabilityhub.secure_audit import SecureAuditLedger
 from capabilityhub.service import CapabilityHubService, ServiceContext
 from capabilityhub.state import (
     PreferenceScope,
@@ -51,6 +63,7 @@ from capabilityhub.state import (
     set_locale,
 )
 from capabilityhub.supervision import ProcessProviderSupervisor
+from capabilityhub.update_store import SQLiteUpdateStore
 from capabilityhub.webui import (
     ApprovalProvider,
     ContextProvider,
@@ -70,6 +83,7 @@ DEFAULT_LOCAL_BUDGETS = {
 }
 LOCAL_POLICY_REVISION = "local-v1"
 DEFAULT_CONTEXT_TOKENS = 16_000
+SECURE_AUDIT_KEY_ENV = "CAPABILITYHUB_AUDIT_KEY"
 
 
 def validate(paths: list[str | Path]) -> int:
@@ -77,6 +91,61 @@ def validate(paths: list[str | Path]) -> int:
     for path in paths:
         load_manifest(path)
     return len(paths)
+
+
+def local_manifest_export(path: str | Path) -> dict[str, JsonValue]:
+    """Export one validated manifest deterministically without invoking a Provider."""
+
+    return manifest_to_document(load_manifest(path))
+
+
+def local_manifest_migrate(path: str | Path) -> dict[str, JsonValue]:
+    """Migrate one JSON manifest in memory and return the document plus explicit report."""
+
+    try:
+        raw = json.loads(Path(path).read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, json.JSONDecodeError) as error:
+        raise CapabilityHubError(
+            code="manifest_unreadable",
+            category=ErrorCategory.INPUT,
+            safe_message="Manifest could not be read as JSON.",
+        ) from error
+    if not isinstance(raw, dict) or not all(isinstance(key, str) for key in raw):
+        raise CapabilityHubError(
+            code="migration_invalid_shape",
+            category=ErrorCategory.INPUT,
+            safe_message="The manifest must be an object.",
+        )
+    result = migrate_manifest(raw)
+    return {
+        "document": result.document,
+        "report": cast(dict[str, JsonValue], _jsonable(result.report)),
+    }
+
+
+def local_compatibility(
+    *,
+    api_versions: list[str] | None = None,
+    supported_features: list[str] | None = None,
+    required_features: list[str] | None = None,
+) -> dict[str, JsonValue]:
+    """Compare a caller handshake with the local v1alpha1 compatibility surface."""
+
+    server = v1alpha1_handshake()
+    required = tuple(required_features or ())
+    supported = tuple(
+        dict.fromkeys((*(supported_features or server.supported_features), *required))
+    )
+    client = FeatureHandshake(
+        tuple(api_versions or server.api_versions),
+        supported,
+        required,
+    )
+    return {
+        "client": cast(dict[str, JsonValue], _jsonable(client)),
+        "decision": cast(dict[str, JsonValue], _jsonable(decide_compatibility(client, server))),
+        "server": cast(dict[str, JsonValue], _jsonable(server)),
+    }
 
 
 def discover_skills(directories: list[str | Path]) -> tuple[CapabilityManifest, ...]:
@@ -253,7 +322,7 @@ def local_audit(
     """Return a bounded redacted tail of durable project audit events."""
 
     selected = _select_local_scope(project_root, monitor)
-    events = read_jsonl_audit(_audit_path(selected.project), limit=limit)
+    events = _audit_events(selected.project, limit=limit)
     rows: list[JsonValue] = [
         {
             "capability_revision": event.capability_revision,
@@ -270,6 +339,55 @@ def local_audit(
     return {"events": rows, "limit": limit, "scope": "project", "stored": len(rows)}
 
 
+def local_secure_audit(
+    action: str = "verify",
+    *,
+    source: str = "current",
+    destination: str | Path | None = None,
+    max_segments: int = 10,
+    project_root: str | Path | None = None,
+) -> dict[str, JsonValue]:
+    """Verify, rotate, list, or export the opt-in HMAC audit ledger."""
+
+    project = _catalog_project(project_root)
+    key = _secure_audit_key(required=True)
+    assert key is not None
+    manager = AuditRetentionManager(
+        _secure_audit_root(project),
+        signing_key=key,
+        max_segments=max_segments,
+    )
+    if action == "verify":
+        return {
+            "configured": True,
+            "key_environment": SECURE_AUDIT_KEY_ENV,
+            "verification": cast(dict[str, JsonValue], _jsonable(manager.ledger.verify())),
+        }
+    if action == "list":
+        return {
+            "archives": [path.name for path in manager.archives],
+            "configured": True,
+            "current": cast(dict[str, JsonValue], _jsonable(manager.ledger.verify())),
+        }
+    if action == "rotate":
+        result = manager.rotate()
+        return {
+            "archive": result.archive.name,
+            "removed_segments": result.removed_segments,
+            "retained_segments": result.retained_segments,
+            "verification": cast(dict[str, JsonValue], _jsonable(result.verification)),
+        }
+    if action == "export":
+        if destination is None:
+            raise ValueError("secure audit export requires a destination")
+        selected = (
+            manager.ledger.directory if source == "current" else manager.archive_root / source
+        )
+        target = manager.export_jsonl(selected, destination)
+        return {"exported": True, "destination": str(target), "source": source}
+    raise ValueError("secure audit action must be verify, list, rotate, or export")
+
+
 def local_loaded(
     project_root: str | Path | None = None,
     *,
@@ -280,7 +398,7 @@ def local_loaded(
 
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
-    events = read_jsonl_audit(_audit_path(selected.project), limit=500)
+    events = _audit_events(selected.project, limit=500)
     return loaded_view(generation.registry, events, limit=limit)
 
 
@@ -422,6 +540,92 @@ def local_set_lifecycle(
     }
 
 
+def local_updates(
+    project_root: str | Path | None = None,
+    *,
+    limit: int = 100,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """List durable staged-update state and in-flight revision pins."""
+
+    selected, manager = _update_manager(project_root, monitor)
+    return {
+        "generation": selected.snapshot().inventory.get("generation"),
+        "pins": [_jsonable(pin) for pin in manager.pins()],
+        "states": [_jsonable(state) for state in manager.states(limit=limit)],
+    }
+
+
+def local_update_action(
+    action: str,
+    target: str,
+    *,
+    expected_active_revision: str | None = None,
+    health_passed: bool | None = None,
+    pin_id: str | None = None,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Stage, health-gate, activate, rollback, pin, or release an immutable revision."""
+
+    selected, manager = _update_manager(project_root, monitor)
+    if action in {"stage", "health", "activate"}:
+        manifest = manager.registry.revision(target)
+        coordinate = manifest.identity.coordinate
+        _bootstrap_update_pointer(manager, coordinate)
+    else:
+        coordinate = target
+    if action == "stage":
+        state = manager.state(coordinate)
+        result: object = manager.stage(
+            target,
+            expected_active_revision=(
+                expected_active_revision
+                if expected_active_revision is not None
+                else state.active_revision
+            ),
+        )
+    elif action == "health":
+        if health_passed is None:
+            raise ValueError("update health requires an explicit pass or fail result")
+        result = manager.record_health(target, passed=health_passed)
+    elif action == "activate":
+        state = manager.state(coordinate)
+        result = manager.activate(
+            target,
+            expected_active_revision=(
+                expected_active_revision
+                if expected_active_revision is not None
+                else state.active_revision
+            ),
+        )
+        selected.snapshot(force=True)
+    elif action == "rollback":
+        _bootstrap_update_pointer(manager, coordinate)
+        state = manager.state(coordinate)
+        if state.active_revision is None:
+            raise ValueError("update rollback requires an active revision")
+        result = manager.rollback(
+            coordinate,
+            expected_active_revision=expected_active_revision or state.active_revision,
+        )
+        selected.snapshot(force=True)
+    elif action == "pin":
+        if pin_id is None:
+            raise ValueError("update pin requires a pin_id")
+        _bootstrap_update_pointer(manager, coordinate)
+        result = manager.pin_active(coordinate, pin_id)
+    elif action == "release":
+        result = {"pin_id": target, "released": manager.release_pin(target)}
+    else:
+        raise ValueError("unknown update action")
+    return {
+        "action": action,
+        "generation": selected.snapshot().inventory.get("generation"),
+        "result": _jsonable(result),
+    }
+
+
 def local_load(
     revision: str,
     *,
@@ -437,7 +641,7 @@ def local_load(
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
     signer = ReferenceSigner(token_bytes(32))
-    audit = JsonlAuditSink(_audit_path(selected.project))
+    audit = _audit_sink(selected.project)
     service = CapabilityHubService(
         registry=generation.registry,
         providers=generation.providers,
@@ -689,7 +893,7 @@ def _local_execute(
         )
         providers = (provider,)
     signer = ReferenceSigner(token_bytes(32))
-    audit = JsonlAuditSink(_audit_path(selected.project))
+    audit = _audit_sink(selected.project)
     service = CapabilityHubService(
         registry=generation.registry,
         providers=providers,
@@ -894,6 +1098,11 @@ def local_dashboard(
             "approvals": local_approvals(selected.project, limit=10),
             "context": local_context(selected.project),
             "reasoning": local_reasoning("dashboard", project_root=selected.project),
+            "updates": local_updates(monitor=selected),
+            "secure_audit": {
+                "configured": _secure_audit_key(required=False) is not None,
+                "key_environment": SECURE_AUDIT_KEY_ENV,
+            },
         }
 
     def search(query: str, kind: str | None, limit: int) -> StatusSnapshot:
@@ -960,6 +1169,27 @@ def _select_local_scope(
     if project_root is not None and _catalog_project(project_root) != monitor.project:
         raise ValueError("project_root does not match the supplied local monitor")
     return monitor
+
+
+def _update_manager(
+    project_root: str | Path | None,
+    monitor: LocalCatalogMonitor | None,
+) -> tuple[LocalCatalogMonitor, StagedUpdateManager]:
+    selected = _select_local_scope(project_root, monitor)
+    generation = selected.snapshot()
+    return selected, StagedUpdateManager(
+        registry=generation.registry,
+        store=SQLiteUpdateStore(_state_path(selected.project)),
+    )
+
+
+def _bootstrap_update_pointer(manager: StagedUpdateManager, coordinate: str) -> None:
+    state = manager.state(coordinate)
+    if state.active_revision is not None or state.staged_revision is not None:
+        return
+    active = manager.registry.activations.get(coordinate)
+    if active is not None:
+        manager.bootstrap_active(coordinate, active)
 
 
 def _local_context(
@@ -1035,6 +1265,69 @@ def _approval_json(record: ApprovalRecord) -> dict[str, JsonValue]:
 
 def _audit_path(project: Path) -> Path:
     return project / ".capabilityhub" / "audit.jsonl"
+
+
+def _secure_audit_root(project: Path) -> Path:
+    return project / ".capabilityhub" / "secure-audit"
+
+
+def _secure_audit_key(*, required: bool) -> bytes | None:
+    raw = os.environ.get(SECURE_AUDIT_KEY_ENV)
+    if raw is None:
+        if not required:
+            return None
+        raise CapabilityHubError(
+            code="secure_audit_key_missing",
+            category=ErrorCategory.INPUT,
+            safe_message=f"Set {SECURE_AUDIT_KEY_ENV} to use secure audit controls.",
+        )
+    key = raw.encode("utf-8")
+    if len(key) < 16:
+        raise CapabilityHubError(
+            code="secure_audit_key_invalid",
+            category=ErrorCategory.INPUT,
+            safe_message="The secure audit signing key must contain at least 16 UTF-8 bytes.",
+        )
+    return key
+
+
+def _audit_sink(project: Path) -> AuditSink:
+    key = _secure_audit_key(required=False)
+    if key is None:
+        return JsonlAuditSink(_audit_path(project))
+    return SecureAuditLedger(_secure_audit_root(project) / "current", signing_key=key)
+
+
+def _audit_events(project: Path, *, limit: int) -> tuple[AuditEvent, ...]:
+    key = _secure_audit_key(required=False)
+    if key is None:
+        return read_jsonl_audit(_audit_path(project), limit=limit)
+    _, records = SecureAuditLedger(
+        _secure_audit_root(project) / "current", signing_key=key
+    ).verified_records()
+    events: list[AuditEvent] = []
+    for record in records[-limit:]:
+        event = record["event"]
+        assert isinstance(event, dict)
+        events.append(
+            AuditEvent(
+                event_id=str(event["event_id"]),
+                sequence=int(event["sequence"]),
+                task_id=str(event["task_id"]),
+                event_type=str(event["event_type"]),
+                capability_revision=(
+                    str(event["capability_revision"])
+                    if event["capability_revision"] is not None
+                    else None
+                ),
+                outcome=str(event["outcome"]),
+                portable_tokens=int(event["portable_tokens"]),
+                payload_bytes=int(event["payload_bytes"]),
+                reason_codes=tuple(str(code) for code in event["reason_codes"]),
+                metadata=cast(dict[str, JsonValue], event["metadata"]),
+            )
+        )
+    return tuple(events)
 
 
 def _state_path(project: Path) -> Path:

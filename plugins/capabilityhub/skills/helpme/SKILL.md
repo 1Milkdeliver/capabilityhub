@@ -84,10 +84,17 @@ in the current interaction only. Report a failed CLI write instead of claiming s
   `capabilityhub lifecycle set <coordinate> <state> --scope <project|global> --pretty`.
   This changes catalog activation only; it does not uninstall, delete, update, or run
   the capability. Require an exact coordinate and confirmation for quarantine.
+- For staged update details, use `capabilityhub updates list --pretty`. Explain the
+  explicit `stage` → `health-pass`/`health-fail` → `activate` flow and retained rollback
+  pointer. Never report a candidate healthy unless an operator supplied that result;
+  this command does not download or run an artifact.
 - For `/helpme security audit`, use `capabilityhub audit --limit 50 --pretty`. Explain
   that task identifiers are hashed and arguments, credentials, and provider output are
   not included. Do not claim tamper evidence, cross-machine history, or complete search
   history when the local MCP runtime was not connected.
+- If `CAPABILITYHUB_AUDIT_KEY` is configured, offer `capabilityhub secure-audit verify
+  --pretty`; rotation and export are explicit operator actions. Never display or request
+  the signing key value in chat.
 - For `/helpme security approvals`, use `capabilityhub approvals list --status pending
   --pretty`. Create a request with `capabilityhub approvals request <revision> <operation>
   --arguments <json> --pretty`, then approve or deny its returned ID explicitly. Execute
@@ -104,6 +111,9 @@ in the current interaction only. Report a failed CLI write instead of claiming s
 - For `/helpme consumption budget`, use `capabilityhub budget-report --pretty`. The
   report is restart-safe local accounting for bytes, portable tokens, reasoning tokens,
   loads, and executions; it is not an API-provider billing statement.
+- For manifest portability, use `export-manifest` for canonical JSON,
+  `migrate-manifest` for a preview-only legacy migration report, and `compatibility` for
+  the v1alpha1 feature handshake. Unknown required security semantics must fail closed.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

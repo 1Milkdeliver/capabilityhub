@@ -8,11 +8,12 @@ from pathlib import Path
 from threading import RLock
 from time import monotonic
 
-from capabilityhub.errors import CapabilityHubError
+from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_catalog import discover_local_catalog, local_catalog_fingerprint
 from capabilityhub.models import CapabilityKind, JsonValue
 from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.registry import CapabilityRegistry
+from capabilityhub.update_store import SQLiteUpdateStore
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,11 +97,26 @@ class LocalCatalogMonitor:
             except CapabilityHubError:
                 registration_conflicts += 1
 
+        update_pointers: dict[str, str] = {}
+        state_path = self._project / ".capabilityhub" / "state.sqlite3"
+        if state_path.is_file():
+            update_pointers = SQLiteUpdateStore(state_path).active_pointers()
+        for coordinate, revision in update_pointers.items():
+            manifest = registry.revision(revision)
+            if manifest.identity.coordinate != coordinate:
+                raise CapabilityHubError(
+                    code="update_pointer_invalid",
+                    category=ErrorCategory.REFERENCE,
+                    safe_message="A persisted update pointer does not match the catalog.",
+                )
+
         pending = [
             manifest
             for manifest in catalog.manifests
             if manifest.identity.revision in registry.revisions
             and manifest.identity.coordinate not in catalog.inactive_coordinates
+            and update_pointers.get(manifest.identity.coordinate, manifest.identity.revision)
+            == manifest.identity.revision
         ]
         activation_errors: dict[str, CapabilityHubError] = {}
         while pending:

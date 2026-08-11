@@ -16,7 +16,7 @@ This is `0.1.0a0`, not a production release. The public surface includes Python 
 a small local CLI, and an experimental MCP server adapter; none is a stable protocol
 compatibility guarantee. MCP framing and transports come from the official Python SDK.
 
-CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Real process, network, credential, sandbox, tenant-isolation, and production RAG integrations remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
+CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, local RAG, and MCP stdio adapters; these are supervised reference adapters, not a production sandbox. A secret broker, authenticated tenant isolation, OS resource confinement, remote control plane, and production RAG remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
 
 ## Install from source
 
@@ -63,10 +63,13 @@ Search and load are not permission grants. Search cards are filtered against the
 
 ## CLI and MCP
 
-The source install exposes twenty-one local commands:
+The source install exposes twenty-six local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
+capabilityhub export-manifest examples/manifest-api.json --pretty
+capabilityhub migrate-manifest /path/to/legacy.json --pretty
+capabilityhub compatibility --required-feature security.example --pretty
 capabilityhub discover-skills /path/to/approved/skills
 capabilityhub inventory --pretty
 capabilityhub search "work with PDF files" --kind skill --limit 5 --pretty
@@ -77,7 +80,9 @@ capabilityhub providers --pretty
 capabilityhub routing "work with PDF files" --kind skill --pretty
 capabilityhub language show --pretty
 capabilityhub lifecycle list --pretty
+capabilityhub updates list --pretty
 capabilityhub audit --limit 50 --pretty
+capabilityhub secure-audit verify --pretty
 capabilityhub load REVISION --section contract --pretty
 capabilityhub execute REVISION read --arguments '{"id": 1}' --fixture-output '{"name": "demo"}' --idempotency-key demo-1 --pretty
 capabilityhub approvals list --status pending --pretty

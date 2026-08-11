@@ -22,6 +22,7 @@ from capabilityhub.provider_config import project_providers
 from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.state import global_config_path, lifecycle_states, project_config_path
+from capabilityhub.update_store import SQLiteUpdateStore
 
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
@@ -147,6 +148,12 @@ def local_catalog_fingerprint(
     if manifest_root.is_dir():
         for path in sorted(manifest_root.rglob("*.json"), key=lambda item: item.as_posix()):
             _fingerprint_path(digest, path)
+    state_path = project_dir / ".capabilityhub" / "state.sqlite3"
+    if state_path.is_file():
+        for coordinate, revision in SQLiteUpdateStore(state_path).active_pointers().items():
+            digest.update(coordinate.encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(revision.encode("utf-8"))
     return digest.hexdigest()
 
 
@@ -261,6 +268,9 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
         provider="capabilityhub-runtime",
         operations=(
             OperationSpec("validate", OperationType.EXPAND),
+            OperationSpec("export-manifest", OperationType.EXPAND),
+            OperationSpec("migrate-manifest", OperationType.EXPAND),
+            OperationSpec("compatibility", OperationType.EXPAND),
             OperationSpec("discover-skills", OperationType.EXPAND),
             OperationSpec("inventory", OperationType.EXPAND),
             OperationSpec("search", OperationType.EXPAND),
@@ -271,7 +281,9 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
             OperationSpec("routing", OperationType.EXPAND),
             OperationSpec("language", OperationType.EXPAND),
             OperationSpec("lifecycle", OperationType.EXPAND),
+            OperationSpec("updates", OperationType.EXPAND),
             OperationSpec("audit", OperationType.EXPAND),
+            OperationSpec("secure-audit", OperationType.EXPAND),
             OperationSpec("load", OperationType.EXPAND),
             OperationSpec("execute", OperationType.EXPAND),
             OperationSpec("approvals", OperationType.EXPAND),

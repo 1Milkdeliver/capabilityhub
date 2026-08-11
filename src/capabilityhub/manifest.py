@@ -81,6 +81,11 @@ def parse_manifest(document: object) -> CapabilityManifest:
 
     # Preserve extensions as inert data. They are never interpreted by this parser.
     metadata: dict[str, Any] = dict(raw_metadata)
+    metadata["root_extensions"] = {
+        key: value
+        for key, value in root.items()
+        if key not in {"apiVersion", "kind", "metadata", "spec"}
+    }
     driver = spec.get("driver")
     if isinstance(driver, Mapping):
         # Keep driver material inert during parsing. A trusted runtime may later

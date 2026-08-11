@@ -12,7 +12,7 @@ The project is pre-alpha. Only the latest `main` revision is currently supported
 
 ## Current release posture
 
-The current tree ships a pre-alpha local CLI, an experimental three-tool MCP server, and a loopback dashboard around the Python control core. The dashboard offers bounded metadata search plus project language and activation overrides; mutations require a random per-process CSRF header and same-origin browser requests. These interfaces are supported only for local experimentation; it does not ship a remote API listener, sandbox, secret broker, persistent control database, or production deployment profile. The CLI's execute command uses only an operator-supplied, side-effect-free static fixture. Real providers are opt-in embedding APIs. Dashboard responses must not contain credentials, full capability content, retrieved passages, raw provider output, commands, endpoint URLs, or absolute configuration paths.
+The current tree ships a pre-alpha local CLI, an experimental three-tool MCP server, and a loopback dashboard around the Python control core. The dashboard offers bounded metadata search, project language and activation overrides, exact-intent approval decisions, Context metadata controls, and Reasoning state; mutations require a random per-process CSRF header and same-origin browser requests. SQLite persists local budgets, idempotency, approvals, reasoning state, and metadata-only Context residency. These interfaces are supported only for local experimentation; there is no remote API listener, OS sandbox, secret broker, authenticated tenant control plane, or production deployment profile. Explicit project manifests may opt into supervised CLI-process, fixed-origin HTTP, local RAG, and MCP stdio providers; a static fixture remains available only for deterministic tests. Dashboard responses must not contain credentials, full capability content, retrieved passages, raw provider output, commands, endpoint URLs, argument digests, or absolute configuration paths.
 
 Security invariants below describe the intended and tested core boundary; they are not a claim that a complete production deployment profile exists today.
 
@@ -25,6 +25,8 @@ Security invariants below describe the intended and tested core boundary; they a
 - Inline input and output schemas are validated before and after provider invocation.
 - Write-like operations require an idempotency key; uncertain provider outcomes are not automatically replayed.
 - The local durable idempotency store records argument digests and outcome state, not raw arguments. Result persistence is disabled by default; completed duplicates are denied instead of re-executed.
+- Optional secure audit uses an environment-supplied HMAC key, verifies the full chain and signed checkpoint before append/export, and allowlists metadata. The key value, arguments, credentials, and provider output are never written into its records.
+- Staged revision activation requires an explicit health result and compare-and-swap active pointer; rollback retains the prior immutable revision. This is not artifact signature verification or a sandbox health probe.
 - Secrets are references resolved outside model-visible payloads.
 - Provider output is untrusted and budget bounded.
 - External gateways, sandboxes, and credential stores remain separate integrations.

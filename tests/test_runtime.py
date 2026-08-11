@@ -13,6 +13,7 @@ from capabilityhub.runtime import (
     local_audit,
     local_benchmark,
     local_budget_report,
+    local_compatibility,
     local_connections,
     local_context,
     local_context_action,
@@ -23,13 +24,18 @@ from capabilityhub.runtime import (
     local_lifecycle,
     local_load,
     local_loaded,
+    local_manifest_export,
+    local_manifest_migrate,
     local_preferences,
     local_providers,
     local_reasoning,
     local_routing,
     local_search,
+    local_secure_audit,
     local_set_lifecycle,
     local_set_locale,
+    local_update_action,
+    local_updates,
     validate,
 )
 
@@ -63,6 +69,42 @@ def test_validate_and_discover_skills(tmp_path) -> None:
     skill.mkdir(parents=True)
     (skill / "SKILL.md").write_text("---\nname: x\n---\nbody")
     assert len(discover_skills([tmp_path / "skills"])) == 1
+
+    exported = local_manifest_export(file)
+    assert exported["apiVersion"] == "capabilityhub.io/v1alpha1"
+
+
+def test_manifest_migration_preview_and_compatibility_fail_closed(tmp_path) -> None:
+    legacy = tmp_path / "legacy.json"
+    legacy.write_text(
+        json.dumps(
+            {
+                "api_version": "capabilityhub.io/v1alpha0",
+                "manifestKind": "capability",
+                "metadata": {
+                    "namespaceName": "demo",
+                    "packageName": "old",
+                    "version": "1",
+                    "contentDigest": "sha256:" + "c" * 64,
+                },
+                "spec": {
+                    "capabilityType": "api",
+                    "description": "Old manifest.",
+                    "providerName": "static",
+                    "operations": [{"name": "read"}],
+                },
+            }
+        ),
+        encoding="utf-8",
+    )
+
+    migrated = local_manifest_migrate(legacy)
+    decision = local_compatibility(required_features=["security.future-required"])
+
+    assert migrated["report"]["changed"] is True
+    assert migrated["document"]["apiVersion"] == "capabilityhub.io/v1alpha1"
+    assert decision["decision"]["compatible"] is False
+    assert decision["decision"]["reason_codes"] == ["unsupported_client_required_feature"]
 
 
 def test_local_inventory_search_and_health_share_safe_local_metadata(tmp_path) -> None:
@@ -128,6 +170,8 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert payload["approvals"]["count"] == 0
     assert payload["context"]["entries"] == []
     assert payload["reasoning"]["current_tier"] is None
+    assert payload["updates"]["states"] == []
+    assert payload["secure_audit"]["configured"] is False
     assert searched["total_matches"] == 1
     assert changed["active"] is False
     assert refreshed["inventory"]["active_by_kind"]["skill"] == 1
@@ -159,6 +203,43 @@ def test_language_and_lifecycle_persist_and_refresh_inventory(tmp_path) -> None:
     enabled = local_set_lifecycle(coordinate, "enabled", monitor=monitor)
     assert enabled["active"] is True
     assert local_inventory(monitor=monitor)["active_by_kind"]["skill"] == 1
+
+
+def test_staged_update_activation_and_rollback_change_live_catalog_pointer(tmp_path) -> None:
+    project = tmp_path / "project"
+    root = project / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    for version, digest in (("1.0.0", "1"), ("2.0.0", "2")):
+        document = {
+            "apiVersion": "capabilityhub.io/v1alpha1",
+            "kind": "Capability",
+            "metadata": {
+                "namespace": "demo",
+                "name": "updatable",
+                "version": version,
+                "digest": "sha256:" + digest * 64,
+            },
+            "spec": {
+                "type": "api",
+                "summary": f"Updatable {version}",
+                "provider": "static",
+                "operations": [{"name": "read"}],
+            },
+        }
+        (root / f"v{version[0]}.json").write_text(json.dumps(document), encoding="utf-8")
+    monitor = LocalCatalogMonitor(project=project, home=tmp_path / "home")
+    first = "demo/updatable@1.0.0#sha256:" + "1" * 64
+    second = "demo/updatable@2.0.0#sha256:" + "2" * 64
+    assert monitor.snapshot().registry.activations["demo/updatable"] == second
+
+    local_update_action("stage", first, monitor=monitor)
+    local_update_action("health", first, health_passed=True, monitor=monitor)
+    local_update_action("activate", first, monitor=monitor)
+    assert monitor.snapshot().registry.activations["demo/updatable"] == first
+    assert local_updates(monitor=monitor)["states"][0]["previous_revision"] == second
+
+    local_update_action("rollback", "demo/updatable", monitor=monitor)
+    assert monitor.snapshot().registry.activations["demo/updatable"] == second
 
 
 def test_local_load_records_durable_redacted_project_audit(tmp_path) -> None:
@@ -199,6 +280,49 @@ def test_local_load_records_durable_redacted_project_audit(tmp_path) -> None:
     assert any(item["provider"] == "static" for item in providers["entries"])
     assert routing["model_calls"] == 0
     assert routing["entries"][0]["revision"] == revision
+
+
+def test_opt_in_secure_audit_is_used_by_real_local_load(tmp_path, monkeypatch) -> None:
+    monkeypatch.setenv("CAPABILITYHUB_AUDIT_KEY", "secure-local-test-key-32-bytes")
+    project = tmp_path / "project"
+    manifest_root = project / ".capabilityhub" / "manifests"
+    manifest_root.mkdir(parents=True)
+    document = {
+        "apiVersion": "capabilityhub.io/v1alpha1",
+        "kind": "Capability",
+        "metadata": {
+            "namespace": "local",
+            "name": "secure-audit-demo",
+            "version": "1",
+            "digest": "sha256:" + "7" * 64,
+        },
+        "spec": {
+            "type": "api",
+            "summary": "Secure audit demo",
+            "provider": "static",
+            "operations": [{"name": "read"}],
+        },
+    }
+    (manifest_root / "secure.json").write_text(json.dumps(document), encoding="utf-8")
+    revision = "local/secure-audit-demo@1#sha256:" + "7" * 64
+
+    local_load(revision, project_root=project)
+    viewed = local_audit(project, limit=10)
+    verified = local_secure_audit("verify", project_root=project)
+    rotated = local_secure_audit("rotate", project_root=project)
+    destination = tmp_path / "export.jsonl"
+    exported = local_secure_audit(
+        "export",
+        source=str(rotated["archive"]),
+        destination=destination,
+        project_root=project,
+    )
+
+    assert viewed["stored"] == 1
+    assert verified["verification"]["valid"] is True
+    assert exported["exported"] is True
+    assert destination.is_file()
+    assert b"secure-local-test-key" not in destination.read_bytes()
 
 
 def test_local_monitor_rejects_a_different_explicit_project(tmp_path) -> None:

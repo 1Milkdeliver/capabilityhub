@@ -16,3 +16,5 @@ build/
 !.env.example
 .capabilityhub/cache/
 .capabilityhub/state/
+.capabilityhub/state.sqlite3*
+.capabilityhub/audit.jsonl

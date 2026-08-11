@@ -5,6 +5,7 @@ import json
 import pytest
 
 from capabilityhub import runtime
+from capabilityhub.budget_store import SqliteBudgetRepository
 from capabilityhub.cli import build_parser, main
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 
@@ -31,6 +32,8 @@ def test_mcp_serve_accepts_an_explicit_project_root() -> None:
         ("health", "local_health", {"status": "ok"}),
         ("connections", "local_connections", {"network_probes_performed": 0}),
         ("audit", "local_audit", {"events": []}),
+        ("loaded", "local_loaded", {"entries": []}),
+        ("providers", "local_providers", {"entries": []}),
     ],
 )
 def test_json_cli_commands_route_without_extra_output(
@@ -53,6 +56,25 @@ def test_search_cli_passes_filters_and_emits_compact_json(monkeypatch, capsys) -
 
     assert main(["search", "pdf", "--kind", "skill", "--limit", "3"]) == 0
     assert json.loads(capsys.readouterr().out)["total_matches"] == 0
+    assert seen == {
+        "query": "pdf",
+        "kinds": ["skill"],
+        "limit": 3,
+        "project_root": None,
+    }
+
+
+def test_routing_cli_passes_filters_and_emits_explanation(monkeypatch, capsys) -> None:
+    seen: dict[str, object] = {}
+
+    def routing(query, **options):
+        seen.update({"query": query, **options})
+        return {"entries": [], "model_calls": 0}
+
+    monkeypatch.setattr(runtime, "local_routing", routing)
+
+    assert main(["routing", "pdf", "--kind", "skill", "--limit", "3"]) == 0
+    assert json.loads(capsys.readouterr().out)["model_calls"] == 0
     assert seen == {
         "query": "pdf",
         "kinds": ["skill"],
@@ -155,3 +177,31 @@ def test_cli_renders_structured_safe_runtime_errors(monkeypatch, capsys) -> None
     error = json.loads(capsys.readouterr().err)["error"]
     assert error["code"] == "stale_revision"
     assert error["safe_message"] == "The revision is stale."
+
+
+def test_budget_report_reads_durable_project_usage(tmp_path, capsys) -> None:
+    assert (
+        main(
+            [
+                "budget-report",
+                "--project-root",
+                str(tmp_path),
+                "--executions",
+                "2",
+            ]
+        )
+        == 0
+    )
+    configured = json.loads(capsys.readouterr().out)
+    assert configured["limits"]["executions"] == 2
+
+    ledger = SqliteBudgetRepository(tmp_path / ".capabilityhub" / "state.sqlite3").ledger(
+        "local-cli", {}
+    )
+    ledger.spend({"executions": 1})
+
+    assert main(["budget-report", "--project-root", str(tmp_path)]) == 0
+    reported = json.loads(capsys.readouterr().out)
+    assert reported["used"]["executions"] == 1
+    assert reported["remaining"]["executions"] == 1
+    assert reported["persistent"] is True

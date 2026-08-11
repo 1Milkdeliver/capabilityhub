@@ -1,0 +1,35 @@
+{
+  "fixture_version": 1,
+  "scenarios": [
+    {
+      "id": "no-semantic-match",
+      "action": "no_match",
+      "query": "quasar zephyr xylophone",
+      "expected_code": "no_match"
+    },
+    {
+      "id": "invalid-kind-filter",
+      "action": "invalid_kind",
+      "query": "weather forecast",
+      "expected_code": "invalid_capability_kind"
+    },
+    {
+      "id": "search-envelope-too-small",
+      "action": "search_budget",
+      "query": "weather forecast",
+      "expected_code": "search_output_budget_too_small"
+    },
+    {
+      "id": "tampered-load-reference",
+      "action": "tampered_reference",
+      "query": "weather forecast tomorrow",
+      "expected_code": "reference_tampered"
+    },
+    {
+      "id": "stale-load-reference",
+      "action": "stale_reference",
+      "query": "weather forecast tomorrow",
+      "expected_code": "stale_revision"
+    }
+  ]
+}

@@ -20,7 +20,10 @@ from capabilityhub.runtime import (
     local_inventory,
     local_lifecycle,
     local_load,
+    local_loaded,
     local_preferences,
+    local_providers,
+    local_routing,
     local_search,
     local_set_lifecycle,
     local_set_locale,
@@ -178,10 +181,18 @@ def test_local_load_records_durable_redacted_project_audit(tmp_path) -> None:
 
     local_load(revision, monitor=monitor)
     audit = local_audit(limit=10, monitor=monitor)
+    loaded = local_loaded(monitor=monitor)
+    providers = local_providers(monitor=monitor)
+    routing = local_routing("audit demo", monitor=monitor)
 
     assert audit["stored"] == 1
     assert audit["events"][0]["event_type"] == "load"
     assert "arguments" not in str(audit)
+    assert loaded["entries"][0]["revision"] == revision
+    assert loaded["entries"][0]["provider"] == "static"
+    assert any(item["provider"] == "static" for item in providers["entries"])
+    assert routing["model_calls"] == 0
+    assert routing["entries"][0]["revision"] == revision
 
 
 def test_local_monitor_rejects_a_different_explicit_project(tmp_path) -> None:
@@ -265,6 +276,9 @@ def test_local_load_and_static_execute_use_service_policy_and_budget(tmp_path) -
     assert loaded["execution_ref"] is None
     assert executed["output"] == {"name": "demo"}
     assert executed["budget"]["used"]["executions"] == 1
+    persisted = local_budget_report(project_root=project)
+    assert persisted["used"]["loads"] == 2
+    assert persisted["used"]["executions"] == 1
 
     local_execute_static(
         revision,
@@ -286,11 +300,19 @@ def test_local_load_and_static_execute_use_service_policy_and_budget(tmp_path) -
     assert replay.value.code == "idempotency_result_unavailable"
     assert b"private" not in (project / ".capabilityhub" / "state.sqlite3").read_bytes()
 
+    current = local_budget_report(project_root=project)
+    local_budget_report({"loads": current["used"]["loads"]}, project)
+    with pytest.raises(CapabilityHubError) as exhausted:
+        local_load(revision, monitor=monitor)
+    assert exhausted.value.code == "budget_exhausted"
 
-def test_budget_report_and_benchmark_are_machine_readable() -> None:
-    budget = local_budget_report({"portable_tokens": 12})
+
+def test_budget_report_and_benchmark_are_machine_readable(tmp_path) -> None:
+    budget = local_budget_report({"portable_tokens": 12}, tmp_path)
     benchmark = local_benchmark()
 
     assert budget["remaining"]["portable_tokens"] == 12
+    assert budget["persistent"] is True
+    assert budget["storage"] == "sqlite"
     assert benchmark["thresholds_passed"] is True
     assert benchmark["capability_count"] == 100

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import re
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
@@ -63,6 +64,26 @@ class HttpApiFixture:
             raise ValueError("HTTP operations must be non-empty and declared by the manifest")
 
 
+@dataclass(frozen=True, slots=True)
+class EnvironmentHeaders:
+    """Serializable header resolver that carries names, never secret values."""
+
+    sources: tuple[tuple[str, str], ...]
+
+    def __call__(self) -> Mapping[str, str]:
+        headers: dict[str, str] = {}
+        for header, environment_name in self.sources:
+            value = os.environ.get(environment_name)
+            if value is None:
+                raise _error(
+                    "http_header_environment_missing",
+                    ErrorCategory.INPUT,
+                    "A required HTTP header environment variable is unavailable.",
+                )
+            headers[header] = value
+        return headers
+
+
 class HttpApiProvider:
     """Invoke configured JSON endpoints without exposing a generic URL fetch primitive."""
 
@@ -83,6 +104,19 @@ class HttpApiProvider:
             raise ValueError("HTTP manifest provider must match the configured provider name")
         self._fixtures = values
         self._by_revision = {fixture.manifest.identity.revision: fixture for fixture in values}
+        self._opener = build_opener(_RejectRedirects())
+
+    def __getstate__(self) -> dict[str, object]:
+        """Exclude urllib runtime state when transferring to a spawned worker."""
+
+        return {"name": self._name, "fixtures": self._fixtures}
+
+    def __setstate__(self, state: Mapping[str, object]) -> None:
+        self._name = cast(str, state["name"])
+        self._fixtures = cast(tuple[HttpApiFixture, ...], state["fixtures"])
+        self._by_revision = {
+            fixture.manifest.identity.revision: fixture for fixture in self._fixtures
+        }
         self._opener = build_opener(_RejectRedirects())
 
     @property

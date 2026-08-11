@@ -54,14 +54,23 @@ in the current interaction only. Report a failed CLI write instead of claiming s
   `last_refresh_error_code` and say the last complete snapshot is being used.
 - For `/helpme search <task>`, call `capability.search` for compact cards only. Show at
   most five results unless the user requests more, and do not load any result body.
+- For `/helpme loaded`, use `capabilityhub loaded --limit 20 --pretty`. Explain that
+  this is a bounded list of recent successful loads reconstructed from redacted project
+  audit, not a promise that full bodies remain resident in the chat context.
+- For `/helpme providers`, use `capabilityhub providers --pretty`. Show the real Provider
+  name, discovered count, active count, and kinds. Do not replace Provider names with
+  capability kinds.
+- For `/helpme routing <task>`, use `capabilityhub routing <task> --limit 5 --pretty`.
+  Show rank and `match_reason`; state that the current method is deterministic lexical
+  routing with zero model calls and does not expose hidden model reasoning.
 - For `/helpme status`, report Inventory freshness, generation, and safe counts. Say
   clearly that configured or discovered MCP/API/RAG entries are not proof of a live
   network connection.
 - For `/helpme dashboard`, give the local `capabilityhub dashboard` command and explain
   that it shows live Inventory, local wiring, no-model compact search, project language,
-  and enable/disable/quarantine activation controls. Explain that these controls do not
-  delete or execute files. Do not claim that it opens a browser automatically or
-  displays budgets and alerts.
+  Providers, recent Loaded entries, Routing reasons, and enable/disable/quarantine
+  activation controls. Explain that these controls do not delete or execute files. Do
+  not claim that it opens a browser automatically or displays alerts.
 - For `/helpme runtime health`, use `capabilityhub health --pretty` when local CLI
   execution is available. This check must not scan the capability catalog; it checks
   only the project path, bundled Dashboard files, MCP SDK presence, local Codex config

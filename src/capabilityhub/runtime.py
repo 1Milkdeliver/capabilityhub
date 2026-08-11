@@ -13,9 +13,11 @@ from secrets import token_bytes
 from typing import cast
 
 from capabilityhub.audit import JsonlAuditSink, read_jsonl_audit
-from capabilityhub.budget import BudgetLedger, BudgetSnapshot
+from capabilityhub.budget import BudgetSnapshot
+from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.idempotency import SqliteIdempotencyStore
+from capabilityhub.insights import loaded_view, providers_view, routing_view
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.manifest import load_manifest
 from capabilityhub.models import (
@@ -35,6 +37,7 @@ from capabilityhub.state import (
     set_lifecycle,
     set_locale,
 )
+from capabilityhub.supervision import ProcessProviderSupervisor
 from capabilityhub.webui import (
     DashboardServer,
     LanguageProvider,
@@ -245,6 +248,52 @@ def local_audit(
     return {"events": rows, "limit": limit, "scope": "project", "stored": len(rows)}
 
 
+def local_loaded(
+    project_root: str | Path | None = None,
+    *,
+    limit: int = 20,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Show recent successful loads without retaining capability bodies in memory."""
+
+    selected = _select_local_scope(project_root, monitor)
+    generation = selected.snapshot()
+    events = read_jsonl_audit(_audit_path(selected.project), limit=500)
+    return loaded_view(generation.registry, events, limit=limit)
+
+
+def local_providers(
+    project_root: str | Path | None = None,
+    *,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Return real Provider groupings from the current local registry."""
+
+    selected = _select_local_scope(project_root, monitor)
+    return providers_view(selected.snapshot().registry)
+
+
+def local_routing(
+    query: str,
+    *,
+    kinds: list[str] | None = None,
+    limit: int = 8,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Explain current deterministic search routing with zero model calls."""
+
+    return routing_view(
+        local_search(
+            query,
+            kinds=kinds,
+            limit=limit,
+            project_root=project_root,
+            monitor=monitor,
+        )
+    )
+
+
 def local_preferences(
     project_root: str | Path | None = None,
     *,
@@ -374,7 +423,7 @@ def local_load(
         audit=audit,
     )
     context = _local_context(granted_permissions)
-    budget = BudgetLedger("local-cli", DEFAULT_LOCAL_BUDGETS)
+    budget = _persistent_budget(selected.project)
     load_ref = signer.issue(
         revision=revision,
         scope=context.reference_scope,
@@ -520,12 +569,13 @@ def _local_execute(
         references=signer,
         audit=audit,
         idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),
+        provider_supervisor=ProcessProviderSupervisor(),
     )
     context = _local_context(
         granted_permissions,
         allow_irreversible=allow_irreversible,
     )
-    budget = BudgetLedger("local-cli", DEFAULT_LOCAL_BUDGETS)
+    budget = _persistent_budget(selected.project)
     load_ref = signer.issue(
         revision=revision,
         scope=context.reference_scope,
@@ -579,10 +629,19 @@ def _local_execute(
 
 def local_budget_report(
     limits: dict[str, int] | None = None,
+    project_root: str | Path | None = None,
 ) -> dict[str, JsonValue]:
-    """Return a fresh local CLI budget envelope without scanning the catalog."""
+    """Return or configure the durable local CLI budget without scanning the catalog."""
 
-    return _budget_json(BudgetLedger("local-cli", limits or DEFAULT_LOCAL_BUDGETS).snapshot())
+    project = _catalog_project(project_root)
+    repository = SqliteBudgetRepository(_state_path(project))
+    ledger = repository.ledger("local-cli", DEFAULT_LOCAL_BUDGETS)
+    if limits:
+        ledger = repository.configure("local-cli", limits)
+    report = _budget_json(ledger.snapshot())
+    report["persistent"] = True
+    report["storage"] = "sqlite"
+    return report
 
 
 def local_benchmark(*, enforce_thresholds: bool = True) -> dict[str, JsonValue]:
@@ -612,25 +671,17 @@ def local_dashboard(
     def snapshot() -> StatusSnapshot:
         inventory = local_inventory(monitor=selected)
         preferences = local_preferences(monitor=selected)
-        raw_counts = inventory.get("active_by_kind")
-        counts = raw_counts if isinstance(raw_counts, dict) else {}
-        providers = [
-            {
-                "name": kind.value.upper(),
-                "status": f"{counts.get(kind.value, 0)} active",
-            }
-            for kind in CapabilityKind
-        ]
+        loaded = local_loaded(limit=10, monitor=selected)
         return {
             "active_capabilities": [],
             "health": local_health(selected.project),
             "inventory": inventory,
             "connections": local_connections(monitor=selected),
-            "loaded_capabilities": [],
+            "loaded_capabilities": loaded.get("entries", []),
             "lifecycle": local_lifecycle(monitor=selected),
             "audit": local_audit(limit=10, monitor=selected),
             "preferences": {"locale": preferences.get("locale", "auto")},
-            "providers": providers,
+            "providers": local_providers(monitor=selected),
         }
 
     def search(query: str, kind: str | None, limit: int) -> StatusSnapshot:
@@ -713,6 +764,10 @@ def _budget_json(snapshot: BudgetSnapshot) -> dict[str, JsonValue]:
         "scope": snapshot.scope,
         "used": dict(snapshot.used),
     }
+
+
+def _persistent_budget(project: Path) -> SqliteBudgetLedger:
+    return SqliteBudgetRepository(_state_path(project)).ledger("local-cli", DEFAULT_LOCAL_BUDGETS)
 
 
 def _audit_path(project: Path) -> Path:

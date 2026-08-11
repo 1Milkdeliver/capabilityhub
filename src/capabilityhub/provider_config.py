@@ -9,7 +9,12 @@ from pathlib import Path
 from capabilityhub.models import CapabilityManifest
 from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.cli import CliInvocation, CliProcessFixture, CliProcessProvider
-from capabilityhub.providers.http import HttpApiFixture, HttpApiProvider, HttpInvocation
+from capabilityhub.providers.http import (
+    EnvironmentHeaders,
+    HttpApiFixture,
+    HttpApiProvider,
+    HttpInvocation,
+)
 from capabilityhub.providers.rag import LocalRagFixture, LocalRagProvider
 
 
@@ -68,7 +73,9 @@ def _fixture(
             manifest,
             _text(config, "baseUrl"),
             _http_operations(config),
-            headers=lambda: _environment(config, field="headerEnvironment"),
+            headers=EnvironmentHeaders(
+                tuple(_string_mapping(config, "headerEnvironment", required=False).items())
+            ),
         )
     if name == "local-rag":
         root = (project / _text(config, "root")).resolve()

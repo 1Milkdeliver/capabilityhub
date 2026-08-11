@@ -13,12 +13,14 @@ deployment hardening guide.
 | Area | Evidence | Release interpretation |
 |---|---|---|
 | Manifest and registry | JSON `v1alpha1` parsing, immutable revisions, activation pointers, dependency/conflict checks | Suitable for local/core experimentation; not a compatibility guarantee |
-| Search/load/execute core | Permission-filtered lexical search, scope-bound references, section/operation loading, JSON Schema validation, exact-intent approvals, in-process replay plus optional SQLite idempotency admission, policy/budget/audit tests | Pre-alpha library/CLI/MCP behavior; approval references and execution grants remain process-scoped |
+| Search/load/execute core | Permission-filtered lexical search, scope-bound references, section/operation loading, JSON Schema validation, exact-intent approvals, SQLite idempotency and budget admission, policy/audit tests | Pre-alpha library/CLI/MCP behavior; approval references and execution grants remain process-scoped |
 | Skill intake | Filesystem-only `SKILL.md` discovery without script execution | Content discovery, not Skill execution or sandboxing |
-| Local dashboard | Loopback server with live Inventory/Health, bounded compact search, CSRF/same-origin protected project locale and enable/disable/quarantine controls | Local management only; no remote connection probe, user authentication, install/update/delete, approval, or provider execution |
-| CLI and MCP | Fifteen local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; execute supports explicit project drivers plus a test-only static fixture, connection state is configuration-only, and catalog generations refresh atomically after a lightweight change check |
+| Local dashboard | Loopback server with live Inventory/Health, bounded compact search, Routing reasons, Providers, recent Loaded audit entries, CSRF/same-origin protected project locale and enable/disable/quarantine controls | Local management only; no remote connection probe, user authentication, install/update/delete, approval, or provider execution |
+| CLI and MCP | Eighteen local commands and three MCP tools tested with the official SDK's in-memory client | Experimental local interface; execute supports explicit project drivers plus a test-only static fixture, connection state is configuration-only, and catalog generations refresh atomically after a lightweight change check |
 | Local audit | Synchronized, flushed project JSONL events plus bounded redacted CLI/Dashboard tail; malformed partial records are ignored | No tamper-evident chain, rotation/retention policy, external export, or multi-process sequence allocator |
-| Durable idempotency | SQLite atomic key reservation, argument-digest conflict checks, crash-to-uncertain recovery, default no-result persistence, and opt-in replay result storage | No encrypted result store, TTL/cleanup policy, distributed database, or recovery UI |
+| Durable idempotency | SQLite atomic key reservation, argument-digest conflict checks, explicit startup recovery to uncertain state, default no-result persistence, and opt-in replay result storage | No encrypted result store, TTL/cleanup policy, distributed database, or recovery UI |
+| Durable budget | SQLite atomic reserve/reconcile/cancel, cross-process hard limits, restart-safe used/reserved state, and real project `budget-report` | One local runtime scope; durable hierarchical child scopes and distributed accounting remain open |
+| Provider supervision | Local configured execution uses a spawned worker, wall-clock termination, bounded JSON result envelopes, and safe crash/timeout/protocol errors | No OS CPU/memory/filesystem sandbox or long-lived worker pool |
 | Local preferences/lifecycle | Atomic project/global locale and enabled/disabled/quarantined overrides with project precedence | Local catalog activation only; no install, update, rollback, process draining, or durable execution ledger |
 | CLI process adapter | Opt-in absolute-executable, fixed-argv, shell-free provider with explicit environment, deadline, output parsing, redacted failures, project-manifest wiring, and full service admission test | No sandbox, OS resource limits, or durable cancellation |
 | HTTP API adapter | Opt-in fixed-origin JSON provider with HTTPS/loopback policy, redirect denial, encoded path/query arguments, environment-backed headers, bounded reads, project-manifest wiring, and service admission test | No OAuth lifecycle, retries, streaming, circuit breaker, or automatic OpenAPI import |
@@ -29,15 +31,15 @@ deployment hardening guide.
 
 ## Benchmark claim boundary
 
-The reference run uses oracle-supplied expected target revisions. The harness can therefore compare equal eager definitions against a fixed lazy meta-tool payload plus the selected search card and selected definition, and can verify that every fixture provider kind is represented. It cannot establish whether a model would choose the correct capability from natural-language intent.
+The reference run routes ten natural-language fixture tasks through the actual deterministic lexical search, then scores the selected revisions. It also pins five failure results and 40 cold/warm/invalidation cache events. It cannot establish whether a language model would choose the same capability or whether production providers preserve the same quality and latency.
 
-Do not describe the result as tool-selection accuracy, semantic routing accuracy, reasoning-token reduction, provider latency reduction, production cost reduction, or successful provider execution. The portable estimator (`utf8-bytes-div-4-v1`) is a reproducible context-size proxy, not any model provider's billable tokenizer.
+Describe 10/10 only as deterministic lexical selection accuracy on the pinned fixture. Do not describe it as model tool-selection quality, reasoning-token reduction, provider latency reduction, production cost reduction, or successful production-provider execution. The portable estimator (`utf8-bytes-div-4-v1`) is a reproducible context-size proxy, not any model provider's billable tokenizer.
 
 ## Required before a beta or production claim
 
 - Stabilize and version the CLI/MCP contracts beyond the current pre-alpha adapter.
 - Add authenticated tenant/principal handling, durable state, lifecycle/rollback, and a documented deployment profile.
-- Add production-grade provider isolation, secret handling, network/process policy enforcement, and explicit incident/recovery procedures.
+- Add OS resource sandboxing, secret brokering, network/filesystem policy enforcement, and explicit incident/recovery procedures beyond the current spawned-worker boundary.
 - Run adversarial, failure, cache-invalidation, authorization, and multi-tenant validation against actual adapters.
 - Add model-backed, stratified evaluation for semantic selection accuracy and report model/version, reasoning tier, prompts, seeds, latency, tool calls, tokenizer, and pricing assumptions separately.
 - Publish compatible API/versioning, support, privacy/retention, and operational documentation.

@@ -12,7 +12,7 @@
       },
       "spec": {
         "type": "skill",
-        "summary": "Deterministic skill fixture 0; used to measure compact catalog disclosure.",
+        "summary": "Improve PDF accessibility and remediate document structure.",
         "provider": "fixture-skill",
         "operations": [
           {
@@ -772,7 +772,7 @@
       },
       "spec": {
         "type": "skill",
-        "summary": "Deterministic skill fixture 19; used to measure compact catalog disclosure.",
+        "summary": "Follow an incident response runbook during an outage.",
         "provider": "fixture-skill",
         "operations": [
           {
@@ -812,7 +812,7 @@
       },
       "spec": {
         "type": "mcp",
-        "summary": "Deterministic mcp fixture 0; used to measure compact catalog disclosure.",
+        "summary": "Triage GitHub issues in an engineering repository.",
         "provider": "fixture-mcp",
         "operations": [
           {
@@ -1572,7 +1572,7 @@
       },
       "spec": {
         "type": "mcp",
-        "summary": "Deterministic mcp fixture 19; used to measure compact catalog disclosure.",
+        "summary": "Schedule calendar meetings with a project team.",
         "provider": "fixture-mcp",
         "operations": [
           {
@@ -1612,7 +1612,7 @@
       },
       "spec": {
         "type": "cli",
-        "summary": "Deterministic cli fixture 0; used to measure compact catalog disclosure.",
+        "summary": "Compress files into an archive package.",
         "provider": "fixture-cli",
         "operations": [
           {
@@ -2372,7 +2372,7 @@
       },
       "spec": {
         "type": "cli",
-        "summary": "Deterministic cli fixture 19; used to measure compact catalog disclosure.",
+        "summary": "Format source code consistently before review.",
         "provider": "fixture-cli",
         "operations": [
           {
@@ -2412,7 +2412,7 @@
       },
       "spec": {
         "type": "api",
-        "summary": "Deterministic api fixture 0; used to measure compact catalog disclosure.",
+        "summary": "Look up a weather forecast for tomorrow.",
         "provider": "fixture-api",
         "operations": [
           {
@@ -3172,7 +3172,7 @@
       },
       "spec": {
         "type": "api",
-        "summary": "Deterministic api fixture 19; used to measure compact catalog disclosure.",
+        "summary": "Reconcile an invoice with its payment record.",
         "provider": "fixture-api",
         "operations": [
           {
@@ -3212,7 +3212,7 @@
       },
       "spec": {
         "type": "rag",
-        "summary": "Deterministic rag fixture 0; used to measure compact catalog disclosure.",
+        "summary": "Find an employee leave policy in the handbook.",
         "provider": "fixture-rag",
         "operations": [
           {
@@ -3972,7 +3972,7 @@
       },
       "spec": {
         "type": "rag",
-        "summary": "Deterministic rag fixture 19; used to measure compact catalog disclosure.",
+        "summary": "Retrieve research evidence with source citations.",
         "provider": "fixture-rag",
         "operations": [
           {

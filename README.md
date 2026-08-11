@@ -63,7 +63,7 @@ Search and load are not permission grants. Search cards are filtered against the
 
 ## CLI and MCP
 
-The source install exposes fifteen local commands:
+The source install exposes eighteen local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
@@ -72,6 +72,9 @@ capabilityhub inventory --pretty
 capabilityhub search "work with PDF files" --kind skill --limit 5 --pretty
 capabilityhub health --pretty
 capabilityhub connections --pretty
+capabilityhub loaded --limit 20 --pretty
+capabilityhub providers --pretty
+capabilityhub routing "work with PDF files" --kind skill --pretty
 capabilityhub language show --pretty
 capabilityhub lifecycle list --pretty
 capabilityhub audit --limit 50 --pretty
@@ -88,9 +91,9 @@ Project manifests can opt into real, bounded CLI, HTTP API, local RAG, and MCP s
 supported driver is explicitly configured; `execute` uses that provider by default, while
 `--fixture-output` is reserved for deterministic tests.
 
-`load` exercises the real reference, permission, section, and disclosure-budget path. The current `execute` command is deliberately limited to a deterministic, side-effect-free static fixture supplied by the operator; it is a control-core verification command, not a shell, network, MCP, API, or RAG executor. Write-like fixture operations require an idempotency key, and approval-required operations additionally require `--approved`, which asks the trusted local control path to issue an exact-intent approval reference. Production adapters remain pending.
+`load` exercises the real reference, permission, section, and disclosure-budget path. `execute` uses an explicitly configured project Provider by default and runs it through a supervised spawned worker; `--fixture-output` remains a deterministic test path. Write-like operations require an idempotency key, and approval-required operations additionally require `--approved`, which asks the trusted local control path to issue an exact-intent approval reference.
 
-Embedding applications can opt into `CliProcessProvider`, the first real execution adapter. It accepts only operator-configured absolute executables and fixed argv templates, substitutes scalar values only into complete argv tokens, never invokes a shell, starts with an explicit non-inherited environment, enforces the provider deadline, parses bounded JSON/text output, and redacts stderr. It is not auto-enabled by local discovery and is not a process sandbox; production isolation and resource limits remain pending.
+Project manifests can opt into the CLI process, fixed-origin HTTP API, local RAG, and MCP stdio adapters. The process supervisor enforces wall-clock termination and bounded JSON IPC, but it is not an OS CPU/memory/filesystem sandbox; those production hardening gates remain open.
 
 `HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
 
@@ -169,8 +172,12 @@ The benchmark is local, fixture-based, and has no model, network, or paid-servic
 capabilityhub benchmark
 ```
 
-The pinned [reference run](benchmarks/reference-run.json) uses 100 definitions across all five kinds. It compares eager full-definition exposure with a lazy sequence of fixed meta-tools, one expected search card, and one selected definition. It proves structural disclosure/accounting properties under an **oracle-supplied target revision**. It does **not** measure semantic search accuracy, model reasoning quality, real provider latency, hidden reasoning tokens, or production monetary cost. Read [benchmarks/README.md](benchmarks/README.md) and [docs/validation-plan.md](docs/validation-plan.md) before making a performance claim.
+The pinned [reference run](benchmarks/reference-run.json) uses 100 definitions across all five kinds. Ten natural-language tasks are routed by the actual deterministic lexical search; expected revisions are used only for scoring. The current fixture records 10/10 selection, five expected failure paths, and 40 cold/warm/invalidation events with zero stale use. This is deterministic fixture evidence, not model reasoning quality, real provider latency, hidden reasoning tokens, or production monetary cost. Read [benchmarks/README.md](benchmarks/README.md) and [docs/validation-plan.md](docs/validation-plan.md) before making a performance claim.
 
 ## Contributing and security
+
+The live [36-requirement completion matrix](docs/completion-matrix.md) separates implemented paths from
+partial or open production gates. It is the authoritative scope audit; passing the structural benchmark
+alone is not a completion claim.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). The project is MIT licensed; integration notices are tracked in [THIRD_PARTY.md](THIRD_PARTY.md).

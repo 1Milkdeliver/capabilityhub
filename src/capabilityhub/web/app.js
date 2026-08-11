@@ -56,6 +56,17 @@ async function refresh() {
       value: item.state,
     }));
     list("connection-list", connections, "No configured connections.");
+    const providerSource = payload.providers?.entries || payload.providers || [];
+    const providers = providerSource.map((item) => ({
+      name: item.provider || item.name,
+      value: `${item.active ?? 0}/${item.discovered ?? 0} active`,
+    }));
+    list("provider-list", providers, "No Providers discovered.");
+    const loaded = (payload.loaded_capabilities || []).map((item) => ({
+      name: `${item.kind}: ${item.revision}`,
+      value: `${item.provider} / ${item.active ? "active" : "inactive"}`,
+    }));
+    list("loaded-list", loaded, "No successful loads recorded yet.");
     const audit = (payload.audit?.events || []).map((item) => ({
       name: `${item.sequence}: ${item.event_type} / ${item.outcome}`,
       value: item.capability_revision || item.reason_codes?.join(", ") || "global",
@@ -115,7 +126,8 @@ function renderSearch(results) {
     const summary = document.createElement("span");
     const actions = document.createElement("div");
     name.textContent = `${coordinate} (${item.kind})`;
-    summary.textContent = text(item.summary);
+    const reasons = (item.match_reason || []).join(", ") || "active catalog";
+    summary.textContent = `${text(item.summary)} / Routing: ${reasons}`;
     actions.className = "actions";
     actions.append(
       actionButton("Enable", coordinate, "enabled"),

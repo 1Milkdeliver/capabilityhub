@@ -46,8 +46,15 @@ static catalog in `references/locales/`. Never translate stable menu text at run
   Confirm quarantine before applying it. These states only control catalog activation;
   they do not delete or execute Skill files. `update` remains unavailable, and `pause`
   is presented as the reversible `disabled` state rather than a separate hidden state.
-- If Loaded, Providers, or Routing data is not present in the selected runtime response,
-  say it is unavailable. Never infer it from a search card.
+- For `loaded`, use `capabilityhub loaded --limit 20 --pretty`, filter returned entries
+  to kind `skill`, and describe them as recent successful loads from redacted audit.
+- For `providers`, use `capabilityhub providers --pretty`, then show Provider rows whose
+  `kinds` contain `skill`. Keep the real Provider name visible.
+- For `routing <task>`, use `capabilityhub routing <task> --kind skill --limit 5 --pretty`
+  and show only rank, revision, and `match_reason`. This is deterministic lexical
+  explanation, not hidden chain-of-thought.
+- If one of these CLI calls is unavailable because the local runtime is not connected,
+  say it is unavailable. Never infer Loaded or Provider state from a search card.
 - Never delete a Skill. Use pause or quarantine instead.
 - Label unavailable management actions honestly when the runtime is not connected.
 - Never reveal credentials, hidden reasoning, or full unselected Skill content.

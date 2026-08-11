@@ -7,9 +7,16 @@ from benchmarks.harness import (
     FIXTURE_DIR,
     INITIAL_REDUCTION_THRESHOLD_PERCENT,
     TOTAL_REDUCTION_THRESHOLD_PERCENT,
+    VALIDATION_EVENTS_ARTIFACT,
+    VALIDATION_RUN_ARTIFACT,
     assert_release_thresholds,
+    assert_validation_artifacts,
+    build_validation_artifacts,
     load_fixtures,
     run_benchmark,
+    run_cache_scenarios,
+    run_failure_scenarios,
+    run_validation,
 )
 from capabilityhub.models import CapabilityKind
 
@@ -24,6 +31,66 @@ def test_fixture_catalog_has_one_hundred_definitions_across_all_provider_kinds()
     }
     assert len(fixtures.definitions_by_revision) == 100
     assert len(fixtures.tasks) == 10
+    assert len(fixtures.failure_scenarios) == 5
+
+
+def test_deterministic_failure_scenarios_fail_closed_with_expected_codes() -> None:
+    first = run_failure_scenarios()
+    second = run_failure_scenarios()
+
+    assert first == second
+    assert {result.action for result in first} == {
+        "invalid_kind",
+        "no_match",
+        "search_budget",
+        "stale_reference",
+        "tampered_reference",
+    }
+    assert all(result.passed for result in first)
+    assert all(result.actual_code == result.expected_code for result in first)
+
+
+def test_cache_modes_prove_cold_warm_and_revision_invalidation_behavior() -> None:
+    first = run_cache_scenarios()
+    second = run_cache_scenarios()
+
+    assert first == second
+    by_mode = {
+        mode: [item for item in first if item.mode == mode]
+        for mode in {item.mode for item in first}
+    }
+    assert set(by_mode) == {
+        "cold",
+        "relevant-invalidation",
+        "unrelated-invalidation",
+        "warm",
+    }
+    assert all(item.outcome == "miss" and item.materialized_tokens > 0 for item in by_mode["cold"])
+    assert all(item.outcome == "hit" and item.materialized_tokens == 0 for item in by_mode["warm"])
+    assert all(
+        item.outcome == "miss"
+        and item.materialized_tokens > 0
+        and len(item.invalidated_revisions) == 1
+        for item in by_mode["relevant-invalidation"]
+    )
+    assert all(
+        item.outcome == "hit" and item.materialized_tokens == 0
+        for item in by_mode["unrelated-invalidation"]
+    )
+    assert not any(item.stale_use for item in first)
+
+
+def test_validation_artifacts_are_deterministic_and_replayable() -> None:
+    report = run_validation()
+    summary, events = build_validation_artifacts(report)
+
+    assert report.release_ready
+    assert summary["release_gate_passed"] is True
+    assert summary["semantic_selection"] == {"accuracy": 1.0, "correct": 10, "total": 10}
+    assert summary["failures"] == {"passed": 5, "total": 5}
+    assert summary["events"]["count"] == 55
+    assert len(events.splitlines()) == 55
+    assert_validation_artifacts(VALIDATION_RUN_ARTIFACT, VALIDATION_EVENTS_ARTIFACT)
 
 
 def test_eager_and_lazy_use_identical_definitions_and_meet_release_thresholds() -> None:
@@ -42,7 +109,7 @@ def test_eager_and_lazy_use_identical_definitions_and_meet_release_thresholds() 
     assert_release_thresholds(report)
 
 
-def test_run_is_deterministic_and_uses_expected_target_revisions() -> None:
+def test_run_is_deterministic_and_routes_prompts_without_oracle_selection() -> None:
     first = run_benchmark()
     second = run_benchmark()
 
@@ -50,6 +117,8 @@ def test_run_is_deterministic_and_uses_expected_target_revisions() -> None:
     assert all(
         result.selected_revision == result.expected_target_revision for result in first.results
     )
+    assert all(result.query for result in first.results)
+    assert all(result.selection_reason != ("no_match",) for result in first.results)
     assert all(result.selected_load.portable_tokens > 0 for result in first.results)
     assert all(result.search_card.portable_tokens > 0 for result in first.results)
     assert all(

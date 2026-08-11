@@ -2,6 +2,17 @@
 
 This directory defines the repeatable evidence for CapabilityHub's staged-disclosure claim. The suite compares a full eager catalog against the same catalog exposed through CapabilityHub's fixed meta-tools and lazy retrieval. It measures saved context without treating a token estimate as universal model billing.
 
+## Current offline release gate
+
+The checked-in gate uses 100 definitions and ten natural-language tasks across all five kinds. The
+actual `LexicalCapabilitySearch` selects each revision; expected revisions are not passed into search
+and are used only after selection for scoring. It also runs five structured failure scenarios and 40
+deterministic cache events covering cold, warm, relevant invalidation, and unrelated invalidation.
+`artifacts/validation-run.json` and `artifacts/validation-events.jsonl` are byte-replayable evidence.
+
+This proves the pinned deterministic fixture behavior only. It does not substitute for the broader
+model, stochastic, real-provider, latency, adversarial, and scale matrix specified below.
+
 ## Required fixture layout
 
 ```text

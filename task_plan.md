@@ -49,7 +49,7 @@ Status: complete (reference adapters only; production execution remains out of s
 
 ### Phase 5 — MCP server and CLI
 
-Status: complete (pre-alpha local surface; fourteen commands and three MCP tools)
+Status: complete (pre-alpha local surface; eighteen commands and three MCP tools)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
 - Provide local validation, discovery, dashboard, and MCP serving commands.
@@ -109,7 +109,7 @@ Status: complete
 - Bind approval references to exact actor, task, revision, operation, arguments, and expiry.
 - Validate inline JSON Schema contracts at registration and execution boundaries.
 - Prevent duplicate or uncertain replay with scoped idempotency records.
-- Expose `load`, static-fixture `execute`, `budget-report`, and `benchmark` commands.
+- Expose `load`, configured `execute`, persistent `budget-report`, `benchmark`, Loaded, Providers, and Routing commands.
 - Validate the built wheel in an isolated environment and publish an honest capability matrix.
 
 ### Phase 12 — Durable management and real adapters

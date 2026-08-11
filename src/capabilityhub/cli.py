@@ -37,6 +37,19 @@ def build_parser() -> argparse.ArgumentParser:
     )
     _project_argument(connections)
     _pretty_argument(connections)
+    loaded = commands.add_parser("loaded", help="show recent successful capability loads")
+    loaded.add_argument("--limit", type=_loaded_limit, default=20)
+    _project_argument(loaded)
+    _pretty_argument(loaded)
+    providers = commands.add_parser("providers", help="group capabilities by real Provider name")
+    _project_argument(providers)
+    _pretty_argument(providers)
+    routing = commands.add_parser("routing", help="explain deterministic capability selection")
+    routing.add_argument("query")
+    routing.add_argument("--kind", action="append", choices=("skill", "mcp", "cli", "api", "rag"))
+    routing.add_argument("--limit", type=_search_limit, default=8)
+    _project_argument(routing)
+    _pretty_argument(routing)
     language = commands.add_parser("language", help="show or save the static menu language")
     language.add_argument("action", nargs="?", choices=("show", "set"), default="show")
     language.add_argument("locale", nargs="?", choices=("auto", "en", "zh-CN"))
@@ -83,6 +96,7 @@ def build_parser() -> argparse.ArgumentParser:
     budget.add_argument("--portable-tokens", type=_non_negative_int)
     budget.add_argument("--loads", type=_non_negative_int)
     budget.add_argument("--executions", type=_non_negative_int)
+    _project_argument(budget)
     _pretty_argument(budget)
     benchmark = commands.add_parser(
         "benchmark", help="run the deterministic eager-versus-lazy release gate"
@@ -143,6 +157,23 @@ def _main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "connections":
         _print_json(runtime.local_connections(args.project_root), pretty=args.pretty)
+        return 0
+    if args.command == "loaded":
+        _print_json(runtime.local_loaded(args.project_root, limit=args.limit), pretty=args.pretty)
+        return 0
+    if args.command == "providers":
+        _print_json(runtime.local_providers(args.project_root), pretty=args.pretty)
+        return 0
+    if args.command == "routing":
+        _print_json(
+            runtime.local_routing(
+                args.query,
+                kinds=args.kind,
+                limit=args.limit,
+                project_root=args.project_root,
+            ),
+            pretty=args.pretty,
+        )
         return 0
     if args.command == "language":
         if args.action == "set":
@@ -233,7 +264,10 @@ def _main(argv: Sequence[str] | None = None) -> int:
             }.items()
             if value is not None
         }
-        _print_json(runtime.local_budget_report(requested or None), pretty=args.pretty)
+        _print_json(
+            runtime.local_budget_report(requested or None, args.project_root),
+            pretty=args.pretty,
+        )
         return 0
     if args.command == "benchmark":
         _print_json(
@@ -299,6 +333,13 @@ def _audit_limit(value: str) -> int:
     parsed = int(value)
     if not 1 <= parsed <= 500:
         raise argparse.ArgumentTypeError("must be between 1 and 500")
+    return parsed
+
+
+def _loaded_limit(value: str) -> int:
+    parsed = int(value)
+    if not 1 <= parsed <= 100:
+        raise argparse.ArgumentTypeError("must be between 1 and 100")
     return parsed
 
 

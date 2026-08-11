@@ -21,6 +21,7 @@
 - Added the user-requested out-of-context visual dashboard and minimal Codex plugin as a release phase; generated the repository plugin/marketplace scaffold using the Codex plugin creator.
 - Implemented and hardened the transport-neutral `capability.search`, `capability.load`, and `capability.execute` service boundary.
 - Added the 100-capability, five-kind oracle-routed disclosure benchmark; after re-baselining against the complete current MCP argument surface, the pinned fixture shows 99.80% lower initial portable-token exposure and 98.69% lower mean staged-sequence exposure, without claiming semantic-routing accuracy.
+- Replaced oracle selection with ten natural-language tasks routed by the real deterministic lexical search; pinned five failure scenarios and 40 cold/warm/invalidation events in replayable JSON artifacts.
 - Added a loopback-only read-only dashboard and validated the generated Codex plugin package with the official plugin validator.
 - Implemented the local CLI and an MCP Python SDK v2 adapter using only official transports; SDK in-memory tests cover the exact three-tool list, end-to-end calls, empty safe defaults, and error redaction.
 - Completed the integrated release-candidate gate: 78 tests passed, one platform symlink test skipped, Ruff passed, strict mypy passed, plugin validation passed, and a clean wheel install successfully ran manifest validation.
@@ -46,3 +47,4 @@
 - Added atomic SQLite idempotency admission across process restarts, digest-bound conflict detection, explicit startup recovery to uncertain state, default no-output persistence, optional reviewed result replay, and local CLI duplicate blocking without a second provider call.
 - Wired four opt-in project-manifest adapters into normal local discovery, load, and execute; invalid drivers remain non-executable and appear in Inventory diagnostics.
 - Preserved the MCP SDK as a lazy optional dependency and added a clean base-wheel CI smoke gate for Health, Budget, and Benchmark commands.
+- Added restart-safe SQLite project budgets, spawned-worker supervision for configured execution, and live Loaded/Providers/Routing CLI and Dashboard views.

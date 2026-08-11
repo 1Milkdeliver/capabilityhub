@@ -1,0 +1,32 @@
+{
+  "benchmark": "deterministic-non-oracle-validation",
+  "cache": {
+    "modes": {
+      "cold": 10,
+      "relevant-invalidation": 10,
+      "unrelated-invalidation": 10,
+      "warm": 10
+    },
+    "stale_uses": 0
+  },
+  "events": {
+    "count": 55,
+    "digest": "sha256:3ddc2bac8de5369b6d5050a6a16f046b43d6b03bded989e4e53c8049e7c2cd54"
+  },
+  "failures": {
+    "passed": 5,
+    "total": 5
+  },
+  "fixtures": {
+    "catalog_digest": "sha256:ec68568c9583c07830b701f18c210f2831d00b15f57822524fcdb7f2d77ce52a",
+    "failure_scenarios_digest": "sha256:30698b80873e31f0fb7d71bd753c95a52ea6cb7df601e5314da9703a30e3046d",
+    "tasks_digest": "sha256:71a162750b607dccb9e83484823eaeab577c6ffb6383b7ce08e5172c2602409e"
+  },
+  "release_gate_passed": true,
+  "schema_version": 1,
+  "semantic_selection": {
+    "accuracy": 1.0,
+    "correct": 10,
+    "total": 10
+  }
+}

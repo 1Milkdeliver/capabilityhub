@@ -31,6 +31,7 @@ from capabilityhub.providers.base import CapabilityProvider, ProviderContext
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.search import LexicalCapabilitySearch, SearchResponse
+from capabilityhub.supervision import ProviderSupervisor
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +97,7 @@ class CapabilityHubService:
         load_ref_ttl_seconds: int = 300,
         execution_ref_ttl_seconds: int = 300,
         idempotency_store: IdempotencyStore | None = None,
+        provider_supervisor: ProviderSupervisor | None = None,
         _shared_state: _SharedServiceState | None = None,
     ) -> None:
         if execution_ref_ttl_seconds <= 0:
@@ -117,6 +119,7 @@ class CapabilityHubService:
         self._load_ref_ttl = load_ref_ttl_seconds
         self._execution_ttl = execution_ref_ttl_seconds
         self._idempotency_store = idempotency_store
+        self._provider_supervisor = provider_supervisor
         self._shared = _shared_state or _SharedServiceState({}, {}, 0, RLock())
 
     def fork_catalog(
@@ -136,6 +139,7 @@ class CapabilityHubService:
             load_ref_ttl_seconds=self._load_ref_ttl,
             execution_ref_ttl_seconds=self._execution_ttl,
             idempotency_store=self._idempotency_store,
+            provider_supervisor=self._provider_supervisor,
             _shared_state=self._shared,
         )
 
@@ -408,17 +412,19 @@ class CapabilityHubService:
                     metadata={"operation": replay.operation, "provider": replay.provider},
                 )
                 return replay
-            result = provider.execute(
-                manifest.identity,
-                request,
-                ProviderContext(
-                    context.tenant_id,
-                    context.principal_id,
-                    context.session_id,
-                    context.deadline_ms,
-                    limit,
-                ),
+            provider_context = ProviderContext(
+                context.tenant_id,
+                context.principal_id,
+                context.session_id,
+                context.deadline_ms,
+                limit,
             )
+            if self._provider_supervisor is None:
+                result = provider.execute(manifest.identity, request, provider_context)
+            else:
+                result = self._provider_supervisor.execute(
+                    provider, manifest.identity, request, provider_context
+                )
             result = self._normalize_result(result, manifest, request, provider.name)
             _validate_provider_output(operation, result.output)
             if result.portable_tokens > limit:

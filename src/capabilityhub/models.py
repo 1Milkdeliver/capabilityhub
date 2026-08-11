@@ -75,6 +75,21 @@ class OperationSpec:
         object.__setattr__(self, "input_schema", MappingProxyType(dict(self.input_schema)))
         object.__setattr__(self, "output_schema", MappingProxyType(dict(self.output_schema)))
 
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        """Rebuild read-only schema mappings across a spawned worker boundary."""
+
+        return (
+            type(self),
+            (
+                self.name,
+                self.operation_type,
+                dict(self.input_schema),
+                dict(self.output_schema),
+                self.side_effect,
+                self.requires_approval,
+            ),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class DependencySpec:
@@ -107,6 +122,28 @@ class CapabilityManifest:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        """Rebuild immutable metadata across a spawned worker boundary."""
+
+        return (
+            type(self),
+            (
+                self.identity,
+                self.kind,
+                self.summary,
+                self.provider,
+                self.operations,
+                self.sections,
+                self.permissions,
+                self.dependencies,
+                self.conflicts,
+                self.tags,
+                self.trust_tier,
+                self.source,
+                dict(self.metadata),
+            ),
+        )
 
     def section(self, name: str) -> SectionDescriptor | None:
         return next((section for section in self.sections if section.name == name), None)
@@ -150,6 +187,21 @@ class ExecutionRequest:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "arguments", MappingProxyType(dict(self.arguments)))
+
+    def __reduce__(self) -> tuple[object, tuple[object, ...]]:
+        """Rebuild immutable arguments across a spawned worker boundary."""
+
+        return (
+            type(self),
+            (
+                self.execution_ref,
+                self.operation,
+                dict(self.arguments),
+                self.task_id,
+                self.approval_ref,
+                self.idempotency_key,
+            ),
+        )
 
 
 @dataclass(frozen=True, slots=True)

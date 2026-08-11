@@ -71,6 +71,8 @@ def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
     assert "search-form" in assets
     assert "/api/lifecycle" in assets
     assert "/api/language" in assets
+    assert "provider-list" in assets
+    assert "loaded-list" in assets
     assert "\u0431" not in assets
     assert "\ufffd" not in assets
 

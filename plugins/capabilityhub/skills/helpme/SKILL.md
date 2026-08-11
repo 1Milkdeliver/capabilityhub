@@ -111,9 +111,11 @@ in the current interaction only. Report a failed CLI write instead of claiming s
 - For `/helpme consumption budget`, use `capabilityhub budget-report --pretty`. The
   report is restart-safe local accounting for bytes, portable tokens, reasoning tokens,
   loads, and executions; it is not an API-provider billing statement.
-- For manifest portability, use `export-manifest` for canonical JSON,
-  `migrate-manifest` for a preview-only legacy migration report, and `compatibility` for
-  the v1alpha1 feature handshake. Unknown required security semantics must fail closed.
+- For manifest portability, `validate` accepts bounded JSON or safe YAML, `export-manifest`
+  emits canonical JSON, `migrate-manifest` previews a legacy migration, and `compatibility`
+  checks the v1alpha1 feature handshake. Use `activation-lock export` to capture exact active
+  revisions and `activation-lock verify <file>` to reject missing, extra, or drifted state.
+  Unknown required security semantics must fail closed.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

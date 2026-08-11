@@ -58,3 +58,4 @@
 - Started Phase 16 in parallel: scoped secret handles, conservative provider resilience, safe YAML manifests, and exact activation locks.
 - Phase 15 GitHub CI passed on Linux/Python 3.11-3.13 and the new Windows/Python 3.12 full smoke path.
 - Completed Phase 16 integration: safe YAML discovery, exact activation-lock CLI, scoped secret-broker core, and explicitly certainty-gated service resilience; 366 tests passed with two expected platform skips.
+- Started and completed the standalone Phase 17 cores for privacy-preserving conflict projections, tenant-scoped generic state, and dependency freshness/degraded decisions.

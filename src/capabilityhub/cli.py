@@ -206,7 +206,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     benchmark.add_argument("--no-enforce", action="store_true")
     _pretty_argument(benchmark)
-    dashboard = commands.add_parser("dashboard", help="start a local read-only dashboard")
+    dashboard = commands.add_parser("dashboard", help="start the local management dashboard")
     dashboard.add_argument("--port", type=int, default=0)
     _project_argument(dashboard)
     mcp = commands.add_parser("mcp-serve", help="start the optional MCP server")

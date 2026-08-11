@@ -20,7 +20,7 @@ run does not upgrade a row by itself.
 | R11 | Catalog/RAG index separation | Partial | Catalog stays metadata-only and local RAG scans bounded text; persistent ACL index remains open |
 | R12 | Bounded RAG results and citations | Implemented | Local adapter enforces top-k, file/byte/deadline bounds and relative line citations |
 | R13 | Dependency resolution and lock | Implemented | Constraints/cycles are validated and a deterministic exact-revision activation lock with transitive dependency closure detects missing, extra, or drifted active state |
-| R14 | Conflict detection and policy | Partial | Declared typed conflicts are enforced; automatic port/path/route projection policies remain open |
+| R14 | Conflict detection and policy | Partial | Declared conflicts plus deterministic hashed port/path/route/name/permission projection policies support deny/namespace/isolate/select-one; automatic registry admission wiring remains open |
 | R15 | Lifecycle state machine | Partial | Persistent enabled/disabled/quarantined overrides exist; install/update/retire/drain remains open |
 | R16 | Staged update and rollback | Partial | SQLite stage/health/activate/rollback CAS pointers and in-flight pins drive live catalog generations; artifact acquisition, mandatory trust-verifier wiring, and worker draining remain open |
 | R17 | Least-privilege permissions | Partial | The optional service authorizer now shares search/execute decisions and attenuates dependency permissions plus path/host/method/command/profile/secret-alias arguments; automatic grant derivation for every configured provider remains open |
@@ -33,11 +33,11 @@ run does not upgrade a row by itself.
 | R24 | Anti-loop escalation | Implemented | SQLite task orchestration persists only attempt/evidence digests, caps escalation and returns an observable stop decision across restarts and concurrent callers |
 | R25 | Hierarchical budgets | Partial | Local runtime uses atomic restart-safe SQLite accounting; durable hierarchical child scopes remain open |
 | R26 | Context residency and eviction | Partial | Local load records metadata-only residency, atomically persists access/pins and exposes real evictions; model-client context removal cannot be enforced by the current transport |
-| R27 | Tenant/session isolation | Partial | References bind scopes; authenticated principals and cross-tenant storage tests remain open |
+| R27 | Tenant/session isolation | Partial | References bind scopes and a generic SQLite KV/cache/event store HMAC-partitions tenant/principal/session/task with cross-tenant concurrency tests; business stores and authenticated principals remain open |
 | R28 | Multi-client consistency | Partial | A shared request/error envelope, feature handshake and stream/cancel conformance fixture cover library/CLI/MCP/HTTP adapter boundaries; the HTTP server and real transport-wide suite remain open |
 | R29 | Concurrency and idempotency | Partial | SQLite conservative idempotency exists; lifecycle drain/cancel and distributed storage remain open |
 | R30 | Observable, private audit | Partial | Redacted views plus optional HMAC chain, checkpoint, bounded retention and verified export exist; external metrics/traces and OS-backed key management remain open |
-| R31 | Degraded operation | Partial | Atomic last-good catalog fallback exists; dependency freshness matrix remains open |
+| R31 | Degraded operation | Partial | Atomic last-good catalog fallback plus a TTL-aware registry/index/policy/provider matrix fail closed unless an explicit bounded safe fallback applies; live dependency observation wiring remains open |
 | R32 | Scale evidence | Partial | 100-definition deterministic gate exists; 10k/1m/concurrency/p95 evidence remains open |
 | R33 | Compatibility and migration | Partial | Feature handshake fails closed on unknown required semantics and v1alpha0 aliases migrate idempotently; published deprecation windows and old-client/new-server transport conformance remain open |
 | R34 | Self-hosted operation | Partial | Clean local wheel, CLI, Dashboard and adapters run; production profile and isolated workers remain open |

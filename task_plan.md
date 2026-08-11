@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 16 — secrets, resilience, and portable activation.
+Phase 17 — conflict projection, tenancy, and degraded operation.
 
 ## Next Step
 
-Integrate scoped secret handles, conservative provider resilience, safe YAML, and exact activation locks without widening the always-loaded context.
+Integrate automatic resource projections, tenant-scoped state, and dependency freshness decisions without widening the always-loaded context.
 
 ## Phases
 
@@ -156,6 +156,15 @@ Status: complete for the local pre-alpha scope
 - Add typed, certainty-aware retry and bounded circuit-breaker primitives.
 - Accept resource-bounded safe YAML through the same inert manifest model.
 - Export and verify deterministic exact-revision activation locks.
+
+### Phase 17 — Conflict projection, tenancy, and degraded operation
+
+Status: complete for the standalone local control-plane scope
+
+- Derive privacy-preserving resource claims and deterministic conflict resolutions.
+- Partition generic SQLite KV/cache/events by opaque tenant/principal/session/task scope.
+- Evaluate operation-specific dependency freshness and explicit safe fallbacks.
+- Keep automatic registry/business-store/live-observer wiring visible as remaining work.
 
 | Decision | Reason |
 |---|---|

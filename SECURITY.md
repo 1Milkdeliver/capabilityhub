@@ -32,6 +32,9 @@ Security invariants below describe the intended and tested core boundary; they a
 - YAML manifests are byte-, node-, and depth-bounded and reject aliases, custom tags, multiple documents, non-string keys, and non-JSON values before entering the common manifest parser.
 - Secret broker handles bind caller and operation scope, expiry, use count, and policy revision. Plaintext is delivered only to a pre-registered in-process callback and is never returned through the broker API or persisted.
 - Automatic retries require a typed retryable error, an explicitly not-applied failure, and a read-only or idempotent reversible operation. Unknown, uncertain, and irreversible failures are never retried.
+- Automatic projection analysis hashes HTTP routes and filesystem roots before emitting decisions. It does not return raw endpoints or absolute paths in collisions or errors.
+- Generic scoped state derives HMAC partitions from tenant, principal, session, and task and stores only scope/key digests. Expiry cleanup is always limited to one explicit scope and a bounded row count.
+- Dependency health treats missing, future-dated, expired, and unknown policy/provider evidence as unsafe. Degraded operation requires a named, operation-specific, age-bounded fallback.
 - Secrets are references resolved outside model-visible payloads.
 - Provider output is untrusted and budget bounded.
 - External gateways, sandboxes, and credential stores remain separate integrations.

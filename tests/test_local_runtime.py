@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -99,3 +100,37 @@ def test_refresh_window_coalesces_concurrent_fingerprint_checks(
 
     assert calls == 1
     assert {item.inventory["generation"] for item in snapshots} == {1}
+
+
+def test_inventory_classifies_inactive_dependencies(tmp_path) -> None:
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    document = {
+        "apiVersion": "capabilityhub.io/v1alpha1",
+        "kind": "Capability",
+        "metadata": {
+            "namespace": "project",
+            "name": "dependent",
+            "version": "1",
+            "digest": "sha256:" + "a" * 64,
+        },
+        "spec": {
+            "type": "api",
+            "summary": "Needs a missing dependency",
+            "provider": "fixture",
+            "operations": [{"name": "read"}],
+            "dependencies": [{"coordinate": "project/missing"}],
+        },
+    }
+    (root / "dependent.json").write_text(json.dumps(document), encoding="utf-8")
+
+    inventory = LocalCatalogMonitor(
+        home=tmp_path / "home",
+        project=tmp_path,
+        refresh_interval_seconds=0,
+    ).snapshot().inventory
+
+    excluded = inventory["excluded_by_reason"]
+    assert excluded["dependency_inactive"] == 1
+    assert excluded["activation_conflict"] == 0
+    assert excluded["activation_failed"] == 0

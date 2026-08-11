@@ -94,7 +94,9 @@ def local_search(
     }
 
 
-def local_health(project_root: str | Path | None = None) -> dict[str, JsonValue]:
+def local_health(
+    project_root: str | Path | None = None, *, home: str | Path | None = None
+) -> dict[str, JsonValue]:
     """Check runtime wiring without scanning or loading the capability catalog."""
 
     project = _project(project_root)
@@ -107,7 +109,8 @@ def local_health(project_root: str | Path | None = None) -> dict[str, JsonValue]
     checks.append(
         {"check": "mcp_sdk", "status": "available" if util.find_spec("mcp") else "missing"}
     )
-    config = Path.home() / ".codex" / "config.toml"
+    home_dir = Path(home).resolve() if home is not None else Path.home()
+    config = home_dir / ".codex" / "config.toml"
     config_status = "missing"
     if config.is_file():
         try:
@@ -122,7 +125,11 @@ def local_health(project_root: str | Path | None = None) -> dict[str, JsonValue]
         version = metadata.version("capabilityhub")
     except metadata.PackageNotFoundError:
         version = "source"
-    overall = "ok" if project_ok and assets_ok else "degraded"
+    overall = (
+        "ok"
+        if project_ok and assets_ok and config_status != "invalid"
+        else "degraded"
+    )
     return {
         "catalog_loaded": False,
         "checks": checks,

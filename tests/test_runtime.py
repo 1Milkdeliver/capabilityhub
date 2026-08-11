@@ -114,3 +114,18 @@ def test_local_monitor_rejects_a_different_explicit_project(tmp_path) -> None:
 
     with pytest.raises(ValueError, match="does not match"):
         local_inventory(second, monitor=monitor)
+
+
+def test_health_marks_invalid_codex_config_degraded_without_loading_catalog(
+    tmp_path,
+) -> None:
+    config = tmp_path / ".codex" / "config.toml"
+    config.parent.mkdir()
+    config.write_text("invalid = [", encoding="utf-8")
+
+    health = local_health(tmp_path, home=tmp_path)
+
+    checks = {item["check"]: item["status"] for item in health["checks"]}
+    assert checks["codex_config"] == "invalid"
+    assert health["status"] == "degraded"
+    assert health["catalog_loaded"] is False

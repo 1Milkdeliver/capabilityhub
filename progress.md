@@ -31,3 +31,4 @@
 - Isolated returned Inventory JSON, froze published registry generations, rejected mixed project scopes and non-loopback Dashboard bindings, and made Dashboard lifecycle calls thread-safe.
 - Coalesced burst fingerprint checks into a 250 ms window; repeated in-process snapshot checks fell from about 81 ms to effectively constant-time while preserving bounded refresh visibility.
 - Added configuration-only `connections` CLI and Dashboard status so MCP/API/RAG discovery is never mislabeled as proven network connectivity.
+- Marked invalid Codex configuration as degraded Health and separated dependency, conflict, and unknown activation exclusions in safe Inventory diagnostics.

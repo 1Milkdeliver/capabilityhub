@@ -98,15 +98,18 @@ class LocalCatalogMonitor:
             if manifest.identity.revision in registry.revisions
             and manifest.identity.coordinate not in catalog.inactive_coordinates
         ]
+        activation_errors: dict[str, CapabilityHubError] = {}
         while pending:
             remaining = []
             progress = False
             for manifest in pending:
                 try:
                     registry.activate(manifest.identity.coordinate, manifest.identity.revision)
-                except CapabilityHubError:
+                except CapabilityHubError as error:
+                    activation_errors[manifest.identity.revision] = error
                     remaining.append(manifest)
                 else:
+                    activation_errors.pop(manifest.identity.revision, None)
                     progress = True
             if not progress:
                 break
@@ -125,9 +128,20 @@ class LocalCatalogMonitor:
         registry.freeze()
         self._generation += 1
         conflict_count = catalog.conflict_count + registration_conflicts
+        dependency_inactive = sum(
+            error.category.value == "dependency"
+            for error in activation_errors.values()
+        )
+        activation_conflict = sum(
+            error.category.value == "conflict"
+            for error in activation_errors.values()
+        )
+        activation_failed = len(activation_errors) - dependency_inactive - activation_conflict
         excluded_by_reason: dict[str, JsonValue] = {
+            "activation_conflict": activation_conflict,
+            "activation_failed": activation_failed,
             "configured_disabled": len(catalog.inactive_coordinates),
-            "dependency_inactive": len(pending),
+            "dependency_inactive": dependency_inactive,
             "duplicate_identical": catalog.duplicate_count,
             "invalid_manifest": catalog.invalid_count,
             "path_escape": catalog.skipped_count,

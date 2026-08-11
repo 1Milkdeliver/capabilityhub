@@ -24,6 +24,7 @@ Security invariants below describe the intended and tested core boundary; they a
 - Approval-required execution accepts only a short-lived exact-intent reference bound to the actor, task, revision, operation, and normalized arguments.
 - Inline input and output schemas are validated before and after provider invocation.
 - Write-like operations require an idempotency key; uncertain provider outcomes are not automatically replayed.
+- The local durable idempotency store records argument digests and outcome state, not raw arguments. Result persistence is disabled by default; completed duplicates are denied instead of re-executed.
 - Secrets are references resolved outside model-visible payloads.
 - Provider output is untrusted and budget bounded.
 - External gateways, sandboxes, and credential stores remain separate integrations.

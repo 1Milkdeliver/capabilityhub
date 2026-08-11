@@ -6,6 +6,7 @@ from urllib.request import Request, urlopen
 
 import pytest
 
+from capabilityhub.errors import CapabilityHubError
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.runtime import (
     discover_skills,
@@ -264,6 +265,26 @@ def test_local_load_and_static_execute_use_service_policy_and_budget(tmp_path) -
     assert loaded["execution_ref"] is None
     assert executed["output"] == {"name": "demo"}
     assert executed["budget"]["used"]["executions"] == 1
+
+    local_execute_static(
+        revision,
+        "read",
+        {"id": 8},
+        {"name": "private"},
+        idempotency_key="durable-key",
+        monitor=monitor,
+    )
+    with pytest.raises(CapabilityHubError) as replay:
+        local_execute_static(
+            revision,
+            "read",
+            {"id": 8},
+            {"name": "private"},
+            idempotency_key="durable-key",
+            monitor=monitor,
+        )
+    assert replay.value.code == "idempotency_result_unavailable"
+    assert b"private" not in (project / ".capabilityhub" / "state.sqlite3").read_bytes()
 
 
 def test_budget_report_and_benchmark_are_machine_readable() -> None:

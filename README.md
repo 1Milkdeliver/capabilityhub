@@ -97,6 +97,8 @@ Menu language and activation overrides now persist without a model call. Use `ca
 
 Local service operations append compact events to `.capabilityhub/audit.jsonl` with a synchronized, flushed write. `capabilityhub audit` returns a bounded redacted tail: task IDs are hashed, arguments and credentials are omitted, and incomplete/corrupt tail records are ignored. The Dashboard shows the latest ten safe project events without placing them in chat context.
 
+`SqliteIdempotencyStore` adds atomic cross-process execution-key admission. On restart, abandoned `in_progress` records become `uncertain`, so unknown side effects are never retried automatically. The local fixture execute path enables this store by default. Provider results are **not** persisted by default: a completed duplicate is blocked with `idempotency_result_unavailable`; embedders may explicitly opt into result persistence only after reviewing output sensitivity and storage controls.
+
 `mcp-serve` exposes exactly `capability.search`, `capability.load`, and
 `capability.execute` through the official MCP Python SDK. Its zero-configuration CLI
 mode builds a read-only snapshot from approved Codex/Agents Skill roots,

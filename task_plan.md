@@ -116,7 +116,7 @@ Status: complete
 
 Status: in_progress
 
-- Add persistent language and activation lifecycle state. (Locale, enabled/disabled/quarantined overrides, and redacted project audit persistence complete; policy, approval, budget, and idempotency persistence pending.)
+- Add persistent language and activation lifecycle state. (Locale, enabled/disabled/quarantined overrides, redacted project audit, and conservative SQLite idempotency persistence complete; policy, approval, and budget persistence pending.)
 - Connect menu and Dashboard actions only where a real backend exists.
 - Add allowlisted process-level MCP, CLI, HTTP/API, and RAG adapters without copying upstream implementations.
 - Add semantic, failure, cold/warm cache, browser, plugin, and production-adapter validation evidence.

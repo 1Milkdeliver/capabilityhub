@@ -13,6 +13,7 @@ from jsonschema.exceptions import SchemaError, ValidationError
 from capabilityhub.audit import AuditEvent, AuditSink
 from capabilityhub.budget import BudgetLedger, BudgetReservation
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.idempotency import IdempotencyRecord, IdempotencySlot, IdempotencyStore
 from capabilityhub.metering import canonical_json, measure_text
 from capabilityhub.models import (
     CapabilityKind,
@@ -94,6 +95,7 @@ class CapabilityHubService:
         policy: ReferencePolicy | None = None,
         load_ref_ttl_seconds: int = 300,
         execution_ref_ttl_seconds: int = 300,
+        idempotency_store: IdempotencyStore | None = None,
         _shared_state: _SharedServiceState | None = None,
     ) -> None:
         if execution_ref_ttl_seconds <= 0:
@@ -114,6 +116,7 @@ class CapabilityHubService:
         )
         self._load_ref_ttl = load_ref_ttl_seconds
         self._execution_ttl = execution_ref_ttl_seconds
+        self._idempotency_store = idempotency_store
         self._shared = _shared_state or _SharedServiceState({}, {}, 0, RLock())
 
     def fork_catalog(
@@ -132,6 +135,7 @@ class CapabilityHubService:
             policy=self._policy,
             load_ref_ttl_seconds=self._load_ref_ttl,
             execution_ref_ttl_seconds=self._execution_ttl,
+            idempotency_store=self._idempotency_store,
             _shared_state=self._shared,
         )
 
@@ -504,7 +508,7 @@ class CapabilityHubService:
         request: ExecutionRequest,
         context: ServiceContext,
         revision: str,
-    ) -> tuple[ExecutionResult | None, tuple[str, str, str, str, str] | None]:
+    ) -> tuple[ExecutionResult | None, IdempotencySlot | None]:
         key = request.idempotency_key
         if key is None:
             return None, None
@@ -522,11 +526,20 @@ class CapabilityHubService:
             key,
         )
         arguments_digest = _json_digest(dict(request.arguments))
-        with self._shared.lock:
-            existing = self._shared.idempotency.get(slot)
+        existing: _IdempotencyRecord | IdempotencyRecord | None
+        if self._idempotency_store is not None:
+            existing = self._idempotency_store.reserve(slot, arguments_digest)
             if existing is None:
-                self._shared.idempotency[slot] = _IdempotencyRecord(arguments_digest, "in_progress")
                 return None, slot
+        else:
+            with self._shared.lock:
+                existing = self._shared.idempotency.get(slot)
+                if existing is None:
+                    self._shared.idempotency[slot] = _IdempotencyRecord(
+                        arguments_digest, "in_progress"
+                    )
+                    return None, slot
+        with self._shared.lock:
             if existing.arguments_digest != arguments_digest:
                 raise CapabilityHubError(
                     code="idempotency_conflict",
@@ -535,11 +548,12 @@ class CapabilityHubService:
                 )
             if existing.status == "complete" and existing.result is not None:
                 return existing.result, slot
-            code = (
-                "idempotency_in_progress"
-                if existing.status == "in_progress"
-                else "idempotency_outcome_unknown"
-            )
+            if existing.status == "in_progress":
+                code = "idempotency_in_progress"
+            elif existing.status == "complete":
+                code = "idempotency_result_unavailable"
+            else:
+                code = "idempotency_outcome_unknown"
             raise CapabilityHubError(
                 code=code,
                 category=ErrorCategory.CONFLICT,
@@ -549,10 +563,13 @@ class CapabilityHubService:
 
     def _complete_idempotency(
         self,
-        slot: tuple[str, str, str, str, str] | None,
+        slot: IdempotencySlot | None,
         result: ExecutionResult,
     ) -> None:
         if slot is None:
+            return
+        if self._idempotency_store is not None:
+            self._idempotency_store.complete(slot, result)
             return
         with self._shared.lock:
             record = self._shared.idempotency.get(slot)
@@ -560,8 +577,11 @@ class CapabilityHubService:
                 record.status = "complete"
                 record.result = result
 
-    def _mark_idempotency_uncertain(self, slot: tuple[str, str, str, str, str] | None) -> None:
+    def _mark_idempotency_uncertain(self, slot: IdempotencySlot | None) -> None:
         if slot is None:
+            return
+        if self._idempotency_store is not None:
+            self._idempotency_store.uncertain(slot)
             return
         with self._shared.lock:
             record = self._shared.idempotency.get(slot)

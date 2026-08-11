@@ -15,6 +15,7 @@ from typing import cast
 from capabilityhub.audit import JsonlAuditSink, read_jsonl_audit
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.idempotency import SqliteIdempotencyStore
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.manifest import load_manifest
 from capabilityhub.models import (
@@ -451,6 +452,7 @@ def local_execute_static(
         providers=(provider,),
         references=signer,
         audit=audit,
+        idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),
     )
     context = _local_context(
         granted_permissions,
@@ -648,6 +650,10 @@ def _budget_json(snapshot: BudgetSnapshot) -> dict[str, JsonValue]:
 
 def _audit_path(project: Path) -> Path:
     return project / ".capabilityhub" / "audit.jsonl"
+
+
+def _state_path(project: Path) -> Path:
+    return project / ".capabilityhub" / "state.sqlite3"
 
 
 def _jsonable(value: object) -> JsonValue:

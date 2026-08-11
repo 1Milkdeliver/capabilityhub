@@ -64,4 +64,13 @@ enabled = true
         assert "hidden" not in manifest.summary
     assert counts[CapabilityKind.SKILL] == 2
     assert counts[CapabilityKind.MCP] == 1
+    assert counts[CapabilityKind.CLI] == 1
     assert counts[CapabilityKind.API] == 1
+    cli = next(item for item in catalog.manifests if item.kind is CapabilityKind.CLI)
+    assert cli.identity.coordinate == "capabilityhub/cli"
+    assert {operation.name for operation in cli.operations} == {
+        "validate",
+        "discover-skills",
+        "dashboard",
+        "mcp-serve",
+    }

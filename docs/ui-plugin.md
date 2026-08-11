@@ -17,7 +17,8 @@ codex mcp add capabilityhub-local -- /absolute/path/to/python -m capabilityhub.c
 
 Open a new Codex task after registration. The local server builds a read-only startup
 snapshot from approved Skill roots, enabled plugin Skill roots, configured MCP names,
-and project `.capabilityhub/manifests`; it never executes discovered code or reports
+the installed CapabilityHub CLI, and project `.capabilityhub/manifests`; it never
+executes discovered code or reports
 credential/connection values. A missing runtime therefore cannot break every Codex
 task, while connected tasks can query actual inventory totals. Same-task filesystem
 changes require restarting the task/runtime in this pre-alpha version.

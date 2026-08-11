@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import re
 import tomllib
 from dataclasses import dataclass
@@ -54,6 +55,7 @@ def discover_local_catalog(
             manifests.extend(discovered)
 
     manifests.extend(_configured_mcp_manifests(home_dir))
+    manifests.append(_capabilityhub_cli_manifest())
     manifests.extend(_project_manifests(project_dir))
     return LocalCatalog(tuple(manifests), tuple(providers))
 
@@ -142,6 +144,35 @@ def _configured_mcp_manifests(home: Path) -> tuple[CapabilityManifest, ...]:
             )
         )
     return tuple(manifests)
+
+
+def _capabilityhub_cli_manifest() -> CapabilityManifest:
+    """Describe the CLI shipped with the running CapabilityHub distribution."""
+
+    try:
+        version = importlib.metadata.version("capabilityhub")
+    except importlib.metadata.PackageNotFoundError:
+        version = "source"
+    digest = hashlib.sha256(f"capabilityhub-cli\0{version}".encode()).hexdigest()
+    return CapabilityManifest(
+        identity=CapabilityIdentity(
+            "capabilityhub",
+            "cli",
+            version,
+            f"sha256:{digest}",
+        ),
+        kind=CapabilityKind.CLI,
+        summary="Installed CapabilityHub local command-line interface: capabilityhub",
+        provider="capabilityhub-runtime",
+        operations=(
+            OperationSpec("validate", OperationType.EXPAND),
+            OperationSpec("discover-skills", OperationType.EXPAND),
+            OperationSpec("dashboard", OperationType.EXPAND),
+            OperationSpec("mcp-serve", OperationType.EXPAND),
+        ),
+        source="python://capabilityhub.cli",
+        trust_tier="built-in",
+    )
 
 
 def _codex_config(home: Path) -> dict[str, object]:

@@ -76,7 +76,8 @@ capabilityhub mcp-serve
 `capability.execute` through the official MCP Python SDK. Its zero-configuration CLI
 mode builds a read-only startup snapshot from approved Codex/Agents Skill roots,
 enabled plugin Skill roots, configured MCP server names, and project-local
-`.capabilityhub/manifests` files. Discovery never executes capability code or exposes
+`.capabilityhub/manifests` files. It also reports the CapabilityHub CLI shipped with the
+running package. Discovery never executes capability code or exposes
 MCP commands, URLs, or credentials. The default service has no execution providers,
 uses temporary references, and enforces bounded per-task budgets. Embedders can
 construct a configured service and call `create_mcp_server(...)`; production provider

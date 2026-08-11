@@ -133,10 +133,10 @@ def test_zero_configuration_cli_server_discovers_local_skills_safely(tmp_path) -
             )
             assert not result.is_error
             data = cast(dict[str, object], result.structured_content)
-            assert data["total_matches"] == 1
+            assert data["total_matches"] == 2
             assert data["kind_counts"] == {
                 "api": 0,
-                "cli": 0,
+                "cli": 1,
                 "mcp": 0,
                 "rag": 0,
                 "skill": 1,

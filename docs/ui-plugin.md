@@ -13,7 +13,8 @@ configure `capabilityhub mcp-serve` explicitly. The plugin is therefore useful e
 when the MCP runtime is disabled, and a missing runtime cannot break every Codex task.
 
 The plugin exposes a skill named `helpme`, so the Codex app can present and trigger it
-as `/helpme`. It does not override the built-in `/help` command. The skill returns a
-bounded help menu and leaves detailed state in the dashboard, outside the conversation
-context. A newly installed or updated plugin may require opening a new Codex task before
-its slash-menu entry appears.
+as `/helpme`. It does not override the built-in `/help` command. Bare `/helpme` returns
+only a bounded topic menu; `/helpme status`, `dashboard`, `budget`, `providers`, `mcp`,
+`benchmark`, or `security` loads only that topic. Detailed state remains in the
+dashboard, outside the conversation context. A newly installed or updated plugin may
+require opening a new Codex task before its slash-menu entry appears.

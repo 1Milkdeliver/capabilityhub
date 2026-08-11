@@ -22,12 +22,12 @@
     },
     "mean_lazy_task_sequence": {
       "sequence": ["fixed meta-tools", "one expected search card", "one selected definition"],
-      "utf8_reduction_percent": 98.69457251339074,
-      "portable_token_reduction_percent": 98.69414875584786
+      "utf8_reduction_percent": 98.69457251,
+      "portable_token_reduction_percent": 98.69414876
     },
     "initial_reduction": {
-      "utf8_reduction_percent": 99.79871516712997,
-      "portable_token_reduction_percent": 99.7982914095871
+      "utf8_reduction_percent": 99.79871517,
+      "portable_token_reduction_percent": 99.79829141
     }
   },
   "control_results": {

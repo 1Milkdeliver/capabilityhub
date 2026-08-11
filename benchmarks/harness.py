@@ -323,11 +323,11 @@ def _digest(payload: str) -> str:
 def _reduction(baseline: int, candidate: int) -> float:
     if baseline <= 0:
         raise ValueError("Baseline payload must be non-empty")
-    return ((baseline - candidate) / baseline) * 100
+    return round(((baseline - candidate) / baseline) * 100, 8)
 
 
 def _average(values: Iterable[float]) -> float:
     numbers = tuple(values)
     if not numbers:
         raise ValueError("Cannot average an empty sequence")
-    return sum(numbers) / len(numbers)
+    return round(sum(numbers) / len(numbers), 8)

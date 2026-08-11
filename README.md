@@ -83,6 +83,11 @@ capabilityhub dashboard --project-root /absolute/project/path
 capabilityhub mcp-serve
 ```
 
+Project manifests can opt into real, bounded CLI, HTTP API, local RAG, and MCP stdio adapters. See
+[project provider configuration](docs/provider-configuration.md). Discovery remains inert unless a
+supported driver is explicitly configured; `execute` uses that provider by default, while
+`--fixture-output` is reserved for deterministic tests.
+
 `load` exercises the real reference, permission, section, and disclosure-budget path. The current `execute` command is deliberately limited to a deterministic, side-effect-free static fixture supplied by the operator; it is a control-core verification command, not a shell, network, MCP, API, or RAG executor. Write-like fixture operations require an idempotency key, and approval-required operations additionally require `--approved`, which asks the trusted local control path to issue an exact-intent approval reference. Production adapters remain pending.
 
 Embedding applications can opt into `CliProcessProvider`, the first real execution adapter. It accepts only operator-configured absolute executables and fixed argv templates, substitutes scalar values only into complete argv tokens, never invokes a shell, starts with an explicit non-inherited environment, enforces the provider deadline, parses bounded JSON/text output, and redacts stderr. It is not auto-enabled by local discovery and is not a process sandbox; production isolation and resource limits remain pending.

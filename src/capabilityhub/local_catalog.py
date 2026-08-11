@@ -18,6 +18,8 @@ from capabilityhub.models import (
     OperationSpec,
     OperationType,
 )
+from capabilityhub.provider_config import project_providers
+from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.state import global_config_path, lifecycle_states, project_config_path
 
@@ -26,10 +28,11 @@ _SAFE_NAME = re.compile(r"[^A-Za-z0-9._-]+")
 
 @dataclass(frozen=True, slots=True)
 class LocalCatalog:
-    """Discovered manifests and their inert Skill providers."""
+    """Discovered manifests plus explicitly configured local providers."""
 
     manifests: tuple[CapabilityManifest, ...]
     skill_providers: tuple[SkillProvider, ...]
+    configured_providers: tuple[CapabilityProvider, ...] = ()
     inactive_coordinates: frozenset[str] = frozenset()
     controlled_disabled_coordinates: frozenset[str] = frozenset()
     quarantined_coordinates: frozenset[str] = frozenset()
@@ -97,6 +100,8 @@ def discover_local_catalog(
     project_manifests, project_invalid = _project_manifests(project_dir)
     invalid_count += project_invalid
     manifests.extend(project_manifests)
+    configured_providers, provider_invalid = project_providers(project_manifests, project_dir)
+    invalid_count += provider_invalid
     states = lifecycle_states(home=home_dir, project=project_dir)
     controlled_disabled = frozenset(
         coordinate for coordinate, state in states.items() if state == "disabled"
@@ -107,6 +112,7 @@ def discover_local_catalog(
     return LocalCatalog(
         tuple(manifests),
         tuple(providers),
+        configured_providers=tuple(configured_providers),
         inactive_coordinates=frozenset(inactive_coordinates) | controlled_disabled | quarantined,
         controlled_disabled_coordinates=controlled_disabled,
         quarantined_coordinates=quarantined,

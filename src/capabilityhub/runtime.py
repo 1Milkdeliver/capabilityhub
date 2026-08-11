@@ -422,6 +422,39 @@ def local_load(
     }
 
 
+_CONFIGURED_PROVIDER = object()
+
+
+def local_execute(
+    revision: str,
+    operation: str,
+    arguments: dict[str, JsonValue],
+    *,
+    granted_permissions: list[str] | None = None,
+    approved: bool = False,
+    allow_irreversible: bool = False,
+    idempotency_key: str | None = None,
+    max_output_tokens: int = 2_000,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Execute through an explicitly configured project provider."""
+
+    return _local_execute(
+        revision,
+        operation,
+        arguments,
+        _CONFIGURED_PROVIDER,
+        granted_permissions=granted_permissions,
+        approved=approved,
+        allow_irreversible=allow_irreversible,
+        idempotency_key=idempotency_key,
+        max_output_tokens=max_output_tokens,
+        project_root=project_root,
+        monitor=monitor,
+    )
+
+
 def local_execute_static(
     revision: str,
     operation: str,
@@ -438,18 +471,52 @@ def local_execute_static(
 ) -> dict[str, JsonValue]:
     """Execute one deterministic static fixture through load, policy, and budget gates."""
 
+    return _local_execute(
+        revision,
+        operation,
+        arguments,
+        fixture_output,
+        granted_permissions=granted_permissions,
+        approved=approved,
+        allow_irreversible=allow_irreversible,
+        idempotency_key=idempotency_key,
+        max_output_tokens=max_output_tokens,
+        project_root=project_root,
+        monitor=monitor,
+    )
+
+
+def _local_execute(
+    revision: str,
+    operation: str,
+    arguments: dict[str, JsonValue],
+    fixture_output: JsonValue | object,
+    *,
+    granted_permissions: list[str] | None = None,
+    approved: bool = False,
+    allow_irreversible: bool = False,
+    idempotency_key: str | None = None,
+    max_output_tokens: int = 2_000,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Shared local execution path for configured and deterministic providers."""
+
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
     manifest = generation.registry.revision(revision)
-    provider = StaticProvider(
-        (StaticFixture(manifest, {operation: fixture_output}),),
-        name=manifest.provider,
-    )
+    providers = generation.providers
+    if fixture_output is not _CONFIGURED_PROVIDER:
+        provider = StaticProvider(
+            (StaticFixture(manifest, {operation: cast(JsonValue, fixture_output)}),),
+            name=manifest.provider,
+        )
+        providers = (provider,)
     signer = ReferenceSigner(token_bytes(32))
     audit = JsonlAuditSink(_audit_path(selected.project))
     service = CapabilityHubService(
         registry=generation.registry,
-        providers=(provider,),
+        providers=providers,
         references=signer,
         audit=audit,
         idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),

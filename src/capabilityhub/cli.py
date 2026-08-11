@@ -65,12 +65,12 @@ def build_parser() -> argparse.ArgumentParser:
     _project_argument(load)
     _pretty_argument(load)
     execute = commands.add_parser(
-        "execute", help="execute a deterministic static fixture through policy gates"
+        "execute", help="execute a configured provider through policy and budget gates"
     )
     execute.add_argument("revision")
     execute.add_argument("operation")
     execute.add_argument("--arguments", type=_json_object, default={})
-    execute.add_argument("--fixture-output", type=_json_value, required=True)
+    execute.add_argument("--fixture-output", type=_json_value)
     execute.add_argument("--grant", action="append")
     execute.add_argument("--approved", action="store_true")
     execute.add_argument("--allow-irreversible", action="store_true")
@@ -192,8 +192,20 @@ def _main(argv: Sequence[str] | None = None) -> int:
         )
         return 0
     if args.command == "execute":
-        _print_json(
-            runtime.local_execute_static(
+        if args.fixture_output is None:
+            result = runtime.local_execute(
+                args.revision,
+                args.operation,
+                args.arguments,
+                granted_permissions=args.grant,
+                approved=args.approved,
+                allow_irreversible=args.allow_irreversible,
+                idempotency_key=args.idempotency_key,
+                max_output_tokens=args.max_output_tokens,
+                project_root=args.project_root,
+            )
+        else:
+            result = runtime.local_execute_static(
                 args.revision,
                 args.operation,
                 args.arguments,
@@ -204,7 +216,9 @@ def _main(argv: Sequence[str] | None = None) -> int:
                 idempotency_key=args.idempotency_key,
                 max_output_tokens=args.max_output_tokens,
                 project_root=args.project_root,
-            ),
+            )
+        _print_json(
+            result,
             pretty=args.pretty,
         )
         return 0

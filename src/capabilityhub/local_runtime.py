@@ -180,4 +180,8 @@ class LocalCatalogMonitor:
             "skipped_count": catalog.skipped_count,
             "status": "partial" if partial else "fresh",
         }
-        return LocalCatalogGeneration(registry, catalog.skill_providers, inventory)
+        return LocalCatalogGeneration(
+            registry,
+            (*catalog.skill_providers, *catalog.configured_providers),
+            inventory,
+        )

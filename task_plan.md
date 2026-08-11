@@ -86,3 +86,5 @@ Status: pending
 |---|---:|---|
 | `git` and `gh` not found on PATH | 1 | Search installed runtimes and configured GitHub connectors; continue local work independently |
 | Initial commit lacked Git author identity; `gh` could not find the out-of-PATH Git executable | 1 | Configure repository-local noreply identity and prepend bundled Git only for publish commands |
+| Bundled Python did not include pytest | 1 | Create a project-local ignored virtual environment and install the declared development extra once |
+| Core tests passed but Ruff reported one long line plus import hygiene issues | 1 | Apply a targeted formatting/import fix in the owning files, then rerun the same validation once |

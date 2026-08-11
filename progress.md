@@ -13,3 +13,5 @@
 - Published the project bootstrap, validation methodology, and upstream integration boundaries.
 - Completed and reviewed 35 requirement-discovery rounds and the long-term architecture.
 - Scoped release 0.1 to the evidence-producing control core; deferred gateway, sandbox, distributed, and managed-RAG work to avoid duplication and premature complexity.
+- Froze provider-neutral domain models, error contract, and adapter protocol; syntax compilation passed.
+- Added deterministic payload metering, deny-by-default reference policy, and payload-minimizing audit sinks. Test runner dependency was absent, so a project-local virtual environment is being prepared.

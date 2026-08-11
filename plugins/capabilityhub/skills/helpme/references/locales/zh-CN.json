@@ -25,7 +25,7 @@
         "title": "系统功能",
         "items": {
           "/helpme status": "（Status：查看 Inventory 是否新鲜及本地基础检查）",
-          "/helpme dashboard": "（Dashboard：查看能力数量、排除项和本地基础检查）",
+          "/helpme dashboard": "（Dashboard：查看并安全管理本地能力、审批、上下文和推理强度）",
           "/helpme budget": "（Budget：查看和控制 Token、加载及执行次数）",
           "/helpme security": "（Security：查看权限、审批、凭据和风险）",
           "/helpme settings": "（Settings：修改项目范围和默认规则）",
@@ -39,7 +39,7 @@
   "topics": {
     "overview": {
       "/helpme overview status": "（查看 Inventory 新鲜度和本地接线检查）",
-      "/helpme overview dashboard": "（查看本机只读可视化面板）",
+      "/helpme overview dashboard": "（打开本机可视化管理面板）",
       "/helpme overview version": "（查看核心、插件和协议版本）",
       "/helpme overview alerts": "（查看预算、连接和安全告警）"
     },

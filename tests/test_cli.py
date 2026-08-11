@@ -149,6 +149,92 @@ def test_language_and_lifecycle_commands_route(monkeypatch, capsys) -> None:
     assert json.loads(capsys.readouterr().out) == {"state": "quarantined"}
 
 
+def test_approval_commands_route_without_argument_disclosure(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(runtime, "local_approvals", lambda *_args, **_kwargs: {"count": 0})
+    monkeypatch.setattr(
+        runtime,
+        "local_approval_request",
+        lambda *_args, **_kwargs: {"approval_id": "apr_one", "status": "pending"},
+    )
+    monkeypatch.setattr(
+        runtime,
+        "local_approval_decide",
+        lambda *_args, **_kwargs: {"approval_id": "apr_one", "status": "approved"},
+    )
+
+    assert main(["approvals", "list", "--status", "pending"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"count": 0}
+    assert (
+        main(
+            [
+                "approvals",
+                "request",
+                "demo/item@1#digest",
+                "write",
+                "--arguments",
+                '{"secret":"SECRET-CANARY"}',
+            ]
+        )
+        == 0
+    )
+    output = capsys.readouterr().out
+    assert "SECRET-CANARY" not in output
+    assert json.loads(output)["status"] == "pending"
+    assert main(["approvals", "approve", "apr_one"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "approved"
+
+
+def test_configured_execute_rejects_unsafe_approval_shortcut(capsys) -> None:
+    assert main(["execute", "demo/item@1#digest", "write", "--approved"]) == 2
+    error = json.loads(capsys.readouterr().err)["error"]
+    assert error["code"] == "invalid_command_arguments"
+
+
+def test_context_commands_route(monkeypatch, capsys) -> None:
+    monkeypatch.setattr(runtime, "local_context", lambda *_args: {"entries": []})
+    monkeypatch.setattr(
+        runtime,
+        "local_context_action",
+        lambda action, key, **_kwargs: {"action": action, "key": key},
+    )
+
+    assert main(["context"]) == 0
+    assert json.loads(capsys.readouterr().out) == {"entries": []}
+    assert main(["context", "pin", "demo/tool@1#digest::contract"]) == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "action": "pin",
+        "key": "demo/tool@1#digest::contract",
+    }
+
+
+def test_reasoning_command_routes_explicit_advice(monkeypatch, capsys) -> None:
+    seen: dict[str, object] = {}
+
+    def reasoning(task_id, **options):
+        seen.update({"task_id": task_id, **options})
+        return {"tier": "medium", "should_stop": False}
+
+    monkeypatch.setattr(runtime, "local_reasoning", reasoning)
+
+    assert (
+        main(
+            [
+                "reasoning",
+                "recommend",
+                "task-one",
+                "--risk",
+                "reversible_write",
+                "--attempt-id",
+                "attempt-1",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["tier"] == "medium"
+    assert seen["risk"] == "reversible_write"
+    assert seen["attempt_id"] == "attempt-1"
+
+
 @pytest.mark.parametrize(
     "arguments",
     [

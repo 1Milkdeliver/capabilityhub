@@ -73,6 +73,9 @@ def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
     assert "/api/language" in assets
     assert "provider-list" in assets
     assert "loaded-list" in assets
+    assert "/api/approval" in assets
+    assert "/api/context" in assets
+    assert "reasoning-tier" in assets
     assert "\u0431" not in assets
     assert "\ufffd" not in assets
 
@@ -80,6 +83,8 @@ def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
 def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
     lifecycle_calls: list[tuple[str, str]] = []
     language_calls: list[str] = []
+    approval_calls: list[tuple[str, str]] = []
+    context_calls: list[tuple[str, str]] = []
 
     with DashboardServer(
         lambda: {"inventory": {"active_total": 1}},
@@ -93,6 +98,10 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
             lifecycle_calls.append((coordinate, state)) or {"saved": True}
         ),
         language_provider=lambda locale: language_calls.append(locale) or {"saved": True},
+        approval_provider=lambda approval_id, decision: (
+            approval_calls.append((approval_id, decision)) or {"saved": True}
+        ),
+        context_provider=lambda action, key: context_calls.append((action, key)) or {"saved": True},
     ) as dashboard:
         with urlopen(f"{dashboard.url}/api/status", timeout=2) as response:
             status = json.loads(response.read())
@@ -134,6 +143,24 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
         )
         with urlopen(language, timeout=2) as response:
             assert json.loads(response.read()) == {"saved": True}
+        approval = Request(
+            f"{dashboard.url}/api/approval",
+            data=b'{"approval_id":"apr_one","decision":"approve"}',
+            headers={"Content-Type": "application/json", "X-CapabilityHub-CSRF": token},
+            method="POST",
+        )
+        with urlopen(approval, timeout=2) as response:
+            assert json.loads(response.read()) == {"saved": True}
+        context = Request(
+            f"{dashboard.url}/api/context",
+            data=b'{"key":"demo::contract","action":"pin"}',
+            headers={"Content-Type": "application/json", "X-CapabilityHub-CSRF": token},
+            method="POST",
+        )
+        with urlopen(context, timeout=2) as response:
+            assert json.loads(response.read()) == {"saved": True}
 
     assert lifecycle_calls == [("demo/tool", "disabled")]
     assert language_calls == ["zh-CN"]
+    assert approval_calls == [("apr_one", "approve")]
+    assert context_calls == [("pin", "demo::contract")]

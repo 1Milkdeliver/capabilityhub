@@ -93,6 +93,28 @@
       <ul id="loaded-list" class="cards"></ul>
     </section>
 
+    <section aria-labelledby="approvals-title">
+      <h2 id="approvals-title">Approvals</h2>
+      <p class="hint">Exact, expiring requests. Arguments and their digests are never displayed.</p>
+      <ul id="approval-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="context-title">
+      <h2 id="context-title">Context</h2>
+      <p class="hint">Metadata for disclosed sections. Pin, unpin, or forget without reloading bodies.</p>
+      <ul id="context-list" class="cards"></ul>
+    </section>
+
+    <section aria-labelledby="reasoning-title">
+      <h2 id="reasoning-title">Reasoning</h2>
+      <p class="hint">Persistent advisory state for the Dashboard task. Recommendations do not call a model.</p>
+      <dl class="metrics">
+        <div><dt>Current tier</dt><dd id="reasoning-tier">—</dd></div>
+        <div><dt>Budget left</dt><dd id="reasoning-budget">—</dd></div>
+        <div><dt>Escalations</dt><dd id="reasoning-escalations">—</dd></div>
+      </dl>
+    </section>
+
     <section aria-labelledby="audit-title">
       <h2 id="audit-title">Audit</h2>
       <p class="hint">Recent redacted project events. Arguments and credentials are never shown.</p>

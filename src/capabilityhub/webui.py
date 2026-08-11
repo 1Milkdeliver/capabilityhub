@@ -20,6 +20,8 @@ StatusSnapshot = Mapping[str, object]
 SearchProvider = Callable[[str, str | None, int], StatusSnapshot]
 LifecycleProvider = Callable[[str, str], StatusSnapshot]
 LanguageProvider = Callable[[str], StatusSnapshot]
+ApprovalProvider = Callable[[str, str], StatusSnapshot]
+ContextProvider = Callable[[str, str], StatusSnapshot]
 
 
 class DashboardServer:
@@ -34,6 +36,8 @@ class DashboardServer:
         search_provider: SearchProvider | None = None,
         lifecycle_provider: LifecycleProvider | None = None,
         language_provider: LanguageProvider | None = None,
+        approval_provider: ApprovalProvider | None = None,
+        context_provider: ContextProvider | None = None,
     ) -> None:
         if host != "localhost" and not ip_address(host).is_loopback:
             raise ValueError("dashboard host must be a loopback address")
@@ -43,6 +47,8 @@ class DashboardServer:
         self._search_provider = search_provider
         self._lifecycle_provider = lifecycle_provider
         self._language_provider = language_provider
+        self._approval_provider = approval_provider
+        self._context_provider = context_provider
         self._csrf_token = secrets.token_urlsafe(32)
         self._server: ThreadingHTTPServer | None = None
         self._thread: Thread | None = None
@@ -70,6 +76,8 @@ class DashboardServer:
                 search_provider=self._search_provider,
                 lifecycle_provider=self._lifecycle_provider,
                 language_provider=self._language_provider,
+                approval_provider=self._approval_provider,
+                context_provider=self._context_provider,
                 csrf_token=self._csrf_token,
             )
             server = ThreadingHTTPServer((self._host, self._port), handler)
@@ -114,6 +122,8 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         search_provider: SearchProvider | None,
         lifecycle_provider: LifecycleProvider | None,
         language_provider: LanguageProvider | None,
+        approval_provider: ApprovalProvider | None,
+        context_provider: ContextProvider | None,
         csrf_token: str,
         directory: str | None = None,
     ) -> None:
@@ -121,6 +131,8 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self._search_provider = search_provider
         self._lifecycle_provider = lifecycle_provider
         self._language_provider = language_provider
+        self._approval_provider = approval_provider
+        self._context_provider = context_provider
         self._csrf_token = csrf_token
         super().__init__(request, client_address, server, directory=directory)
 
@@ -136,7 +148,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in {"/api/lifecycle", "/api/language"}:
+        if path not in {"/api/lifecycle", "/api/language", "/api/approval", "/api/context"}:
             self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Dashboard action is not available")
             return
         if not self._authorized():
@@ -160,6 +172,34 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
                 return
             self._write_callback(lambda: lifecycle_provider(coordinate, state))
             return
+        if path == "/api/approval":
+            approval_provider = self._approval_provider
+            approval_id = body.get("approval_id")
+            decision = body.get("decision")
+            if (
+                approval_provider is None
+                or not isinstance(approval_id, str)
+                or not isinstance(decision, str)
+                or decision not in {"approve", "deny"}
+            ):
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid approval request")
+                return
+            self._write_callback(lambda: approval_provider(approval_id, decision))
+            return
+        if path == "/api/context":
+            context_provider = self._context_provider
+            key = body.get("key")
+            action = body.get("action")
+            if (
+                context_provider is None
+                or not isinstance(key, str)
+                or not isinstance(action, str)
+                or action not in {"access", "pin", "unpin", "remove"}
+            ):
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid context request")
+                return
+            self._write_callback(lambda: context_provider(action, key))
+            return
         language_provider = self._language_provider
         locale = body.get("locale")
         if (
@@ -178,6 +218,8 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
                 "csrf_token": self._csrf_token,
                 "language_mutation": self._language_provider is not None,
                 "lifecycle_mutation": self._lifecycle_provider is not None,
+                "approval_mutation": self._approval_provider is not None,
+                "context_mutation": self._context_provider is not None,
                 "search": self._search_provider is not None,
             }
             payload = _json_bytes(snapshot)

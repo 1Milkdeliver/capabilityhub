@@ -4,11 +4,19 @@ import json
 import sys
 from pathlib import Path
 
+import pytest
+
+from capabilityhub.errors import CapabilityHubError
 from capabilityhub.local_runtime import LocalCatalogMonitor
-from capabilityhub.runtime import local_execute
+from capabilityhub.runtime import (
+    local_approval_decide,
+    local_approval_request,
+    local_approvals,
+    local_execute,
+)
 
 
-def _manifest(executable: str) -> dict[str, object]:
+def _manifest(executable: str, *, requires_approval: bool = False) -> dict[str, object]:
     return {
         "apiVersion": "capabilityhub.io/v1alpha1",
         "kind": "Capability",
@@ -36,7 +44,13 @@ def _manifest(executable: str) -> dict[str, object]:
                     },
                 },
             },
-            "operations": [{"name": "run", "operationType": "execute"}],
+            "operations": [
+                {
+                    "name": "run",
+                    "operationType": "execute",
+                    "requiresApproval": requires_approval,
+                }
+            ],
         },
     }
 
@@ -66,3 +80,39 @@ def test_invalid_driver_is_counted_but_never_wired(tmp_path: Path) -> None:
 
     assert generation.inventory["invalid_count"] == 1
     assert generation.providers == ()
+
+
+def test_configured_execution_consumes_one_durable_exact_approval(tmp_path: Path) -> None:
+    document = _manifest(sys.executable, requires_approval=True)
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    (root / "cli.json").write_text(json.dumps(document), encoding="utf-8")
+    monitor = LocalCatalogMonitor(project=tmp_path, home=tmp_path / "home")
+    revision = "project/configured-cli@1.0.0#sha256:" + ("a" * 64)
+
+    requested = local_approval_request(revision, "run", {}, monitor=monitor)
+    approval_id = str(requested["approval_id"])
+    assert local_approvals(tmp_path, status="pending")["count"] == 1
+    local_approval_decide(approval_id, "approve", project_root=tmp_path)
+
+    result = local_execute(
+        revision,
+        "run",
+        {},
+        approval_id=approval_id,
+        project_root=tmp_path,
+        monitor=monitor,
+    )
+
+    assert result["output"] == {"ok": True}
+    assert local_approvals(tmp_path, status="consumed")["count"] == 1
+    with pytest.raises(CapabilityHubError) as replay:
+        local_execute(
+            revision,
+            "run",
+            {},
+            approval_id=approval_id,
+            project_root=tmp_path,
+            monitor=monitor,
+        )
+    assert replay.value.code == "approval_already_consumed"

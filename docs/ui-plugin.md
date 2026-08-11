@@ -1,14 +1,16 @@
 # Local dashboard and Codex plugin
 
-`capabilityhub.webui.DashboardServer` is a loopback-only standard-library HTTP server. It serves local bundled assets, safe status, and optional callbacks for bounded metadata search, project language, and activation lifecycle. The application injects each callback; the UI never receives registry objects or full capability content through chat. Mutation requests require the random token returned to same-origin JavaScript plus an origin check, accept at most 16 KiB JSON, and are disabled when their callback is absent.
+`capabilityhub.webui.DashboardServer` is a loopback-only standard-library HTTP server. It serves local bundled assets, safe status, and optional callbacks for bounded metadata search, project language, activation lifecycle, approval decisions, and Context metadata. The application injects each callback; the UI never receives registry objects or full capability content through chat. Mutation requests require the random token returned to same-origin JavaScript plus an origin check, accept at most 16 KiB JSON, and are disabled when their callback is absent.
 
 The built-in live snapshot contains five-kind active counts, generation and freshness,
 inactive and safe exclusion counts, local wiring checks, and configuration-only
 connection state. It does not dial providers and omits credentials,
 commands, URLs, full manifests, Skill bodies, scripts, and provider output.
 Search returns no more than ten compact cards and never loads a capability body. Dashboard
-lifecycle supports only enabled, disabled, and quarantined catalog states. It cannot delete,
-install, update, run, approve, or change provider credentials.
+lifecycle supports only enabled, disabled, and quarantined catalog states. Approval controls
+can approve or deny an already-created exact-intent request; Context controls can pin, unpin,
+or forget residency metadata. The page cannot delete source files, install, update, run a
+provider, create arbitrary approvals, or change provider credentials.
 The page also shows the latest ten redacted project audit events. It omits arguments,
 credentials, provider output, raw task identifiers, and absolute audit paths.
 

@@ -85,17 +85,59 @@ def build_parser() -> argparse.ArgumentParser:
     execute.add_argument("--arguments", type=_json_object, default={})
     execute.add_argument("--fixture-output", type=_json_value)
     execute.add_argument("--grant", action="append")
-    execute.add_argument("--approved", action="store_true")
+    execute.add_argument("--approved", action="store_true", help="fixture-only approval shortcut")
+    execute.add_argument("--approval-id", help="consume one approved exact-intent request")
     execute.add_argument("--allow-irreversible", action="store_true")
     execute.add_argument("--idempotency-key")
     execute.add_argument("--max-output-tokens", type=_positive_int, default=2_000)
     _project_argument(execute)
     _pretty_argument(execute)
+    approvals = commands.add_parser("approvals", help="request, review, or decide local approvals")
+    approvals.add_argument(
+        "action", nargs="?", choices=("list", "request", "approve", "deny"), default="list"
+    )
+    approvals.add_argument(
+        "target", nargs="?", help="revision for request, approval ID for decisions"
+    )
+    approvals.add_argument("operation", nargs="?")
+    approvals.add_argument("--arguments", type=_json_object, default={})
+    approvals.add_argument("--ttl-seconds", type=_positive_int, default=300)
+    approvals.add_argument(
+        "--status", choices=("pending", "approved", "denied", "consumed", "expired")
+    )
+    approvals.add_argument("--limit", type=_audit_limit, default=50)
+    _project_argument(approvals)
+    _pretty_argument(approvals)
+    context = commands.add_parser("context", help="show or manage resident context metadata")
+    context.add_argument(
+        "action", nargs="?", choices=("list", "access", "pin", "unpin", "remove"), default="list"
+    )
+    context.add_argument("key", nargs="?")
+    _project_argument(context)
+    _pretty_argument(context)
+    reasoning = commands.add_parser("reasoning", help="get budget-aware reasoning tier advice")
+    reasoning.add_argument("action", choices=("state", "recommend", "reset"))
+    reasoning.add_argument("task_id")
+    reasoning.add_argument("--eligible", action="append", choices=("low", "medium", "high"))
+    reasoning.add_argument(
+        "--risk", choices=("none", "read", "reversible_write", "irreversible"), default="none"
+    )
+    reasoning.add_argument("--policy-minimum", choices=("low", "medium", "high"), default="low")
+    reasoning.add_argument("--escalation-reason")
+    reasoning.add_argument(
+        "--attempt-id", help="opaque attempt identifier; only its digest is stored"
+    )
+    reasoning.add_argument(
+        "--evidence-id", help="opaque evidence identifier; only its digest is stored"
+    )
+    _project_argument(reasoning)
+    _pretty_argument(reasoning)
     budget = commands.add_parser("budget-report", help="show fresh local hard budget limits")
     budget.add_argument("--bytes", type=_non_negative_int)
     budget.add_argument("--portable-tokens", type=_non_negative_int)
     budget.add_argument("--loads", type=_non_negative_int)
     budget.add_argument("--executions", type=_non_negative_int)
+    budget.add_argument("--reasoning-tokens", type=_non_negative_int)
     _project_argument(budget)
     _pretty_argument(budget)
     benchmark = commands.add_parser(
@@ -224,18 +266,22 @@ def _main(argv: Sequence[str] | None = None) -> int:
         return 0
     if args.command == "execute":
         if args.fixture_output is None:
+            if args.approved:
+                raise _usage("--approved is fixture-only; use an approved --approval-id")
             result = runtime.local_execute(
                 args.revision,
                 args.operation,
                 args.arguments,
                 granted_permissions=args.grant,
-                approved=args.approved,
+                approval_id=args.approval_id,
                 allow_irreversible=args.allow_irreversible,
                 idempotency_key=args.idempotency_key,
                 max_output_tokens=args.max_output_tokens,
                 project_root=args.project_root,
             )
         else:
+            if args.approval_id is not None:
+                raise _usage("--approval-id cannot be combined with --fixture-output")
             result = runtime.local_execute_static(
                 args.revision,
                 args.operation,
@@ -253,6 +299,77 @@ def _main(argv: Sequence[str] | None = None) -> int:
             pretty=args.pretty,
         )
         return 0
+    if args.command == "approvals":
+        if args.action == "list":
+            if args.target is not None or args.operation is not None:
+                raise _usage("approvals list does not accept a target or operation")
+            payload = runtime.local_approvals(
+                args.project_root,
+                status=args.status,
+                limit=args.limit,
+            )
+        elif args.action == "request":
+            if args.target is None or args.operation is None:
+                raise _usage("approvals request requires a revision and operation")
+            if args.status is not None:
+                raise _usage("approvals request does not accept --status")
+            payload = runtime.local_approval_request(
+                args.target,
+                args.operation,
+                args.arguments,
+                ttl_seconds=args.ttl_seconds,
+                project_root=args.project_root,
+            )
+        else:
+            if args.target is None or args.operation is not None:
+                raise _usage(f"approvals {args.action} requires one approval ID")
+            if args.status is not None:
+                raise _usage(f"approvals {args.action} does not accept --status")
+            payload = runtime.local_approval_decide(
+                args.target,
+                args.action,
+                project_root=args.project_root,
+            )
+        _print_json(payload, pretty=args.pretty)
+        return 0
+    if args.command == "context":
+        if args.action == "list":
+            if args.key is not None:
+                raise _usage("context list does not accept a key")
+            payload = runtime.local_context(args.project_root)
+        else:
+            if args.key is None:
+                raise _usage(f"context {args.action} requires an exact key")
+            payload = runtime.local_context_action(
+                args.action,
+                args.key,
+                project_root=args.project_root,
+            )
+        _print_json(payload, pretty=args.pretty)
+        return 0
+    if args.command == "reasoning":
+        if args.action != "recommend" and (
+            args.eligible
+            or args.risk != "none"
+            or args.policy_minimum != "low"
+            or args.escalation_reason is not None
+            or args.attempt_id is not None
+            or args.evidence_id is not None
+        ):
+            raise _usage(f"reasoning {args.action} does not accept recommendation options")
+        payload = runtime.local_reasoning(
+            args.task_id,
+            action=args.action,
+            eligible_tiers=args.eligible,
+            risk=args.risk,
+            policy_minimum=args.policy_minimum,
+            escalation_reason=args.escalation_reason,
+            attempt_id=args.attempt_id,
+            evidence_id=args.evidence_id,
+            project_root=args.project_root,
+        )
+        _print_json(payload, pretty=args.pretty)
+        return 0
     if args.command == "budget-report":
         requested = {
             key: value
@@ -261,6 +378,7 @@ def _main(argv: Sequence[str] | None = None) -> int:
                 "executions": args.executions,
                 "loads": args.loads,
                 "portable_tokens": args.portable_tokens,
+                "reasoning_tokens": args.reasoning_tokens,
             }.items()
             if value is not None
         }

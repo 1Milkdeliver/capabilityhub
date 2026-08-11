@@ -14,6 +14,8 @@ from capabilityhub.runtime import (
     local_benchmark,
     local_budget_report,
     local_connections,
+    local_context,
+    local_context_action,
     local_dashboard,
     local_execute_static,
     local_health,
@@ -23,6 +25,7 @@ from capabilityhub.runtime import (
     local_loaded,
     local_preferences,
     local_providers,
+    local_reasoning,
     local_routing,
     local_search,
     local_set_lifecycle,
@@ -122,6 +125,9 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert payload["health"]["catalog_loaded"] is False
     assert payload["active_capabilities"] == []
     assert payload["connections"]["scope"] == "configuration_only"
+    assert payload["approvals"]["count"] == 0
+    assert payload["context"]["entries"] == []
+    assert payload["reasoning"]["current_tier"] is None
     assert searched["total_matches"] == 1
     assert changed["active"] is False
     assert refreshed["inventory"]["active_by_kind"]["skill"] == 1
@@ -274,6 +280,11 @@ def test_local_load_and_static_execute_use_service_policy_and_budget(tmp_path) -
 
     assert loaded["sections"][0]["content"] == "read one record"
     assert loaded["execution_ref"] is None
+    resident = local_context(project)
+    assert resident["entries"][0]["section"] == "contract"
+    key = resident["entries"][0]["key"]
+    assert local_context_action("pin", key, project_root=project)["entries"][0]["pinned"]
+    assert not local_context_action("unpin", key, project_root=project)["entries"][0]["pinned"]
     assert executed["output"] == {"name": "demo"}
     assert executed["budget"]["used"]["executions"] == 1
     persisted = local_budget_report(project_root=project)
@@ -316,3 +327,29 @@ def test_budget_report_and_benchmark_are_machine_readable(tmp_path) -> None:
     assert budget["storage"] == "sqlite"
     assert benchmark["thresholds_passed"] is True
     assert benchmark["capability_count"] == 100
+
+
+def test_local_reasoning_persists_budget_aware_anti_loop_state(tmp_path) -> None:
+    first = local_reasoning(
+        "task-one",
+        action="recommend",
+        attempt_id="SECRET-ATTEMPT",
+        evidence_id="SECRET-EVIDENCE",
+        project_root=tmp_path,
+    )
+    repeated = local_reasoning(
+        "task-one",
+        action="recommend",
+        escalation_reason="retry failed",
+        attempt_id="SECRET-ATTEMPT",
+        evidence_id="SECRET-EVIDENCE",
+        project_root=tmp_path,
+    )
+    state = local_reasoning("task-one", project_root=tmp_path)
+
+    assert first["tier"] == "low"
+    assert repeated["should_stop"] is True
+    assert state["recommendation_count"] == 2
+    database = (tmp_path / ".capabilityhub" / "state.sqlite3").read_bytes()
+    assert b"SECRET-ATTEMPT" not in database
+    assert b"SECRET-EVIDENCE" not in database

@@ -69,7 +69,8 @@ in the current interaction only. Report a failed CLI write instead of claiming s
 - For `/helpme dashboard`, give the local `capabilityhub dashboard` command and explain
   that it shows live Inventory, local wiring, no-model compact search, project language,
   Providers, recent Loaded entries, Routing reasons, and enable/disable/quarantine
-  activation controls. Explain that these controls do not delete or execute files. Do
+  activation controls, exact-intent approval decisions, resident Context metadata, and
+  advisory Reasoning state. Explain that these controls do not delete or execute files. Do
   not claim that it opens a browser automatically or displays alerts.
 - For `/helpme runtime health`, use `capabilityhub health --pretty` when local CLI
   execution is available. This check must not scan the capability catalog; it checks
@@ -87,6 +88,22 @@ in the current interaction only. Report a failed CLI write instead of claiming s
   that task identifiers are hashed and arguments, credentials, and provider output are
   not included. Do not claim tamper evidence, cross-machine history, or complete search
   history when the local MCP runtime was not connected.
+- For `/helpme security approvals`, use `capabilityhub approvals list --status pending
+  --pretty`. Create a request with `capabilityhub approvals request <revision> <operation>
+  --arguments <json> --pretty`, then approve or deny its returned ID explicitly. Execute
+  with `--approval-id <id>`. Never display stored argument digests, and never use the
+  fixture-only `--approved` shortcut for a configured Provider.
+- For `/helpme consumption context`, use `capabilityhub context list --pretty`. Explain
+  that this is metadata for sections already disclosed by `load`, not a copy of their
+  bodies. `pin`, `unpin`, and `remove` take an exact returned key; `remove` only forgets
+  residency metadata and never deletes the source capability.
+- For `/helpme consumption reasoning`, use `capabilityhub reasoning state <task-id>
+  --pretty`. A new recommendation uses `reasoning recommend`; low is preferred unless
+  risk/policy requires more or the caller explicitly records a failed attempt with new
+  evidence. Explain that advice does not itself call a model or spend tokens.
+- For `/helpme consumption budget`, use `capabilityhub budget-report --pretty`. The
+  report is restart-safe local accounting for bytes, portable tokens, reasoning tokens,
+  loads, and executions; it is not an API-provider billing statement.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - `/helpme back`: return to the parent of the last menu rendered in this interaction;

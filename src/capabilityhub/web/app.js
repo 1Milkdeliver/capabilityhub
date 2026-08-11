@@ -67,6 +67,11 @@ async function refresh() {
       value: `${item.provider} / ${item.active ? "active" : "inactive"}`,
     }));
     list("loaded-list", loaded, "No successful loads recorded yet.");
+    renderApprovals(payload.approvals?.approvals || []);
+    renderContext(payload.context?.entries || []);
+    setText("reasoning-tier", payload.reasoning?.current_tier || "not selected");
+    setText("reasoning-budget", payload.reasoning?.budget?.remaining);
+    setText("reasoning-escalations", payload.reasoning?.escalations_used ?? 0);
     const audit = (payload.audit?.events || []).map((item) => ({
       name: `${item.sequence}: ${item.event_type} / ${item.outcome}`,
       value: item.capability_revision || item.reason_codes?.join(", ") || "global",
@@ -78,6 +83,73 @@ async function refresh() {
   } catch {
     document.getElementById("state").textContent = "Snapshot unavailable; retrying.";
   }
+}
+
+const approvalButton = (label, approvalId, decision) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", async () => {
+    await postJson("/api/approval", { approval_id: approvalId, decision });
+    await refresh();
+  });
+  return button;
+};
+
+function renderApprovals(entries) {
+  const target = document.getElementById("approval-list");
+  target.replaceChildren();
+  entries.forEach((item) => {
+    const row = document.createElement("li");
+    const name = document.createElement("strong");
+    const state = document.createElement("span");
+    name.textContent = `${text(item.operation)} / ${text(item.status)}`;
+    state.textContent = `${text(item.revision)} / expires ${text(item.expires_at)}`;
+    row.append(name, state);
+    if (item.status === "pending") {
+      const actions = document.createElement("div");
+      actions.className = "actions";
+      actions.append(
+        approvalButton("Approve", item.approval_id, "approve"),
+        approvalButton("Deny", item.approval_id, "deny"),
+      );
+      row.append(actions);
+    }
+    target.append(row);
+  });
+  if (!entries.length) list("approval-list", [], "No approval requests.");
+}
+
+const contextButton = (label, key, action) => {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = label;
+  button.addEventListener("click", async () => {
+    await postJson("/api/context", { key, action });
+    await refresh();
+  });
+  return button;
+};
+
+function renderContext(entries) {
+  const target = document.getElementById("context-list");
+  target.replaceChildren();
+  entries.forEach((item) => {
+    const row = document.createElement("li");
+    const name = document.createElement("strong");
+    const state = document.createElement("span");
+    const actions = document.createElement("div");
+    name.textContent = text(item.section);
+    state.textContent = `${text(item.portable_tokens)} tokens / ${item.pinned ? "pinned" : "evictable"}`;
+    actions.className = "actions";
+    actions.append(
+      contextButton(item.pinned ? "Unpin" : "Pin", item.key, item.pinned ? "unpin" : "pin"),
+      contextButton("Forget", item.key, "remove"),
+    );
+    row.append(name, state, actions);
+    target.append(row);
+  });
+  if (!entries.length) list("context-list", [], "No disclosed sections are resident.");
 }
 
 const coordinateFromRevision = (revision) => String(revision).split("@", 1)[0];

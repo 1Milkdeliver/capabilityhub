@@ -63,7 +63,7 @@ Search and load are not permission grants. Search cards are filtered against the
 
 ## CLI and MCP
 
-The source install exposes eighteen local commands:
+The source install exposes twenty-one local commands:
 
 ```bash
 capabilityhub validate examples/manifest-api.json
@@ -80,6 +80,9 @@ capabilityhub lifecycle list --pretty
 capabilityhub audit --limit 50 --pretty
 capabilityhub load REVISION --section contract --pretty
 capabilityhub execute REVISION read --arguments '{"id": 1}' --fixture-output '{"name": "demo"}' --idempotency-key demo-1 --pretty
+capabilityhub approvals list --status pending --pretty
+capabilityhub context list --pretty
+capabilityhub reasoning state TASK_ID --pretty
 capabilityhub budget-report --pretty
 capabilityhub benchmark
 capabilityhub dashboard --project-root /absolute/project/path
@@ -91,7 +94,7 @@ Project manifests can opt into real, bounded CLI, HTTP API, local RAG, and MCP s
 supported driver is explicitly configured; `execute` uses that provider by default, while
 `--fixture-output` is reserved for deterministic tests.
 
-`load` exercises the real reference, permission, section, and disclosure-budget path. `execute` uses an explicitly configured project Provider by default and runs it through a supervised spawned worker; `--fixture-output` remains a deterministic test path. Write-like operations require an idempotency key, and approval-required operations additionally require `--approved`, which asks the trusted local control path to issue an exact-intent approval reference.
+`load` exercises the real reference, permission, section, disclosure-budget, and resident-context path. `execute` uses an explicitly configured project Provider by default and runs it through a supervised spawned worker; `--fixture-output` remains a deterministic test path. Write-like operations require an idempotency key. Approval-required configured operations use the durable `approvals request` → `approve`/`deny` → `execute --approval-id` flow; the `--approved` shortcut is fixture-only.
 
 Project manifests can opt into the CLI process, fixed-origin HTTP API, local RAG, and MCP stdio adapters. The process supervisor enforces wall-clock termination and bounded JSON IPC, but it is not an OS CPU/memory/filesystem sandbox; those production hardening gates remain open.
 

@@ -12,9 +12,16 @@ from pathlib import Path
 from secrets import token_bytes
 from typing import cast
 
+from capabilityhub.approval_store import (
+    ApprovalIntent,
+    ApprovalRecord,
+    ApprovalStatus,
+    SqliteApprovalStore,
+)
 from capabilityhub.audit import JsonlAuditSink, read_jsonl_audit
 from capabilityhub.budget import BudgetSnapshot
 from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
+from capabilityhub.context_state import LocalContextState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.idempotency import SqliteIdempotencyStore
 from capabilityhub.insights import loaded_view, providers_view, routing_view
@@ -25,10 +32,16 @@ from capabilityhub.models import (
     CapabilityManifest,
     ExecutionRequest,
     JsonValue,
+    ReasoningTier,
+    SideEffect,
 )
+from capabilityhub.orchestration import ReasoningOrchestrator
 from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.providers.static import StaticFixture, StaticProvider
+from capabilityhub.reasoning import ReasoningRouter
+from capabilityhub.reasoning_store import SQLiteReasoningStore
 from capabilityhub.references import ReferenceSigner
+from capabilityhub.residency import ResidentSection
 from capabilityhub.search import LexicalCapabilitySearch
 from capabilityhub.service import CapabilityHubService, ServiceContext
 from capabilityhub.state import (
@@ -39,6 +52,8 @@ from capabilityhub.state import (
 )
 from capabilityhub.supervision import ProcessProviderSupervisor
 from capabilityhub.webui import (
+    ApprovalProvider,
+    ContextProvider,
     DashboardServer,
     LanguageProvider,
     LifecycleProvider,
@@ -51,7 +66,10 @@ DEFAULT_LOCAL_BUDGETS = {
     "executions": 10,
     "loads": 100,
     "portable_tokens": 100_000,
+    "reasoning_tokens": 100_000,
 }
+LOCAL_POLICY_REVISION = "local-v1"
+DEFAULT_CONTEXT_TOKENS = 16_000
 
 
 def validate(paths: list[str | Path]) -> int:
@@ -73,6 +91,8 @@ def dashboard(
     search_provider: SearchProvider | None = None,
     lifecycle_provider: LifecycleProvider | None = None,
     language_provider: LanguageProvider | None = None,
+    approval_provider: ApprovalProvider | None = None,
+    context_provider: ContextProvider | None = None,
 ) -> DashboardServer:
     """Create (but do not implicitly retain) a localhost-only dashboard server."""
     server = DashboardServer(
@@ -82,6 +102,8 @@ def dashboard(
         search_provider=search_provider,
         lifecycle_provider=lifecycle_provider,
         language_provider=language_provider,
+        approval_provider=approval_provider,
+        context_provider=context_provider,
     )
     server.start()
     return server
@@ -439,6 +461,27 @@ def local_load(
         operation_names=operation_names,
         max_output_tokens=max_output_tokens,
     )
+    context_state = _context_state(selected.project)
+    context_evictions: list[JsonValue] = []
+    for section in loaded.sections:
+        evictions = context_state.add(
+            ResidentSection(
+                key=f"{loaded.revision}::{section.name}",
+                revision=loaded.revision,
+                section=section.name,
+                portable_tokens=section.portable_tokens,
+                sensitive=section.sensitive,
+            )
+        )
+        context_evictions.extend(
+            {
+                "key": eviction.key,
+                "portable_tokens": eviction.portable_tokens,
+                "reason": eviction.reason,
+            }
+            for eviction in evictions
+        )
+    resident = context_state.snapshot()
     return {
         "budget": _budget_json(budget.snapshot()),
         "execution_ref": None,
@@ -458,6 +501,11 @@ def local_load(
         "permissions": list(loaded.permissions),
         "portable_tokens": loaded.portable_tokens,
         "revision": loaded.revision,
+        "context": {
+            "evictions": context_evictions,
+            "generation": resident.generation,
+            "used_portable_tokens": resident.used_portable_tokens,
+        },
         "sections": [
             {
                 "content": section.content,
@@ -471,6 +519,83 @@ def local_load(
     }
 
 
+def local_context(
+    project_root: str | Path | None = None,
+) -> dict[str, JsonValue]:
+    """Return the durable metadata-only view of currently resident sections."""
+
+    snapshot = _context_state(_catalog_project(project_root)).snapshot()
+    return {
+        "entries": [_jsonable(entry) for entry in snapshot.entries],
+        "generation": snapshot.generation,
+        "max_portable_tokens": snapshot.max_portable_tokens,
+        "used_portable_tokens": snapshot.used_portable_tokens,
+    }
+
+
+def local_context_action(
+    action: str,
+    key: str,
+    *,
+    project_root: str | Path | None = None,
+) -> dict[str, JsonValue]:
+    """Access, pin, unpin, or forget one resident metadata entry."""
+
+    state = _context_state(_catalog_project(project_root))
+    if action == "access":
+        state.access(key)
+    elif action == "pin":
+        state.pin(key)
+    elif action == "unpin":
+        state.pin(key, False)
+    elif action == "remove":
+        state.remove(key)
+    else:
+        raise ValueError("context action must be access, pin, unpin, or remove")
+    return local_context(project_root)
+
+
+def local_reasoning(
+    task_id: str,
+    *,
+    action: str = "state",
+    eligible_tiers: list[str] | None = None,
+    risk: str = "none",
+    policy_minimum: str = "low",
+    escalation_reason: str | None = None,
+    attempt_id: str | None = None,
+    evidence_id: str | None = None,
+    project_root: str | Path | None = None,
+) -> dict[str, JsonValue]:
+    """Query or update durable budget-aware reasoning advice for one task."""
+
+    project = _catalog_project(project_root)
+    orchestrator = ReasoningOrchestrator(
+        router=ReasoningRouter(policy_revision="local-reasoning-v1"),
+        budget=_persistent_budget(project),
+        store=SQLiteReasoningStore(_state_path(project)),
+    )
+    if action == "state":
+        return orchestrator.state(task_id)
+    if action == "reset":
+        orchestrator.reset(task_id)
+        return orchestrator.state(task_id)
+    if action != "recommend":
+        raise ValueError("reasoning action must be state, recommend, or reset")
+    recommendation = orchestrator.recommend(
+        task_id=task_id,
+        eligible_tiers=(ReasoningTier(value) for value in eligible_tiers)
+        if eligible_tiers
+        else None,
+        risk=SideEffect(risk),
+        policy_minimum=ReasoningTier(policy_minimum),
+        escalation_reason=escalation_reason,
+        attempt_signature=attempt_id,
+        evidence_signature=evidence_id,
+    )
+    return cast(dict[str, JsonValue], _jsonable(recommendation))
+
+
 _CONFIGURED_PROVIDER = object()
 
 
@@ -480,7 +605,7 @@ def local_execute(
     arguments: dict[str, JsonValue],
     *,
     granted_permissions: list[str] | None = None,
-    approved: bool = False,
+    approval_id: str | None = None,
     allow_irreversible: bool = False,
     idempotency_key: str | None = None,
     max_output_tokens: int = 2_000,
@@ -495,7 +620,7 @@ def local_execute(
         arguments,
         _CONFIGURED_PROVIDER,
         granted_permissions=granted_permissions,
-        approved=approved,
+        approval_id=approval_id,
         allow_irreversible=allow_irreversible,
         idempotency_key=idempotency_key,
         max_output_tokens=max_output_tokens,
@@ -527,6 +652,7 @@ def local_execute_static(
         fixture_output,
         granted_permissions=granted_permissions,
         approved=approved,
+        approval_id=None,
         allow_irreversible=allow_irreversible,
         idempotency_key=idempotency_key,
         max_output_tokens=max_output_tokens,
@@ -543,6 +669,7 @@ def _local_execute(
     *,
     granted_permissions: list[str] | None = None,
     approved: bool = False,
+    approval_id: str | None = None,
     allow_irreversible: bool = False,
     idempotency_key: str | None = None,
     max_output_tokens: int = 2_000,
@@ -591,6 +718,22 @@ def _local_execute(
         operation_names=(operation,),
         max_output_tokens=max_output_tokens,
     )
+    operation_spec = manifest.operation(operation)
+    if operation_spec is None:
+        raise CapabilityHubError(
+            code="unknown_operation",
+            category=ErrorCategory.REFERENCE,
+            safe_message="The capability does not declare this operation.",
+        )
+    if approval_id is not None:
+        intent = _approval_intent(
+            revision,
+            operation,
+            arguments,
+            context=context,
+            side_effect=operation_spec.side_effect.value,
+        )
+        SqliteApprovalStore(_state_path(selected.project)).consume(approval_id, intent)
     approval_ref = (
         service.issue_approval(
             revision=revision,
@@ -600,7 +743,7 @@ def _local_execute(
             context=context,
             ttl_seconds=60,
         )
-        if approved
+        if approved or approval_id is not None
         else None
     )
     result = service.execute(
@@ -625,6 +768,72 @@ def _local_execute(
         "portable_tokens": result.portable_tokens,
         "provider": result.provider,
     }
+
+
+def local_approval_request(
+    revision: str,
+    operation: str,
+    arguments: dict[str, JsonValue],
+    *,
+    ttl_seconds: int = 300,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Create a durable approval request bound to one exact local execution intent."""
+
+    selected = _select_local_scope(project_root, monitor)
+    manifest = selected.snapshot().registry.revision(revision)
+    operation_spec = manifest.operation(operation)
+    if operation_spec is None:
+        raise CapabilityHubError(
+            code="unknown_operation",
+            category=ErrorCategory.REFERENCE,
+            safe_message="The capability does not declare this operation.",
+        )
+    context = _local_context(None)
+    record = SqliteApprovalStore(_state_path(selected.project)).request(
+        _approval_intent(
+            revision,
+            operation,
+            arguments,
+            context=context,
+            side_effect=operation_spec.side_effect.value,
+        ),
+        ttl_seconds=ttl_seconds,
+    )
+    return _approval_json(record)
+
+
+def local_approvals(
+    project_root: str | Path | None = None,
+    *,
+    status: ApprovalStatus | str | None = None,
+    limit: int = 50,
+) -> dict[str, JsonValue]:
+    """Return a bounded approval queue without argument bodies or digests."""
+
+    project = _catalog_project(project_root)
+    records = SqliteApprovalStore(_state_path(project)).list(status=status, limit=limit)
+    return {"approvals": [_approval_json(record) for record in records], "count": len(records)}
+
+
+def local_approval_decide(
+    approval_id: str,
+    decision: str,
+    *,
+    project_root: str | Path | None = None,
+) -> dict[str, JsonValue]:
+    """Approve or deny one pending request as the local operator."""
+
+    project = _catalog_project(project_root)
+    store = SqliteApprovalStore(_state_path(project))
+    if decision == "approve":
+        record = store.approve(approval_id, decided_by="local-operator")
+    elif decision == "deny":
+        record = store.deny(approval_id, decided_by="local-operator")
+    else:
+        raise ValueError("decision must be approve or deny")
+    return _approval_json(record)
 
 
 def local_budget_report(
@@ -682,6 +891,9 @@ def local_dashboard(
             "audit": local_audit(limit=10, monitor=selected),
             "preferences": {"locale": preferences.get("locale", "auto")},
             "providers": local_providers(monitor=selected),
+            "approvals": local_approvals(selected.project, limit=10),
+            "context": local_context(selected.project),
+            "reasoning": local_reasoning("dashboard", project_root=selected.project),
         }
 
     def search(query: str, kind: str | None, limit: int) -> StatusSnapshot:
@@ -698,12 +910,20 @@ def local_dashboard(
     def language(locale: str) -> StatusSnapshot:
         return local_set_locale(locale, scope="project", monitor=selected)
 
+    def approval(approval_id: str, decision: str) -> StatusSnapshot:
+        return local_approval_decide(approval_id, decision, project_root=selected.project)
+
+    def context(action: str, key: str) -> StatusSnapshot:
+        return local_context_action(action, key, project_root=selected.project)
+
     return dashboard(
         snapshot,
         port=port,
         search_provider=search,
         lifecycle_provider=lifecycle,
         language_provider=language,
+        approval_provider=approval,
+        context_provider=context,
     )
 
 
@@ -768,6 +988,49 @@ def _budget_json(snapshot: BudgetSnapshot) -> dict[str, JsonValue]:
 
 def _persistent_budget(project: Path) -> SqliteBudgetLedger:
     return SqliteBudgetRepository(_state_path(project)).ledger("local-cli", DEFAULT_LOCAL_BUDGETS)
+
+
+def _context_state(project: Path) -> LocalContextState:
+    return LocalContextState(
+        project / ".capabilityhub" / "context-state.json",
+        max_portable_tokens=DEFAULT_CONTEXT_TOKENS,
+    )
+
+
+def _approval_intent(
+    revision: str,
+    operation: str,
+    arguments: Mapping[str, JsonValue],
+    *,
+    context: ServiceContext,
+    side_effect: str,
+) -> ApprovalIntent:
+    return ApprovalIntent.from_arguments(
+        revision=revision,
+        operation=operation,
+        arguments=arguments,
+        tenant_id=context.tenant_id,
+        principal_id=context.principal_id,
+        session_id=context.session_id,
+        task_id="local-cli",
+        side_effect=side_effect,
+        policy_revision=LOCAL_POLICY_REVISION,
+    )
+
+
+def _approval_json(record: ApprovalRecord) -> dict[str, JsonValue]:
+    return {
+        "approval_id": record.approval_id,
+        "created_at": record.created_at,
+        "decided_at": record.decided_at,
+        "decided_by": record.decided_by,
+        "expires_at": record.expires_at,
+        "operation": record.intent.operation,
+        "revision": record.intent.revision,
+        "side_effect": record.intent.side_effect,
+        "status": record.status.value,
+        "task_id": record.intent.task_id,
+    }
 
 
 def _audit_path(project: Path) -> Path:

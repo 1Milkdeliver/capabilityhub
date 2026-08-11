@@ -24,15 +24,15 @@ run does not upgrade a row by itself.
 | R15 | Lifecycle state machine | Partial | Persistent enabled/disabled/quarantined overrides exist; install/update/retire/drain remains open |
 | R16 | Staged update and rollback | Open | Atomic catalog generations exist but artifact staging, health gate and rollback pointer do not |
 | R17 | Least-privilege permissions | Partial | Manifest permissions are denied by default; argument/path/host/secret attenuation remains open |
-| R18 | Exact-intent approvals | Partial | Signed actor/task/revision/operation/argument/expiry approval refs exist; durable approval queue/UI remains open |
+| R18 | Exact-intent approvals | Partial | Durable single-use queue binds actor/task/revision/operation/argument digest/side effect/policy/expiry and has CLI/Dashboard decisions; authenticated remote approver identity remains open |
 | R19 | Supply-chain trust | Partial | Digests, sources and trust tiers exist; signatures, attestations and publisher policy remain open |
 | R20 | Secret broker | Partial | Environment-name indirection and redaction exist; brokered scoped secret handles remain open |
 | R21 | Provider isolation | Partial | Local configured execution uses supervised spawned workers with bounded JSON IPC; OS resource sandboxing remains open |
 | R22 | Typed failure and retry | Partial | Safe structured errors exist; class-wide retry/idempotency conformance remains open |
-| R23 | Reasoning-tier routing | Partial | Deterministic router exists in isolation; service/menu integration and measured quality remain open |
-| R24 | Anti-loop escalation | Partial | No-progress ledger exists in isolation; task-runtime integration remains open |
+| R23 | Reasoning-tier routing | Partial | Persistent CLI/Dashboard advice selects the cheapest safe affordable tier; actual model endpoint enforcement and measured quality remain open |
+| R24 | Anti-loop escalation | Implemented | SQLite task orchestration persists only attempt/evidence digests, caps escalation and returns an observable stop decision across restarts and concurrent callers |
 | R25 | Hierarchical budgets | Partial | Local runtime uses atomic restart-safe SQLite accounting; durable hierarchical child scopes remain open |
-| R26 | Context residency and eviction | Partial | Tested residency algorithm exists; service/cache integration remains open |
+| R26 | Context residency and eviction | Partial | Local load records metadata-only residency, atomically persists access/pins and exposes real evictions; model-client context removal cannot be enforced by the current transport |
 | R27 | Tenant/session isolation | Partial | References bind scopes; authenticated principals and cross-tenant storage tests remain open |
 | R28 | Multi-client consistency | Partial | Library, CLI and MCP exist; HTTP adapter, handshake, stream/cancel conformance remains open |
 | R29 | Concurrency and idempotency | Partial | SQLite conservative idempotency exists; lifecycle drain/cancel and distributed storage remain open |
@@ -42,7 +42,7 @@ run does not upgrade a row by itself.
 | R33 | Compatibility and migration | Open | v1alpha1 parses strictly; compatibility rules and migration tooling remain open |
 | R34 | Self-hosted operation | Partial | Clean local wheel, CLI, Dashboard and adapters run; production profile and isolated workers remain open |
 | R35 | Release gates | Partial | Ruff/mypy/pytest/wheel smoke plus non-oracle lexical, failure and cache artifacts exist; browser, real-provider adversarial and model-backed gates remain open |
-| R36 | Context-external UI/plugin | Partial | Loopback Dashboard and `/helpme`/`/myskills` exist; packaged installation freshness and full menu action coverage remain open |
+| R36 | Context-external UI/plugin | Partial | Loopback Dashboard manages search/lifecycle/language/approvals/context and shows reasoning; packaged installation freshness and remaining menu action coverage remain open |
 
 ## Completion rule
 

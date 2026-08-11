@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 2 — core registry and manifest implementation.
+Phase 3 — search/load/execute orchestration, residency, and benchmark fixtures.
 
 ## Next Step
 
-Freeze the core domain contracts, then implement registry, router/budget, and providers in independent file ranges.
+Implement and integrate the three meta-tool service, bounded residency, and deterministic eager-versus-lazy benchmark.
 
 ## Phases
 
@@ -25,7 +25,7 @@ Status: complete
 
 ### Phase 2 — Core registry and manifest
 
-Status: in_progress
+Status: complete
 
 - Implement normalized capability schema.
 - Implement discovery, indexing, dependency/conflict validation, and project profiles.
@@ -33,7 +33,7 @@ Status: in_progress
 
 ### Phase 3 — Router and budget controller
 
-Status: pending
+Status: in_progress
 
 - Implement lexical/semantic-ready search and staged disclosure.
 - Implement token estimation, budgets, admission control, caching, eviction, and audit events.
@@ -63,7 +63,15 @@ Status: pending
 - Verify coverage across all five capability classes.
 - Test conflicts, permissions, failures, cache invalidation, and context eviction.
 
-### Phase 7 — Open-source release
+### Phase 7 — Visual UI and Codex plugin
+
+Status: pending
+
+- Add a loopback-only management dashboard whose detailed data stays outside chat context.
+- Package a minimal Codex plugin entrypoint and repo-local marketplace entry.
+- Validate that help/status responses are bounded and do not preload the capability catalog.
+
+### Phase 8 — Open-source release
 
 Status: pending
 

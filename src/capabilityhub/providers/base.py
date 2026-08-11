@@ -37,4 +37,3 @@ class CapabilityProvider(Protocol):
         request: ExecutionRequest,
         context: ProviderContext,
     ) -> ExecutionResult: ...
-

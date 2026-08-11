@@ -42,4 +42,3 @@ class CapabilityHubError(Exception):
                 "details": self.details,
             }
         }
-

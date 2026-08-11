@@ -360,6 +360,16 @@ These rounds turn the product brief into falsifiable requirements. “Evidence�
 
 ## Consolidated acceptance outcomes
 
+### Round 36 — Out-of-context management interface
+
+- **Question:** How can a user inspect and manage capabilities from Codex without adding the registry and diagnostics to every conversation?
+- **Why it matters:** A management tool that injects its own catalog, logs, or dashboard data would recreate the token-overhead problem it is intended to solve.
+- **Evidence/assumption:** The requested workflow needs a quickly accessible help surface and accepts a separate visual interface. Codex plugins can provide a minimal entrypoint while a loopback web UI holds detailed state outside chat.
+- **Decision/answer:** Provide a read-only local dashboard as the primary management surface and a repo-local Codex plugin whose help action returns only a compact status/open-dashboard response. Do not override a built-in `/help` command; use the plugin action or `/capabilityhub` where custom commands are supported.
+- **Resulting requirement:** The dashboard MUST bind to loopback by default and MUST obtain state from the local control API; the plugin MUST NOT preload capability definitions or detailed logs into conversation context.
+- **Validation criterion:** Opening and filtering the dashboard causes no model call and no conversation-token delta; invoking the plugin help path exposes only its fixed minimal tool schema and a bounded status response.
+- **Risk if wrong:** A convenient UI becomes a permanent context tax or an unauthenticated administration endpoint.
+
 The discovery rounds imply five release-level outcomes:
 
 1. **Bounded model surface:** a client sees three stable meta-tools, and every response is budgeted.

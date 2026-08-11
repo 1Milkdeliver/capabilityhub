@@ -73,4 +73,3 @@ def test_audit_sinks_store_structured_events(tmp_path: Path) -> None:
     text = output.read_text(encoding="utf-8")
     assert '"event_type":"search"' in text
     assert text.endswith("\n")
-

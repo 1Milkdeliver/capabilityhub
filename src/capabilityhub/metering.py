@@ -49,4 +49,3 @@ def measure_text(text: str, estimator: TokenEstimator | None = None) -> PayloadM
         portable_tokens=selected.count(normalized),
         estimator=selected.name,
     )
-

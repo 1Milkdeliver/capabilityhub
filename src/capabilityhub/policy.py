@@ -46,4 +46,3 @@ class ReferencePolicy:
         if operation.side_effect is SideEffect.REVERSIBLE_WRITE and not context.approved:
             return PolicyDecision(PolicyOutcome.APPROVAL_REQUIRED, ("write_requires_approval",))
         return PolicyDecision(PolicyOutcome.ALLOW, ("policy_allow",))
-

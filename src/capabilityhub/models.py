@@ -117,6 +117,7 @@ class CapabilityManifest:
 
 @dataclass(frozen=True, slots=True)
 class SearchCard:
+    capability_ref: str
     revision: str
     kind: CapabilityKind
     summary: str

@@ -22,6 +22,7 @@ Use upstream software through documented protocols, a separately installed execu
 |---|---|---|---|
 | `jsonschema` | Validate inline Draft 2020-12 capability input and output contracts | MIT | [python-jsonschema/jsonschema](https://github.com/python-jsonschema/jsonschema) |
 | `types-jsonschema` (development only) | Static type information for the JSON Schema integration | Apache-2.0 | [python/typeshed](https://github.com/python/typeshed) |
+| `mcp` and `mcp-types` (optional) | Official MCP server/client transports and wire models | MIT | [modelcontextprotocol/python-sdk](https://github.com/modelcontextprotocol/python-sdk) |
 
 Release artifacts must include the complete transitive dependency and license inventory produced from the locked build environment; this table records the direct dependency decision only.
 

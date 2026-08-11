@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "capabilityhub": {
+      "command": "capabilityhub",
+      "args": ["mcp-serve"]
+    }
+  }
+}

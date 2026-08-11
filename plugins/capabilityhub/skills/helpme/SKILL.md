@@ -40,6 +40,10 @@ directory. Never overwrite unrelated configuration keys. `preview` never persist
   `mcp`, `status`, `dashboard`, `budget`, `security`, and `settings` go directly to that
   function. Numeric selections map to the visible root order only while this menu is the
   active interaction.
+- For `/helpme inventory`, call `capability.search` with an empty query, `limit: 1`,
+  and a bounded output budget. Render `total_matches` and all five `kind_counts`; do not
+  infer totals from the returned cards. Label the result as the connected runtime's
+  active snapshot.
 - `/helpme <topic>`: read only that topic from the resolved catalog.
 - `/helpme language`: render the catalog's `language` menu.
 - Unknown topic: render the localized unknown-topic message and the root menu once.

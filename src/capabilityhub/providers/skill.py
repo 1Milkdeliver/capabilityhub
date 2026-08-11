@@ -48,6 +48,7 @@ class SkillProvider:
         namespace: str = "skills",
         name: str = "skill",
         max_file_bytes: int = 262_144,
+        skip_invalid: bool = False,
     ) -> None:
         if not directories:
             raise ValueError("at least one skill directory is required")
@@ -57,6 +58,7 @@ class SkillProvider:
         self._namespace = namespace
         self._name = name
         self._max_file_bytes = max_file_bytes
+        self._skip_invalid = skip_invalid
 
     @property
     def name(self) -> str:
@@ -67,12 +69,19 @@ class SkillProvider:
         seen_coordinates: set[str] = set()
         for root in self._roots:
             for candidate in sorted(root.rglob("SKILL.md"), key=lambda path: path.as_posix()):
-                path = candidate.resolve(strict=True)
-                if not path.is_relative_to(root):
-                    raise ValueError("skill path escapes its configured directory")
-                manifest = self._manifest_from_file(root, path)
-                if manifest.identity.coordinate in seen_coordinates:
-                    raise ValueError(f"duplicate skill coordinate: {manifest.identity.coordinate}")
+                try:
+                    path = candidate.resolve(strict=True)
+                    if not path.is_relative_to(root):
+                        raise ValueError("skill path escapes its configured directory")
+                    manifest = self._manifest_from_file(root, path)
+                    if manifest.identity.coordinate in seen_coordinates:
+                        raise ValueError(
+                            f"duplicate skill coordinate: {manifest.identity.coordinate}"
+                        )
+                except (OSError, ValueError):
+                    if self._skip_invalid:
+                        continue
+                    raise
                 seen_coordinates.add(manifest.identity.coordinate)
                 manifests.append(manifest)
         return tuple(manifests)
@@ -174,14 +183,17 @@ def _parse_frontmatter(frontmatter: str) -> dict[str, str | list[str]]:
         if raw_line.startswith((" ", "\t")):
             item = raw_line.strip()
             if active_list is None or not item.startswith("- "):
-                raise ValueError("skill frontmatter supports only simple scalar and list values")
+                # Ignore nested or folded YAML that is outside the conservative fields
+                # this scanner understands. Discovery never constructs YAML objects.
+                continue
             value = _scalar(item[2:])
             existing = parsed[active_list]
             assert isinstance(existing, list)
             existing.append(value)
             continue
         if ":" not in raw_line:
-            raise ValueError("skill frontmatter line is invalid")
+            active_list = None
+            continue
         key, value = raw_line.split(":", 1)
         key = key.strip()
         if key not in _SAFE_FRONTMATTER:

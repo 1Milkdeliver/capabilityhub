@@ -9,6 +9,7 @@ from __future__ import annotations
 import math
 import secrets
 from collections.abc import Callable
+from pathlib import Path
 from threading import RLock
 from typing import Any, Literal, TypeVar
 
@@ -18,6 +19,7 @@ from mcp_types import CallToolResult, TextContent
 from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.local_catalog import discover_local_catalog
 from capabilityhub.metering import canonical_json
 from capabilityhub.models import ExecutionRequest, JsonValue, LoadedCapability, SearchCard
 from capabilityhub.references import ReferenceSigner
@@ -158,16 +160,31 @@ def serve(
     server.run(transport=transport, **transport_options)
 
 
-def create_empty_mcp_server(*, name: str = "CapabilityHub") -> MCPServer:
-    """Create the safe zero-configuration server used by the CLI entry point.
+def create_empty_mcp_server(
+    *,
+    name: str = "CapabilityHub",
+    home: Path | None = None,
+    project: Path | None = None,
+) -> MCPServer:
+    """Create the safe local-discovery server used by the CLI entry point.
 
-    It exposes the normal tools over an empty catalog and has no execution providers.
-    The random reference key and all state live only for this process.
+    It discovers inert Skill metadata, configured MCP server names, and project
+    manifests. It never imports or executes discovered code. The random reference key
+    and all state live only for this process.
     """
 
+    catalog = discover_local_catalog(home=home, project=project)
+    registry = CapabilityRegistry()
+    registry.register_many(catalog.manifests)
+    for manifest in catalog.manifests:
+        try:
+            registry.activate(manifest.identity.coordinate, manifest.identity.revision)
+        except CapabilityHubError:
+            # Invalid dependency/conflict closures stay installed but inactive.
+            continue
     service = CapabilityHubService(
-        registry=CapabilityRegistry(),
-        providers=(),
+        registry=registry,
+        providers=catalog.skill_providers,
         references=ReferenceSigner(secrets.token_bytes(32)),
         audit=MemoryAuditSink(),
     )
@@ -281,10 +298,15 @@ def _execute(
 
 
 def _search_dict(response: SearchResponse) -> dict[str, JsonValue]:
+    counts: dict[str, JsonValue] = {
+        kind: count for kind, count in response.kind_counts.items()
+    }
     return {
         "cards": [_card_dict(card) for card in response.cards],
+        "kind_counts": counts,
         "payload_bytes": response.payload_bytes,
         "portable_tokens": response.portable_tokens,
+        "total_matches": response.total_matches,
         "truncated": response.truncated,
     }
 

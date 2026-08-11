@@ -75,6 +75,8 @@ def test_search_reads_only_active_revisions_and_filters_kind() -> None:
         "shared", scope="scope", kinds=(CapabilityKind.RAG,), max_output_tokens=2_000
     )
     assert [card.revision for card in response.cards] == [rag.identity.revision]
+    assert response.total_matches == 1
+    assert response.kind_counts == {"skill": 0, "mcp": 0, "cli": 0, "api": 0, "rag": 1}
 
 
 def test_search_hard_budget_truncates_without_exceeding_the_limit() -> None:

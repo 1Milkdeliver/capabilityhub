@@ -118,17 +118,29 @@ def test_official_sdk_lists_exactly_the_three_capability_tools() -> None:
     asyncio.run(scenario())
 
 
-def test_zero_configuration_cli_server_is_empty_and_safe() -> None:
-    server = create_empty_mcp_server()
+def test_zero_configuration_cli_server_discovers_local_skills_safely(tmp_path) -> None:
+    skill = tmp_path / ".codex" / "skills" / "demo" / "SKILL.md"
+    skill.parent.mkdir(parents=True)
+    skill.write_text("---\nname: demo\ndescription: Demo skill\n---\nbody", encoding="utf-8")
+    project = tmp_path / "project"
+    project.mkdir()
+    server = create_empty_mcp_server(home=tmp_path, project=project)
 
     async def scenario() -> None:
         async with Client(server) as client:
             result = await client.call_tool(
-                "capability.search", {"query": "anything", "task_id": "local-task"}
+                "capability.search", {"query": "", "task_id": "local-task"}
             )
             assert not result.is_error
             data = cast(dict[str, object], result.structured_content)
-            assert data["cards"] == []
+            assert data["total_matches"] == 1
+            assert data["kind_counts"] == {
+                "api": 0,
+                "cli": 0,
+                "mcp": 0,
+                "rag": 0,
+                "skill": 1,
+            }
 
     asyncio.run(scenario())
 

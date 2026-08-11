@@ -7,10 +7,20 @@ The snapshot may contain `providers`, `active_capabilities`, `loaded_capabilitie
 The repository-local Codex plugin provides one minimal dashboard-help skill. It can be
 installed as an always-available help entry without loading the catalog into each chat.
 Its `.mcp.json` intentionally stays empty: the Python package and its `mcp` extra are
-separate runtime dependencies, and a plugin must not pretend that an uninstalled
-`capabilityhub` executable exists. After installing the package, an operator may
-configure `capabilityhub mcp-serve` explicitly. The plugin is therefore useful even
-when the MCP runtime is disabled, and a missing runtime cannot break every Codex task.
+separate runtime dependencies, and the public plugin must not embed one developer's
+absolute executable path. After installing the package, register the local runtime
+explicitly:
+
+```bash
+codex mcp add capabilityhub-local -- /absolute/path/to/python -m capabilityhub.cli mcp-serve
+```
+
+Open a new Codex task after registration. The local server builds a read-only startup
+snapshot from approved Skill roots, enabled plugin Skill roots, configured MCP names,
+and project `.capabilityhub/manifests`; it never executes discovered code or reports
+credential/connection values. A missing runtime therefore cannot break every Codex
+task, while connected tasks can query actual inventory totals. Same-task filesystem
+changes require restarting the task/runtime in this pre-alpha version.
 
 The plugin exposes `helpme` and `myskills`, so the Codex app can present `/helpme` and
 `/myskills`. It does not override built-in `/help`, `/skills`, `/status`, or `/mcp`

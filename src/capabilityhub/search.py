@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.metering import canonical_json, measure_text
@@ -30,6 +30,8 @@ class SearchResponse:
     portable_tokens: int
     payload_bytes: int
     truncated: bool = False
+    total_matches: int = 0
+    kind_counts: dict[str, int] = field(default_factory=dict)
 
 
 class LexicalCapabilitySearch:
@@ -84,6 +86,11 @@ class LexicalCapabilitySearch:
                 continue
             ranked.append((score, coordinate, manifest, reasons))
         ranked.sort(key=lambda item: (-item[0], item[1], item[2].identity.revision))
+        kind_counts = {
+            kind.value: sum(1 for _, _, manifest, _ in ranked if manifest.kind is kind)
+            for kind in CapabilityKind
+        }
+        total_matches = len(ranked)
 
         cards: list[SearchCard] = []
         truncated = len(ranked) > limit
@@ -106,12 +113,22 @@ class LexicalCapabilitySearch:
                 capability_ref=capability_ref,
             )
             has_more = index + 1 < min(len(ranked), limit) or len(ranked) > limit
-            candidate = _response(tuple((*cards, card)), truncated=has_more)
+            candidate = _response(
+                tuple((*cards, card)),
+                truncated=has_more,
+                total_matches=total_matches,
+                kind_counts=kind_counts,
+            )
             if candidate.portable_tokens > max_output_tokens:
                 truncated = True
                 break
             cards.append(card)
-        response = _response(tuple(cards), truncated=truncated)
+        response = _response(
+            tuple(cards),
+            truncated=truncated,
+            total_matches=total_matches,
+            kind_counts=kind_counts,
+        )
         if response.portable_tokens > max_output_tokens:
             raise _budget_too_small(response.portable_tokens, max_output_tokens)
         return response
@@ -169,14 +186,25 @@ def _normalize_kinds(
         raise _input("invalid_capability_kind", "Unknown capability kind.") from error
 
 
-def _response(cards: tuple[SearchCard, ...], *, truncated: bool) -> SearchResponse:
+def _response(
+    cards: tuple[SearchCard, ...],
+    *,
+    truncated: bool,
+    total_matches: int,
+    kind_counts: dict[str, int],
+) -> SearchResponse:
     portable_tokens = 0
     payload_bytes = 0
+    counts_json: dict[str, JsonValue] = {
+        kind: count for kind, count in kind_counts.items()
+    }
     for _ in range(4):
         payload: dict[str, JsonValue] = {
             "cards": [_card_dict(card) for card in cards],
+            "kind_counts": counts_json,
             "payload_bytes": payload_bytes,
             "portable_tokens": portable_tokens,
+            "total_matches": total_matches,
             "truncated": truncated,
         }
         measured = measure_text(canonical_json(payload))
@@ -184,7 +212,14 @@ def _response(cards: tuple[SearchCard, ...], *, truncated: bool) -> SearchRespon
             break
         portable_tokens = measured.portable_tokens
         payload_bytes = measured.utf8_bytes
-    return SearchResponse(cards, portable_tokens, payload_bytes, truncated)
+    return SearchResponse(
+        cards,
+        portable_tokens,
+        payload_bytes,
+        truncated,
+        total_matches,
+        dict(kind_counts),
+    )
 
 
 def _card_dict(card: SearchCard) -> dict[str, JsonValue]:

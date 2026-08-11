@@ -13,6 +13,9 @@ static catalog in `references/locales/`. Never translate stable menu text at run
 
 - Bare `/myskills`: render both visible groups and all items. Provider, Routing,
   Inventory, Lifecycle, Risks, and Conflicts are never hidden.
+- `list`/`inventory`: call `capability.search` with an empty query and a bounded result.
+  Use `total_matches` and `kind_counts.skill` for totals instead of counting cards.
+  Return at most five Skill cards unless the user asks for more.
 - Accept the visible number only while the My Skills menu is the active interaction.
 - Accept exact commands and aliases: `find`, `list`/`ls`, `loaded`/`using`, `show`/`info`,
   `providers`, `routing`/`why`, `lifecycle`, `risks`, `conflicts`/`check`.

@@ -128,7 +128,11 @@ class CapabilityHubService:
             "success",
             portable_tokens=response.portable_tokens,
             payload_bytes=response.payload_bytes,
-            metadata={"result_count": len(response.cards), "truncated": response.truncated},
+            metadata={
+                "result_count": len(response.cards),
+                "total_matches": response.total_matches,
+                "truncated": response.truncated,
+            },
         )
         return response
 

@@ -22,6 +22,10 @@ allowed-tools:
   - filesystem.read
 tags: [data, csv]
 unsafe-object: !!python/object:bad
+metadata:
+  nested: ignored
+multiline: >
+  ignored safely
 ---
 # CSV analyzer
 
@@ -87,3 +91,18 @@ def test_skill_provider_rejects_oversized_and_escaping_files(tmp_path) -> None:
         pytest.skip("symlinks are unavailable in this environment")
     with pytest.raises(ValueError, match="escapes"):
         SkillProvider([tmp_path]).discover()
+
+
+def test_skill_provider_can_skip_invalid_entries_for_read_only_inventory(tmp_path) -> None:
+    good = tmp_path / "good" / "SKILL.md"
+    good.parent.mkdir()
+    good.write_text("---\nname: good\n---\nbody", encoding="utf-8")
+    bad = tmp_path / "bad" / "SKILL.md"
+    bad.parent.mkdir()
+    bad.write_text("x" * 40, encoding="utf-8")
+
+    manifests = SkillProvider(
+        [tmp_path], max_file_bytes=32, skip_invalid=True
+    ).discover()
+
+    assert [item.identity.name for item in manifests] == ["good"]

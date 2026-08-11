@@ -20,6 +20,7 @@ deployment hardening guide.
 | Local preferences/lifecycle | Atomic project/global locale and enabled/disabled/quarantined overrides with project precedence | Local catalog activation only; no install, update, rollback, process draining, or durable execution ledger |
 | CLI process adapter | Opt-in absolute-executable, fixed-argv, shell-free provider with explicit environment, deadline, output parsing, redacted failures, and full service admission test | Embedding API only; no sandbox, OS resource limits, durable cancellation, or automatic local enablement |
 | HTTP API adapter | Opt-in fixed-origin JSON provider with HTTPS/loopback policy, redirect denial, encoded path/query arguments, out-of-band headers, bounded reads, and service admission test | Embedding API only; no OAuth lifecycle, retries, streaming, circuit breaker, or automatic OpenAPI import |
+| Local RAG adapter | Opt-in bounded `.md`/`.txt` retrieval with containment checks, deterministic chunk ranking, relative line citations, deadline/output limits, and service admission test | Small read-only reference adapter; no vector index, ACL backend, embedding model, persistence, or million-chunk scale evidence |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
 
 ## Benchmark claim boundary

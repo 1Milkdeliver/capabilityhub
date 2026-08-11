@@ -88,6 +88,8 @@ Embedding applications can opt into `CliProcessProvider`, the first real executi
 
 `HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
 
+`LocalRagProvider` provides real read-only retrieval over explicitly approved local `.md`/`.txt` roots. It reads bounded files only at execution time, rejects path escapes, ranks compact line chunks deterministically, emits relative-path and line-range citations, enforces `top_k`, deadline, and output budgets, and never returns an entire index or hidden absolute path. It is a small local reference adapter, not a vector database or production managed-RAG replacement.
+
 Menu language and activation overrides now persist without a model call. Use `capabilityhub language set zh-CN --scope project` (or `en`/`auto`) and `capabilityhub lifecycle set NAMESPACE/NAME disabled --scope project`. Lifecycle supports `enabled`, `disabled`, and `quarantined`; it changes only whether a discovered capability is active in the local catalog and never deletes, updates, or executes its files. Project settings override global settings, JSON writes are atomic, and unrelated configuration keys are preserved.
 
 `mcp-serve` exposes exactly `capability.search`, `capability.load`, and

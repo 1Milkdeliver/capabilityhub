@@ -39,3 +39,4 @@
 - Connected `/helpme` and `/myskills` instructions to the real language and lifecycle CLI paths while keeping update, deletion, provider execution, and network health claims unavailable.
 - Added the first real execution adapter: an opt-in, allowlisted CLI process provider with absolute executable pinning, shell-free argv, explicit environment, deadline enforcement, bounded parsing, redacted errors, and end-to-end service admission coverage.
 - Added an opt-in fixed-origin HTTP JSON provider with HTTPS/loopback enforcement, redirect denial, percent-encoded path/query arguments, out-of-band headers, pre-parse response bounds, safe errors, and end-to-end service admission coverage.
+- Added a real read-only local RAG provider with bounded file scans, path-containment checks, deterministic chunk ranking, relative line citations, deadline/output limits, and end-to-end service admission coverage.

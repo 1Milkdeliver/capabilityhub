@@ -12,6 +12,8 @@ separate runtime dependencies, and a plugin must not pretend that an uninstalled
 configure `capabilityhub mcp-serve` explicitly. The plugin is therefore useful even
 when the MCP runtime is disabled, and a missing runtime cannot break every Codex task.
 
-Codex owns built-in slash commands, so this plugin does not override the global
-`/help` command. Invoke the `capabilityhub-dashboard` skill by name or ask to open the
-CapabilityHub dashboard. This keeps the detailed UI outside the conversation context.
+The plugin exposes a skill named `helpme`, so the Codex app can present and trigger it
+as `/helpme`. It does not override the built-in `/help` command. The skill returns a
+bounded help menu and leaves detailed state in the dashboard, outside the conversation
+context. A newly installed or updated plugin may require opening a new Codex task before
+its slash-menu entry appears.

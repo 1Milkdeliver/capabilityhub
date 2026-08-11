@@ -1,6 +1,6 @@
 {
   "name": "capabilityhub",
-  "version": "0.1.1",
+  "version": "0.1.1+codex.20260811094733",
   "license": "MIT",
   "description": "Local, read-only CapabilityHub dashboard helper.",
   "author": {
@@ -10,12 +10,16 @@
   "skills": "./skills/",
   "interface": {
     "displayName": "CapabilityHub",
-    "shortDescription": "Open the local CapabilityHub dashboard.",
-    "longDescription": "Guides read-only local dashboard use without preloading capabilities.",
+    "shortDescription": "Use /helpme for CapabilityHub help.",
+    "longDescription": "Provides /helpme and guides read-only local dashboard use without preloading capabilities.",
     "developerName": "1Milkdeliver",
     "category": "Productivity",
-    "capabilities": ["local dashboard help"],
-    "defaultPrompt": "Show me how to open the local CapabilityHub dashboard."
+    "capabilities": [
+      "local dashboard help"
+    ],
+    "defaultPrompt": [
+      "/helpme"
+    ]
   },
   "mcpServers": "./.mcp.json"
 }

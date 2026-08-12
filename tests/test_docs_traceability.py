@@ -22,3 +22,17 @@ def test_stale_release_wording_fails_closed(tmp_path: Path) -> None:
     errors = traceability_errors(root)
 
     assert any("stale release wording remains" in error for error in errors)
+
+
+def test_readme_links_complete_english_and_chinese_user_guides() -> None:
+    root = Path(__file__).parents[1]
+    readme = (root / "README.md").read_text(encoding="utf-8")
+    english = (root / "docs" / "user-guide-en.md").read_text(encoding="utf-8")
+    chinese = (root / "docs" / "user-guide-zh-CN.md").read_text(encoding="utf-8")
+
+    assert "[English user guide](docs/user-guide-en.md)" in readme
+    assert "[中文使用说明书](docs/user-guide-zh-CN.md)" in readme
+    assert english.count("\n## ") == chinese.count("\n## ") == 13
+    for command in ("/helpme", "/myskills", "capsift dashboard --project-root ."):
+        assert command in english
+        assert command in chinese

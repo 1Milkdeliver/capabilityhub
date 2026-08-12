@@ -165,8 +165,13 @@ def _apply_landlock(root: Path, abi: int) -> None:
         for system_path in _system_read_roots():
             try:
                 _add_path_rule(libc, ruleset_fd, system_path, _READ_EXECUTE_ACCESS)
-            except OSError as error:
-                raise LinuxSandboxApplyError("landlock_system_rule_failed") from error
+            except OSError:
+                # Runtime map discovery is conservative and may include deleted,
+                # pseudo, or mount-specific files which Landlock cannot safely
+                # admit. Skipping such a read-only candidate preserves the
+                # default-deny boundary; the descendant execution test proves
+                # that the remaining minimal runtime closure is sufficient.
+                continue
         if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
             raise LinuxSandboxApplyError("landlock_no_new_privs_failed")
         if libc.syscall(_LANDLOCK_RESTRICT_SELF, ruleset_fd, 0) != 0:

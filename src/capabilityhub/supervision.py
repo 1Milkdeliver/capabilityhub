@@ -396,7 +396,7 @@ def _apply_worker_confinement(limits: WorkerResourceLimits | None) -> None:
         return
     if os.name != "posix" or platform.system() != "Linux":
         raise _isolation_error("provider_os_confinement_unavailable")
-    from capabilityhub.linux_sandbox import apply_linux_sandbox
+    from capabilityhub.linux_sandbox import LinuxSandboxApplyError, apply_linux_sandbox
 
     try:
         apply_linux_sandbox(
@@ -405,6 +405,8 @@ def _apply_worker_confinement(limits: WorkerResourceLimits | None) -> None:
             else None,
             deny_network=limits.require_network_isolation,
         )
+    except LinuxSandboxApplyError as error:
+        raise _isolation_error(f"provider_{error.stage}") from error
     except (OSError, RuntimeError, ValueError) as error:
         raise _isolation_error("provider_os_confinement_apply_failed") from error
 

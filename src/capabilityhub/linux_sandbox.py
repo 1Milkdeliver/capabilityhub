@@ -53,6 +53,14 @@ class LinuxSandboxCapabilities:
     reason_code: str
 
 
+class LinuxSandboxApplyError(RuntimeError):
+    """Safe stage-only confinement failure for parent-process diagnostics."""
+
+    def __init__(self, stage: str) -> None:
+        self.stage = stage
+        super().__init__(stage)
+
+
 def probe_linux_sandbox() -> LinuxSandboxCapabilities:
     if os.name != "posix" or platform.system() != "Linux":
         return LinuxSandboxCapabilities(None, False, False, False, "linux_required")
@@ -85,12 +93,18 @@ def apply_linux_sandbox(
     capabilities = probe_linux_sandbox()
     if filesystem_root is not None:
         if not capabilities.filesystem:
-            raise RuntimeError("landlock unavailable")
-        _apply_landlock(Path(filesystem_root), cast(int, capabilities.landlock_abi))
+            raise LinuxSandboxApplyError("landlock_unavailable")
+        try:
+            _apply_landlock(Path(filesystem_root), cast(int, capabilities.landlock_abi))
+        except (OSError, RuntimeError, ValueError) as error:
+            raise LinuxSandboxApplyError("landlock_apply_failed") from error
     if deny_network:
         if not capabilities.network:
-            raise RuntimeError("libseccomp unavailable")
-        _apply_seccomp_network_deny()
+            raise LinuxSandboxApplyError("seccomp_unavailable")
+        try:
+            _apply_seccomp_network_deny()
+        except (OSError, RuntimeError, ValueError) as error:
+            raise LinuxSandboxApplyError("seccomp_apply_failed") from error
 
 
 def _landlock_abi() -> int | None:

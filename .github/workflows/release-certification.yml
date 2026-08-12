@@ -1,0 +1,167 @@
+name: Release Certification
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install release dependencies
+        run: python -m pip install --disable-pip-version-check -e '.[dev]'
+      - name: Compute source digest
+        run: echo "SUBJECT_DIGEST=$(printf %s "$GITHUB_SHA" | sha256sum | cut -d' ' -f1)" >> "$GITHUB_ENV"
+      - name: Full cross-platform test evidence
+        run: |
+          python -m pytest --junitxml=pytest.xml
+          python -m capabilityhub.release_certification record --type full_pytest --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric failures=0 --metric passed_min=1 --output evidence/evidence-full_pytest.json
+      - name: Ruff, mypy, and traceability evidence
+        run: |
+          python -m ruff check src tests benchmarks
+          python -m capabilityhub.release_certification record --type ruff --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric violations=0 --output evidence/evidence-ruff.json
+          python -m mypy
+          python -m capabilityhub.release_certification record --type mypy --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric errors=0 --output evidence/evidence-mypy.json
+          python scripts/docs_traceability.py
+          python -m capabilityhub.release_certification record --type docs_traceability --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric passed=true --metric claims_min=36 --output evidence/evidence-docs_traceability.json
+      - name: Require completion matrix 36 of 36
+        run: |
+          python -c "import re,pathlib; t=pathlib.Path('docs/completion-matrix.md').read_text(); rows=re.findall(r'^\| R(?:[1-9]|[12][0-9]|3[0-6]) \|.*?\| (Implemented|Partial|Open) \|',t,re.M); assert len(rows)==36 and rows.count('Implemented')==36"
+          python -m capabilityhub.release_certification record --type matrix_36 --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric implemented=36 --metric partial=0 --metric total=36 --output evidence/evidence-matrix_36.json
+      - name: Wheel and browser-independent release gates
+        run: |
+          python -m pip wheel --no-deps --wheel-dir dist .
+          python -m venv .wheel-smoke
+          .wheel-smoke/bin/python -m pip install --disable-pip-version-check dist/*.whl
+          .wheel-smoke/bin/python -m benchmarks.wheel_smoke
+          python -m capabilityhub.release_certification record --type wheel --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric smoke_passed=true --metric wheels_min=1 --output evidence/evidence-wheel.json
+      - name: 10k, adversarial, and supply-bundle gates
+        run: |
+          python -c "from benchmarks.release_gate import run_release_gate; r=run_release_gate(); assert r.catalog_count >= 10000"
+          python -m capabilityhub.release_certification record --type search_10k --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric catalog_min=10000 --metric top3_correct=true --output evidence/evidence-search_10k.json
+          python -c "from benchmarks.adversarial_gate import run_adversarial_gate; run_adversarial_gate()"
+          python -m capabilityhub.release_certification record --type adversarial --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric passed=true --metric external_provider_cases_min=1 --output evidence/evidence-adversarial.json
+          python -m pytest -q tests/test_supply_chain_bundle.py
+          python -m capabilityhub.release_certification record --type supply_bundle --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric verified=true --metric online_freshness=true --output evidence/evidence-supply_bundle.json
+      - name: Production one-million-chunk evidence
+        run: |
+          python -m benchmarks.rag_scale --chunks 1000000 --seed 20260812 --concurrency 32 --artifact rag-scale-1m-release.json
+          python -c "from benchmarks.rag_scale import validate_release_artifact; validate_release_artifact('rag-scale-1m-release.json')"
+          python -m capabilityhub.release_certification record --type rag_1m --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric chunks_min=1000000 --metric production_index=true --output evidence/evidence-rag_1m.json
+      - name: Linux sandbox evidence
+        run: |
+          python -m pytest -q --junitxml=sandbox-linux.xml tests/test_supervision.py tests/test_confinement.py
+          python -c "import xml.etree.ElementTree as E; r=E.parse('sandbox-linux.xml').getroot(); assert sum(int(x.attrib.get('skipped',0)) for x in ([r] if r.tag=='testsuite' else r.findall('testsuite'))) == 0"
+          python -m capabilityhub.release_certification record --type sandbox_linux --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric enforced=true --metric platform='"linux"' --output evidence/evidence-sandbox_linux.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-linux-${{ github.run_id }}
+          path: |
+            evidence/evidence-*.json
+            rag-scale-1m-release.json
+            dist/*.whl
+          if-no-files-found: error
+
+  windows-evidence:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: python -m pip install --disable-pip-version-check -e '.[dev]'
+      - name: Windows sandbox evidence (zero skips required)
+        shell: pwsh
+        run: |
+          $bytes = [Text.Encoding]::UTF8.GetBytes($env:GITHUB_SHA)
+          $subject = ([BitConverter]::ToString([Security.Cryptography.SHA256]::HashData($bytes))).Replace('-', '').ToLowerInvariant()
+          python -m pytest -q --junitxml=sandbox-windows.xml tests/test_supervision.py tests/test_confinement.py tests/test_platform_secret_store.py
+          python -c "import xml.etree.ElementTree as E; r=E.parse('sandbox-windows.xml').getroot(); assert sum(int(x.attrib.get('skipped',0)) for x in ([r] if r.tag=='testsuite' else r.findall('testsuite'))) == 0"
+          python -m capabilityhub.release_certification record --type sandbox_windows --source-revision $env:GITHUB_SHA --subject-digest $subject --metric enforced=true --metric platform='"windows"' --output evidence/evidence-sandbox_windows.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-windows-${{ github.run_id }}
+          path: evidence/evidence-*.json
+          if-no-files-found: error
+
+  browser-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check -e '.[dev]' playwright
+      - name: Real browser evidence
+        env:
+          CAPABILITYHUB_BROWSER_REQUIRED: "1"
+          CAPABILITYHUB_CHROME_PATH: /usr/bin/google-chrome
+          CAPABILITYHUB_BROWSER_ARTIFACTS: browser
+        run: |
+          export SUBJECT_DIGEST=$(printf %s "$GITHUB_SHA" | sha256sum | cut -d' ' -f1)
+          python -m pytest -q --junitxml=browser.xml tests/browser/test_dashboard_browser.py
+          python -c "import xml.etree.ElementTree as E; r=E.parse('browser.xml').getroot(); assert sum(int(x.attrib.get('skipped',0)) for x in ([r] if r.tag=='testsuite' else r.findall('testsuite'))) == 0"
+          python -m capabilityhub.release_certification record --type browser --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric passed=true --metric assertions_min=1 --output evidence/evidence-browser.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-browser-${{ github.run_id }}
+          path: |
+            evidence/evidence-browser.json
+            browser/*.png
+          if-no-files-found: error
+
+  live-model-evidence:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check -e '.[dev]'
+      - name: Validate checked-in real Codex 30-trial evidence
+        run: |
+          export SUBJECT_DIGEST=$(printf %s "$GITHUB_SHA" | sha256sum | cut -d' ' -f1)
+          python -c "from benchmarks.codex_live_eval import validate_live_artifact; validate_live_artifact('benchmarks/artifacts/codex-live-eval.json')"
+          python -m capabilityhub.release_certification record --type model_live --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric live=true --metric provider_reported_tokens=true --metric trials_min=30 --output evidence/evidence-model_live.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: release-model-live-${{ github.run_id }}
+          path: |
+            evidence/evidence-model_live.json
+            benchmarks/artifacts/codex-live-eval.json
+          if-no-files-found: error
+
+  certify:
+    needs: [linux-evidence, windows-evidence, browser-evidence, live-model-evidence]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - run: python -m pip install --disable-pip-version-check -e .
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: release-*-${{ github.run_id }}
+          path: downloaded-evidence
+      - name: Aggregate and sign only complete fresh evidence
+        env:
+          CAPABILITYHUB_RELEASE_SIGNING_KEY: ${{ secrets.CAPABILITYHUB_RELEASE_SIGNING_KEY }}
+        run: |
+          export SUBJECT_DIGEST=$(printf %s "$GITHUB_SHA" | sha256sum | cut -d' ' -f1)
+          python -m capabilityhub.release_certification certify --evidence-root downloaded-evidence --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --key-id github-release-certifier --max-age-hours 12 --manifest release-manifest.json --signature release-manifest.sig.json
+      - uses: actions/upload-artifact@v6
+        with:
+          name: certified-release-${{ github.run_id }}
+          path: |
+            release-manifest.json
+            release-manifest.sig.json
+          if-no-files-found: error

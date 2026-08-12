@@ -175,8 +175,12 @@ def test_unsupported_worker_isolation_fails_closed() -> None:
     assert caught.value.code == "provider_os_confinement_unavailable"
 
     capabilities = sandbox_capabilities()
-    assert capabilities.filesystem_isolation is None
-    assert capabilities.network_isolation is None
+    if sys.platform == "linux":
+        assert capabilities.filesystem_isolation == "landlock"
+        assert capabilities.network_isolation == "libseccomp"
+    else:
+        assert capabilities.filesystem_isolation is None
+        assert capabilities.network_isolation is None
     assert capabilities.cpu_limit in {"job-object", "setrlimit"}
 
 

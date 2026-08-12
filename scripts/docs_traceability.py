@@ -8,6 +8,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 IMPLEMENTED_EVIDENCE = {
+    "R2": (
+        ("benchmarks/codex_live_eval.py", "def validate_live_artifact"),
+        ("tests/test_codex_live_eval.py", "complete_real_usage"),
+    ),
     "R1": (
         ("src/capabilityhub/admin_control.py", "class AuthenticatedAdminDispatcher"),
         ("tests/test_admin_control.py", "not_interchangeable"),

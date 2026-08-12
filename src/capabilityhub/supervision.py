@@ -7,6 +7,7 @@ import json
 import multiprocessing
 import os
 import pickle
+import platform
 import signal
 import subprocess
 from collections.abc import Mapping
@@ -16,7 +17,7 @@ from threading import RLock
 from time import monotonic
 from typing import Any, Protocol, cast
 
-from capabilityhub.confinement import require_confinement
+from capabilityhub.confinement import confinement_status, require_confinement
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.models import (
     CapabilityIdentity,
@@ -57,12 +58,17 @@ class WorkerResourceLimits:
     memory_bytes: int | None = None
     require_filesystem_isolation: bool = False
     require_network_isolation: bool = False
+    filesystem_root: str | None = None
 
     def __post_init__(self) -> None:
         if self.cpu_seconds is not None and self.cpu_seconds < 1:
             raise ValueError("cpu_seconds must be positive")
         if self.memory_bytes is not None and self.memory_bytes < 1_048_576:
             raise ValueError("memory_bytes must be at least 1048576")
+        if self.filesystem_root is not None and not os.path.isabs(self.filesystem_root):
+            raise ValueError("filesystem_root must be absolute")
+        if self.filesystem_root is not None and not self.require_filesystem_isolation:
+            raise ValueError("filesystem_root requires filesystem isolation")
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,7 +85,14 @@ def sandbox_capabilities() -> SandboxCapabilities:
 
     if os.name == "nt":
         return SandboxCapabilities("windows-job-object", "job-object", "job-object", None, None)
-    return SandboxCapabilities("posix-process-group", "setrlimit", "setrlimit", None, None)
+    status = confinement_status()
+    return SandboxCapabilities(
+        "posix-process-group",
+        "setrlimit",
+        "setrlimit",
+        "landlock" if status.filesystem else None,
+        "libseccomp" if status.network else None,
+    )
 
 
 @dataclass(slots=True)
@@ -118,6 +131,7 @@ class ProcessProviderSupervisor:
         require_confinement(
             filesystem=bool(limits and limits.require_filesystem_isolation),
             network=bool(limits and limits.require_network_isolation),
+            filesystem_root=limits.filesystem_root if limits is not None else None,
         )
         if self.strict_local_providers:
             restriction = _local_provider_restriction(provider)
@@ -233,6 +247,14 @@ class ProcessProviderSupervisor:
                     retryable=not cancelled,
                 ) from error
             except OSError as error:
+                with self._worker_lock:
+                    cancelled = worker_id in self._cancelled
+                if cancelled:
+                    raise _error(
+                        "provider_worker_cancelled",
+                        ErrorCategory.CANCELLED,
+                        "The isolated provider execution was cancelled.",
+                    ) from error
                 raise _error(
                     "provider_worker_result_too_large",
                     ErrorCategory.BUDGET,
@@ -298,8 +320,9 @@ def _worker(
     try:
         if os.name != "nt" and hasattr(os, "setsid"):
             os.setsid()
-        _apply_resource_limits(resource_limits)
         try:
+            _apply_resource_limits(resource_limits)
+            _apply_worker_confinement(resource_limits)
             with worker_secret_scope(secret_envelope):
                 result = provider.execute(identity, request, context)
         except CapabilityHubError as error:
@@ -364,6 +387,26 @@ def _apply_resource_limits(limits: WorkerResourceLimits | None) -> None:
         resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_seconds, limits.cpu_seconds))
     if limits.memory_bytes is not None:
         resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
+
+
+def _apply_worker_confinement(limits: WorkerResourceLimits | None) -> None:
+    if limits is None or not (
+        limits.require_filesystem_isolation or limits.require_network_isolation
+    ):
+        return
+    if os.name != "posix" or platform.system() != "Linux":
+        raise _isolation_error("provider_os_confinement_unavailable")
+    from capabilityhub.linux_sandbox import apply_linux_sandbox
+
+    try:
+        apply_linux_sandbox(
+            filesystem_root=limits.filesystem_root
+            if limits.require_filesystem_isolation
+            else None,
+            deny_network=limits.require_network_isolation,
+        )
+    except (OSError, RuntimeError, ValueError) as error:
+        raise _isolation_error("provider_os_confinement_apply_failed") from error
 
 
 def _create_windows_job(

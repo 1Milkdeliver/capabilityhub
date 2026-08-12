@@ -8,7 +8,7 @@ run does not upgrade a row by itself.
 | ID | Requirement | Current state | Evidence or remaining gate |
 |---|---|---|---|
 | R1 | Separate control and data planes | Implemented | Model-facing HTTP/MCP expose only search/load/execute; loopback and mTLS admin paths use distinct plane-specific credentials, while CLI and Dashboard management actions share the authenticated admin dispatcher and cannot be invoked with data credentials |
-| R2 | End-to-end cost and quality targets | Partial | Structural disclosure benchmark exists; real task quality, latency, tool-call and billed-token evidence remains open |
+| R2 | End-to-end cost and quality targets | Implemented | A real six-call Codex evaluation records provider-reported input/cache/output/reasoning tokens, tool calls and latency across 30 paired tasks; lazy loading passed quality non-inferiority and used 40.65% of eager estimated cost |
 | R3 | One abstraction for Skill/MCP/CLI/API/RAG | Implemented | Manifest, registry and provider protocol cover all five; configured reference adapters execute four and Skill loads instructions |
 | R4 | Three meta-tools invoke every kind | Implemented | One MCP-envelope search/load/execute chain covers all five real Provider kinds; Skill is explicitly load-only and CLI/API/RAG/MCP invoke their advertised operation |
 | R5 | Compact search under hard budgets | Implemented | Search enforces portable-token, total-byte, and per-card-byte ceilings, skips oversized cards safely, defaults to top-8, and gates the 10k fixture on the correct top-3 result |
@@ -51,7 +51,7 @@ These are narrow, reproducible evidence paths; they do not close a `Partial` row
 | ID | Source evidence | Verification evidence |
 |---|---|---|
 | R1 | `http_control.py`, `admin_control.py`, `runtime.py` | `test_http_control.py`, `test_admin_control.py` |
-| R2 | `benchmarks/harness.py`, `benchmarks/model_eval.py` | `test_benchmark.py`, `test_model_eval.py` |
+| R2 | `benchmarks/harness.py`, `benchmarks/codex_live_eval.py`, `benchmarks/artifacts/codex-live-eval.json` | `test_benchmark.py`, `test_codex_live_eval.py` |
 | R3 | `models.py`, `providers/base.py`, `registry.py` | `test_provider_conformance_matrix.py`, `test_registry.py` |
 | R4 | `mcp_server.py`, `service_adapter.py` | `test_mcp_server.py`, `test_provider_conformance_matrix.py` |
 | R5 | `search.py` | `test_search.py`, `test_scale_benchmark.py` |

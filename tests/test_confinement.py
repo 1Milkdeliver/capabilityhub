@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import platform
 import socket
 import subprocess
 import sys
@@ -98,11 +99,12 @@ def test_platform_backend_is_explicit_and_does_not_overclaim() -> None:
         ConfinementBackend.WINDOWS_JOB_ONLY
         if os.name == "nt"
         else ConfinementBackend.POSIX_RESOURCE_ONLY
-        if os.name == "posix"
+        if os.name == "posix" and platform.system() == "Linux"
         else ConfinementBackend.UNSUPPORTED_PLATFORM
     )
     assert status.backend is expected
-    assert status.filesystem is False
-    assert status.network is False
+    if expected is not ConfinementBackend.POSIX_RESOURCE_ONLY:
+        assert status.filesystem is False
+        assert status.network is False
     assert status.reason_code
     assert "path" not in repr(status).lower()

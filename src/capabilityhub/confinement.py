@@ -36,13 +36,16 @@ def confinement_status() -> ConfinementStatus:
             process_tree=True,
             reason_code="windows_job_has_no_fs_network_boundary",
         )
-    if os.name == "posix" and platform.system() in {"Linux", "Darwin"}:
+    if os.name == "posix" and platform.system() == "Linux":
+        from capabilityhub.linux_sandbox import probe_linux_sandbox
+
+        linux = probe_linux_sandbox()
         return ConfinementStatus(
             ConfinementBackend.POSIX_RESOURCE_ONLY,
-            filesystem=False,
-            network=False,
+            filesystem=linux.filesystem,
+            network=linux.network,
             process_tree=True,
-            reason_code="posix_limits_have_no_fs_network_boundary",
+            reason_code=linux.reason_code,
         )
     return ConfinementStatus(
         ConfinementBackend.UNSUPPORTED_PLATFORM,
@@ -53,11 +56,16 @@ def confinement_status() -> ConfinementStatus:
     )
 
 
-def require_confinement(*, filesystem: bool, network: bool) -> ConfinementStatus:
+def require_confinement(
+    *, filesystem: bool, network: bool, filesystem_root: str | None = None
+) -> ConfinementStatus:
     """Fail before provider creation unless every requested boundary is real."""
 
     status = confinement_status()
-    missing = (filesystem and not status.filesystem) or (network and not status.network)
+    invalid_root = filesystem and filesystem_root is None
+    missing = invalid_root or (filesystem and not status.filesystem) or (
+        network and not status.network
+    )
     if missing:
         raise CapabilityHubError(
             code="provider_os_confinement_unavailable",

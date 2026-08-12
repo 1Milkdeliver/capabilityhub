@@ -127,7 +127,11 @@ def test_public_verifier_rejects_tampered_artifact_before_signature_work() -> No
     ("change", "code"),
     [
         (
-            lambda item: replace(item, signature=item.signature[:-2] + "AA"),
+            lambda item: replace(
+                item,
+                signature=("A" if item.signature[0] != "A" else "B")
+                + item.signature[1:],
+            ),
             "invalid_artifact_signature",
         ),
         (

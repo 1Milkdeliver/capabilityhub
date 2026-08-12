@@ -122,7 +122,7 @@ def test_search_filters_all_five_kinds_and_dependency_permission(tmp_path) -> No
 @pytest.mark.parametrize(
     ("kind", "arguments", "reason"),
     (
-        ("rag", {"path": "C:/outside/private.txt"}, "path_outside_allowed_roots"),
+        ("rag", {"path": "{outside_path}"}, "path_outside_allowed_roots"),
         (
             "api",
             {"host": "blocked.example.test", "http_method": "GET"},
@@ -145,12 +145,15 @@ def test_execute_rejects_constrained_arguments_before_provider(
     reason: str,
 ) -> None:
     monitor, revisions, root = _catalog(tmp_path)
+    selected = dict(arguments)
+    if selected.get("path") == "{outside_path}":
+        selected["path"] = str(tmp_path / "outside" / "private.txt")
 
     with pytest.raises(CapabilityHubError) as denied:
         local_execute_static(
             revisions[kind],
             "run",
-            arguments,
+            selected,
             {"provider_was_called": True},
             parameter_authorizer=_authorizer(root),
             monitor=monitor,

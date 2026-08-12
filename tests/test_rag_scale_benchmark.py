@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -11,6 +12,7 @@ from benchmarks.rag_scale import (
     dataset_digest,
     run_rag_scale_benchmark,
     stream_chunks,
+    validate_release_artifact,
     write_artifact,
 )
 
@@ -63,3 +65,20 @@ def test_hard_index_limit_fails_closed(tmp_path) -> None:
             directory=tmp_path,
             max_index_bytes=1,
         )
+
+
+def test_checked_in_1m_release_artifact_is_strictly_validated() -> None:
+    payload = validate_release_artifact("benchmarks/artifacts/rag-scale-1m.json")
+    assert payload["chunk_count"] == 1_000_000
+    assert payload["concurrent_quality_hits"] == payload["concurrent_reads"]
+
+
+def test_release_artifact_rejects_claim_tampering(tmp_path) -> None:
+    source = json.loads(
+        Path("benchmarks/artifacts/rag-scale-1m.json").read_text(encoding="utf-8")
+    )
+    source["chunk_count"] = 999_999
+    tampered = tmp_path / "tampered.json"
+    tampered.write_text(json.dumps(source), encoding="utf-8")
+    with pytest.raises(RuntimeError, match="validation failed"):
+        validate_release_artifact(tampered)

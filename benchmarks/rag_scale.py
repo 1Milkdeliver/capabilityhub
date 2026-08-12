@@ -22,6 +22,7 @@ from typing import Any
 DEFAULT_SEED = 20_260_812
 CI_CHUNKS = 10_000
 FULL_CHUNKS = 1_000_000
+FULL_DATASET_DIGEST = "sha256:ab54b45ac8ef335440fb7a6973911e83fb1e67efdbf142196c2bfe8eebdf9b8a"
 DEFAULT_TOP_K = 5
 QUALITY_FIXTURES = (
     (37, "amber zephyr ledger"),
@@ -283,6 +284,84 @@ def write_artifact(report: RagScaleReport, destination: str | Path) -> Path:
         Path(temporary_name).unlink(missing_ok=True)
         raise
     return target
+
+
+def validate_release_artifact(path: str | Path) -> dict[str, Any]:
+    """Fail closed unless a checked-in 1m artifact is internally replayable."""
+
+    try:
+        payload = json.loads(Path(path).read_text(encoding="utf-8"))
+        if not isinstance(payload, dict):
+            raise ValueError
+        required = {
+            "schema",
+            "seed",
+            "chunk_count",
+            "top_k",
+            "build_ms",
+            "cold",
+            "warm",
+            "concurrent",
+            "concurrent_reads",
+            "concurrent_quality_hits",
+            "quality",
+            "dataset_digest",
+            "index_bytes",
+            "hard_limits",
+            "hardware",
+            "replay_command",
+        }
+        if set(payload) != required:
+            raise ValueError
+        if payload["schema"] != "capabilityhub.rag-scale-evidence.v1":
+            raise ValueError
+        if payload["chunk_count"] != FULL_CHUNKS:
+            raise ValueError
+        if payload["dataset_digest"] != FULL_DATASET_DIGEST:
+            raise ValueError
+        limits = payload["hard_limits"]
+        if not isinstance(limits, dict):
+            raise ValueError
+        if payload["build_ms"] > float(limits["max_build_seconds"]) * 1_000:
+            raise ValueError
+        if payload["index_bytes"] > int(limits["max_index_bytes"]):
+            raise ValueError
+        for label in ("cold", "warm", "concurrent"):
+            latency = payload[label]
+            if not isinstance(latency, dict):
+                raise ValueError
+            if not 0 <= latency["p50_ms"] <= latency["p95_ms"] <= latency["max_ms"]:
+                raise ValueError
+            if latency["p95_ms"] > float(limits["max_p95_ms"]):
+                raise ValueError
+        quality = payload["quality"]
+        if not isinstance(quality, list) or len(quality) != len(QUALITY_FIXTURES):
+            raise ValueError
+        if any(item["rank"] is None or item["rank"] > payload["top_k"] for item in quality):
+            raise ValueError
+        if payload["concurrent_quality_hits"] != payload["concurrent_reads"]:
+            raise ValueError
+        hardware = payload["hardware"]
+        if not isinstance(hardware, dict) or not {
+            "logical_cpu_count",
+            "machine",
+            "os",
+            "python",
+            "sqlite",
+        } <= set(hardware):
+            raise ValueError
+        replay = payload["replay_command"]
+        expected_parts = (
+            f"--chunks {payload['chunk_count']}",
+            f"--seed {payload['seed']}",
+            f"--concurrency {payload['concurrent_reads']}",
+            "--artifact ",
+        )
+        if not isinstance(replay, str) or any(part not in replay for part in expected_parts):
+            raise ValueError
+    except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise RuntimeError("RAG release artifact validation failed") from error
+    return payload
 
 
 def _quality(index: DiskRagIndex, expected: int, query: str) -> QualityEvidence:

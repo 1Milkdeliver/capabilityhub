@@ -10,6 +10,7 @@ from threading import RLock
 from typing import Protocol
 
 from capabilityhub.models import JsonValue
+from capabilityhub.tenancy import SqliteScopedState, TenantScope
 
 
 @dataclass(frozen=True, slots=True)
@@ -58,6 +59,97 @@ class JsonlAuditSink:
                 stream.write("\n")
                 stream.flush()
                 os.fsync(stream.fileno())
+
+
+class ScopedAuditSink:
+    """Write a minimal audit projection into caller-scoped durable state."""
+
+    def __init__(
+        self,
+        state: SqliteScopedState,
+        *,
+        tenant_id: str,
+        principal_id: str,
+        session_id: str,
+        identity_source: str,
+        delegate: AuditSink | None = None,
+    ) -> None:
+        self._state = state
+        self._tenant_id = tenant_id
+        self._principal_id = principal_id
+        self._session_id = session_id
+        self.identity_source = identity_source
+        self._delegate = delegate
+
+    def emit(self, event: AuditEvent) -> None:
+        scope = TenantScope(
+            self._tenant_id,
+            self._principal_id,
+            self._session_id,
+            event.task_id,
+        )
+        self._state.append_event(
+            scope,
+            {
+                "capability_revision": event.capability_revision,
+                "event_type": event.event_type,
+                "outcome": event.outcome,
+                "payload_bytes": event.payload_bytes,
+                "portable_tokens": event.portable_tokens,
+                "reason_codes": list(event.reason_codes),
+            },
+            stream="audit",
+        )
+        if self._delegate is not None:
+            self._delegate.emit(event)
+
+
+def read_scoped_audit(
+    state: SqliteScopedState,
+    scope: TenantScope,
+    *,
+    limit: int = 50,
+) -> tuple[AuditEvent, ...]:
+    """Read only the authenticated scope; an absent foreign record is indistinguishable."""
+
+    events = state.list_events(scope, stream="audit", limit=limit)
+    result: list[AuditEvent] = []
+    for stored in events:
+        value = stored.value
+        if not isinstance(value, dict):
+            continue
+        try:
+            portable_tokens = value.get("portable_tokens", 0)
+            payload_bytes = value.get("payload_bytes", 0)
+            reason_codes = value.get("reason_codes", [])
+            if (
+                isinstance(portable_tokens, bool)
+                or not isinstance(portable_tokens, int)
+                or isinstance(payload_bytes, bool)
+                or not isinstance(payload_bytes, int)
+                or not isinstance(reason_codes, list)
+            ):
+                continue
+            result.append(
+                AuditEvent(
+                    event_id=stored.event_id,
+                    sequence=stored.sequence,
+                    task_id=scope.task,
+                    event_type=str(value["event_type"]),
+                    capability_revision=(
+                        str(value["capability_revision"])
+                        if value.get("capability_revision") is not None
+                        else None
+                    ),
+                    outcome=str(value["outcome"]),
+                    portable_tokens=portable_tokens,
+                    payload_bytes=payload_bytes,
+                    reason_codes=tuple(str(item) for item in reason_codes),
+                )
+            )
+        except (KeyError, TypeError, ValueError):
+            continue
+    return tuple(result)
 
 
 def read_jsonl_audit(path: Path, *, limit: int = 50) -> tuple[AuditEvent, ...]:

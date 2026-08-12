@@ -24,9 +24,9 @@ from capabilityhub.approval_store import (
     ApprovalIntent,
     ApprovalRecord,
     ApprovalStatus,
-    SqliteApprovalStore,
+    ScopedApprovalStore,
 )
-from capabilityhub.audit import AuditEvent, AuditSink
+from capabilityhub.audit import AuditEvent, AuditSink, ScopedAuditSink, read_scoped_audit
 from capabilityhub.auth import AuthIdentity
 from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
@@ -87,7 +87,7 @@ from capabilityhub.models import (
 from capabilityhub.observability import InMemoryObservability, SqliteMetricStore
 from capabilityhub.openapi_import import OpenApiSelection, import_openapi_file
 from capabilityhub.orchestration import ReasoningOrchestrator
-from capabilityhub.protocol import AdapterKind
+from capabilityhub.protocol import AdapterKind, in_process_request
 from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.providers.static import StaticFixture, StaticProvider
@@ -122,6 +122,7 @@ from capabilityhub.supply_chain import (
     SupplyChainPolicy,
     SupplyChainVerifier,
 )
+from capabilityhub.tenancy import SqliteScopedState, TenantScope
 from capabilityhub.update_store import SQLiteUpdateStore
 from capabilityhub.webui import (
     ApprovalProvider,
@@ -323,6 +324,51 @@ def local_inventory(
     return selected.snapshot().inventory_json()
 
 
+def _local_cli_adapter(
+    service: CapabilityHubService,
+    *,
+    context: ServiceContext,
+    budget: BudgetLedger,
+    project: Path,
+) -> CapabilityHubServiceAdapter:
+    """Bind trusted local state behind the same adapter used by remote transports."""
+
+    return CapabilityHubServiceAdapter(
+        service,
+        kind=AdapterKind.CLI,
+        context_provider=lambda: context,
+        budget_provider=lambda _task_id: budget,
+        observability=_runtime_observability(project),
+    )
+
+
+def _local_cli_dispatch(
+    adapter: CapabilityHubServiceAdapter,
+    operation: str,
+    payload: Mapping[str, JsonValue],
+    *,
+    correlation_id: str | None = None,
+) -> dict[str, JsonValue]:
+    request_id = token_bytes(16).hex()
+    result = adapter.dispatch(
+        in_process_request(
+            AdapterKind.CLI,
+            operation,
+            payload,
+            request_id=request_id,
+            correlation_id=correlation_id or request_id,
+            handshake=adapter.handshake,
+        )
+    )
+    if not isinstance(result, dict):
+        raise CapabilityHubError(
+            code="invalid_adapter_result",
+            category=ErrorCategory.INTERNAL,
+            safe_message="The shared adapter returned an invalid result.",
+        )
+    return result
+
+
 def local_search(
     query: str,
     *,
@@ -358,38 +404,40 @@ def local_search(
         granted_permissions,
         parameter_authorizer=parameter_authorizer,
     )
-    response = service.search(
-        query,
-        task_id="local-cli",
-        context=context,
-        budget=BudgetLedger("local-search", {"bytes": 1_000_000, "portable_tokens": 900}),
-        kinds=kinds,
-        limit=limit,
-        max_output_tokens=900,
+    budget = BudgetLedger("local-search", {"bytes": 1_000_000, "portable_tokens": 900})
+    adapter = _local_cli_adapter(
+        service, context=context, budget=budget, project=selected.project
     )
+    response = _local_cli_dispatch(
+        adapter,
+        "capability.search",
+        {
+            "query": query,
+            "task_id": "local-cli",
+            "kinds": None if kinds is None else list(cast(Iterable[JsonValue], kinds)),
+            "limit": limit,
+            "max_output_tokens": 900,
+        },
+    )
+    cards = cast(list[JsonValue], response["cards"])
     results: list[JsonValue] = [
         {
-            "estimated_load_tokens": card.estimated_load_tokens,
-            "kind": card.kind.value,
-            "match_reason": list(card.match_reason),
-            "operations": list(card.operations),
-            "revision": card.revision,
-            "risk": card.risk.value,
-            "summary": card.summary,
-            "trust_tier": card.trust_tier,
+            key: value
+            for key, value in cast(dict[str, JsonValue], card).items()
+            if key != "capability_ref"
         }
-        for card in response.cards
+        for card in cards
     ]
-    counts: dict[str, JsonValue] = dict(response.kind_counts)
+    counts = cast(dict[str, JsonValue], response["kind_counts"])
     return {
         "dependency": _dependency_decision_json(dependency),
         "kind_counts": counts,
-        "payload_bytes": response.payload_bytes,
-        "portable_tokens": response.portable_tokens,
+        "payload_bytes": response["payload_bytes"],
+        "portable_tokens": response["portable_tokens"],
         "query": query,
         "results": results,
-        "total_matches": response.total_matches,
-        "truncated": response.truncated,
+        "total_matches": response["total_matches"],
+        "truncated": response["truncated"],
     }
 
 
@@ -556,11 +604,22 @@ def local_audit(
     *,
     limit: int = 50,
     monitor: LocalCatalogMonitor | None = None,
+    identity: AuthIdentity | None = None,
+    task_id: str = "local-cli",
 ) -> dict[str, JsonValue]:
     """Return a bounded redacted tail of durable project audit events."""
 
     selected = _select_local_scope(project_root, monitor)
-    events = _audit_events(selected.project, limit=limit)
+    if identity is None:
+        events = _audit_events(selected.project, limit=limit)
+        identity_source = "local-cli"
+    else:
+        events = read_scoped_audit(
+            _scoped_state(selected.project),
+            _tenant_scope(identity, task_id),
+            limit=limit,
+        )
+        identity_source = identity.source
     rows: list[JsonValue] = [
         {
             "capability_revision": event.capability_revision,
@@ -574,7 +633,13 @@ def local_audit(
         }
         for event in events
     ]
-    return {"events": rows, "limit": limit, "scope": "project", "stored": len(rows)}
+    return {
+        "events": rows,
+        "identity_source": identity_source,
+        "limit": limit,
+        "scope": "authenticated-task" if identity is not None else "project",
+        "stored": len(rows),
+    }
 
 
 def local_secure_audit(
@@ -999,25 +1064,40 @@ def local_load(
         purpose="load",
         ttl_seconds=60,
     )
-    loaded = service.load(
-        load_ref,
-        task_id="local-cli",
-        context=context,
-        budget=budget,
-        section_names=section_names,
-        operation_names=operation_names,
-        max_output_tokens=max_output_tokens,
+    adapter = _local_cli_adapter(
+        service, context=context, budget=budget, project=selected.project
+    )
+    loaded = _local_cli_dispatch(
+        adapter,
+        "capability.load",
+        {
+            "capability_ref": load_ref,
+            "task_id": "local-cli",
+            "section_names": (
+                None
+                if section_names is None
+                else list(cast(Iterable[JsonValue], section_names))
+            ),
+            "operation_names": (
+                None
+                if operation_names is None
+                else list(cast(Iterable[JsonValue], operation_names))
+            ),
+            "max_output_tokens": max_output_tokens,
+        },
     )
     context_state = _context_state(selected.project)
     context_evictions: list[JsonValue] = []
-    for section in loaded.sections:
+    sections = cast(list[JsonValue], loaded["sections"])
+    for raw_section in sections:
+        section = cast(dict[str, JsonValue], raw_section)
         evictions = context_state.add(
             ResidentSection(
-                key=f"{loaded.revision}::{section.name}",
-                revision=loaded.revision,
-                section=section.name,
-                portable_tokens=section.portable_tokens,
-                sensitive=section.sensitive,
+                key=f"{loaded['revision']}::{section['name']}",
+                revision=cast(str, loaded["revision"]),
+                section=cast(str, section["name"]),
+                portable_tokens=cast(int, section["portable_tokens"]),
+                sensitive=cast(bool, section["sensitive"]),
             )
         )
         context_evictions.extend(
@@ -1033,37 +1113,18 @@ def local_load(
         "budget": _budget_json(budget.snapshot()),
         "dependency": _dependency_decision_json(dependency),
         "execution_ref": None,
-        "execution_requires_same_process_session": bool(loaded.execution_ref),
-        "omitted_sections": list(loaded.omitted_sections),
-        "operations": [
-            {
-                "input_schema": dict(operation.input_schema),
-                "name": operation.name,
-                "operation_type": operation.operation_type.value,
-                "output_schema": dict(operation.output_schema),
-                "requires_approval": operation.requires_approval,
-                "side_effect": operation.side_effect.value,
-            }
-            for operation in loaded.operations
-        ],
-        "permissions": list(loaded.permissions),
-        "portable_tokens": loaded.portable_tokens,
-        "revision": loaded.revision,
+        "execution_requires_same_process_session": bool(loaded["execution_ref"]),
+        "omitted_sections": loaded["omitted_sections"],
+        "operations": loaded["operations"],
+        "permissions": loaded["permissions"],
+        "portable_tokens": loaded["portable_tokens"],
+        "revision": loaded["revision"],
         "context": {
             "evictions": context_evictions,
             "generation": resident.generation,
             "used_portable_tokens": resident.used_portable_tokens,
         },
-        "sections": [
-            {
-                "content": section.content,
-                "media_type": section.media_type,
-                "name": section.name,
-                "portable_tokens": section.portable_tokens,
-                "sensitive": section.sensitive,
-            }
-            for section in loaded.sections
-        ],
+        "sections": sections,
     }
 
 
@@ -1272,20 +1333,27 @@ def _local_execute(
         deadline_ms=deadline_ms,
     )
     budget = _persistent_budget(selected.project)
+    adapter = _local_cli_adapter(
+        service, context=context, budget=budget, project=selected.project
+    )
+    correlation_id = token_bytes(16).hex()
     load_ref = signer.issue(
         revision=revision,
         scope=context.reference_scope,
         purpose="load",
         ttl_seconds=60,
     )
-    loaded = service.load(
-        load_ref,
-        task_id="local-cli",
-        context=context,
-        budget=budget,
-        section_names=(),
-        operation_names=(operation,),
-        max_output_tokens=max_output_tokens,
+    loaded = _local_cli_dispatch(
+        adapter,
+        "capability.load",
+        {
+            "capability_ref": load_ref,
+            "task_id": "local-cli",
+            "section_names": [],
+            "operation_names": [operation],
+            "max_output_tokens": max_output_tokens,
+        },
+        correlation_id=correlation_id,
     )
     operation_spec = manifest.operation(operation)
     if operation_spec is None:
@@ -1302,7 +1370,9 @@ def _local_execute(
             context=context,
             side_effect=operation_spec.side_effect.value,
         )
-        SqliteApprovalStore(_state_path(selected.project)).consume(approval_id, intent)
+        ScopedApprovalStore(
+            _state_path(selected.project), scope_key=_tenant_scope_key(selected.project)
+        ).consume(_scope_from_context(context, "local-cli"), approval_id, intent)
     approval_ref = (
         service.issue_approval(
             revision=revision,
@@ -1315,30 +1385,38 @@ def _local_execute(
         if approved or approval_id is not None
         else None
     )
-    result = service.execute(
-        ExecutionRequest(
-            loaded.execution_ref,
-            operation,
-            arguments,
-            "local-cli",
-            approval_ref=approval_ref,
-            idempotency_key=idempotency_key,
-        ),
-        context=context,
-        budget=budget,
-        max_output_tokens=max_output_tokens,
+    execution_ref = loaded["execution_ref"]
+    if not isinstance(execution_ref, str):
+        raise CapabilityHubError(
+            code="execution_unavailable",
+            category=ErrorCategory.REFERENCE,
+            safe_message="The capability does not expose an executable operation.",
+        )
+    result = _local_cli_dispatch(
+        adapter,
+        "capability.execute",
+        {
+            "execution_ref": execution_ref,
+            "operation": operation,
+            "arguments": arguments,
+            "task_id": "local-cli",
+            "approval_ref": approval_ref,
+            "idempotency_key": idempotency_key,
+            "max_output_tokens": max_output_tokens,
+        },
+        correlation_id=correlation_id,
     )
     return {
-        "audit_id": result.audit_id,
+        "audit_id": result["audit_id"],
         "budget": _budget_json(budget.snapshot()),
-        "capability_revision": result.capability_revision,
+        "capability_revision": result["capability_revision"],
         "dependency": _dependency_decision_json(
             dependency_decider(DependencyOperation.EXECUTE)
         ),
-        "operation": result.operation,
-        "output": result.output,
-        "portable_tokens": result.portable_tokens,
-        "provider": result.provider,
+        "operation": result["operation"],
+        "output": result["output"],
+        "portable_tokens": result["portable_tokens"],
+        "provider": result["provider"],
     }
 
 
@@ -1363,14 +1441,18 @@ def local_approval_request(
             safe_message="The capability does not declare this operation.",
         )
     context = _local_context(None)
-    record = SqliteApprovalStore(_state_path(selected.project)).request(
-        _approval_intent(
+    intent = _approval_intent(
             revision,
             operation,
             arguments,
             context=context,
             side_effect=operation_spec.side_effect.value,
-        ),
+        )
+    record = ScopedApprovalStore(
+        _state_path(selected.project), scope_key=_tenant_scope_key(selected.project)
+    ).request(
+        _scope_from_context(context, "local-cli"),
+        intent,
         ttl_seconds=ttl_seconds,
     )
     return _approval_json(record)
@@ -1385,7 +1467,10 @@ def local_approvals(
     """Return a bounded approval queue without argument bodies or digests."""
 
     project = _catalog_project(project_root)
-    records = SqliteApprovalStore(_state_path(project)).list(status=status, limit=limit)
+    context = _local_context(None)
+    records = ScopedApprovalStore(
+        _state_path(project), scope_key=_tenant_scope_key(project)
+    ).list(_scope_from_context(context, "local-cli"), status=status, limit=limit)
     return {"approvals": [_approval_json(record) for record in records], "count": len(records)}
 
 
@@ -1398,11 +1483,13 @@ def local_approval_decide(
     """Approve or deny one pending request as the local operator."""
 
     project = _catalog_project(project_root)
-    store = SqliteApprovalStore(_state_path(project))
+    context = _local_context(None)
+    scope = _scope_from_context(context, "local-cli")
+    store = ScopedApprovalStore(_state_path(project), scope_key=_tenant_scope_key(project))
     if decision == "approve":
-        record = store.approve(approval_id, decided_by="local-operator")
+        record = store.approve(scope, approval_id, decided_by="local-operator")
     elif decision == "deny":
-        record = store.deny(approval_id, decided_by="local-operator")
+        record = store.deny(scope, approval_id, decided_by="local-operator")
     else:
         raise ValueError("decision must be approve or deny")
     return _approval_json(record)
@@ -1753,15 +1840,24 @@ def local_http_control(
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
     references = ReferenceSigner(token_bytes(32))
+    identity = AuthIdentity(tenant_id, principal_id, "http-loopback", session_id)
     service = CapabilityHubService(
         registry=generation.registry,
         providers=generation.providers,
         references=references,
-        audit=_audit_sink(selected.project),
-        idempotency_store=_local_idempotency_store(selected.project),
+        audit=ScopedAuditSink(
+            _scoped_state(selected.project),
+            tenant_id=identity.tenant_id,
+            principal_id=identity.principal_id,
+            session_id=identity.session_id,
+            identity_source=identity.source,
+            delegate=_audit_sink(selected.project),
+        ),
+        idempotency_store=_local_idempotency_store(
+            selected.project, scope_key=_tenant_scope_key(selected.project)
+        ),
         provider_supervisor=None,
     )
-    identity = AuthIdentity(tenant_id, principal_id, "http-loopback", session_id)
     context = ServiceContext(
         identity.tenant_id,
         identity.principal_id,
@@ -2098,7 +2194,7 @@ def _state_path(project: Path) -> Path:
 
 
 def _local_idempotency_store(
-    project: Path, *, persist_results: bool = True
+    project: Path, *, persist_results: bool = True, scope_key: bytes | None = None
 ) -> SqliteIdempotencyStore:
     # SQLite WAL initialization takes a transient exclusive lock on first use.
     with _LOCAL_STORE_INIT_LOCK:
@@ -2107,11 +2203,28 @@ def _local_idempotency_store(
             persist_results=persist_results,
             result_ttl_seconds=300,
             max_result_bytes=1_000_000,
+            scope_key=scope_key,
         )
 
 
 def _budget_hmac_key_path(project: Path) -> Path:
     return project / ".capabilityhub" / "budget-hmac.key"
+
+
+def _tenant_scope_key(project: Path) -> bytes:
+    return load_or_create_hmac_key(project / ".capabilityhub" / "tenant-scope-hmac.key")
+
+
+def _scoped_state(project: Path) -> SqliteScopedState:
+    return SqliteScopedState(_state_path(project), scope_key=_tenant_scope_key(project))
+
+
+def _tenant_scope(identity: AuthIdentity, task_id: str) -> TenantScope:
+    return TenantScope(identity.tenant_id, identity.principal_id, identity.session_id, task_id)
+
+
+def _scope_from_context(context: ServiceContext, task_id: str) -> TenantScope:
+    return TenantScope(context.tenant_id, context.principal_id, context.session_id, task_id)
 
 
 def _jsonable(value: object) -> JsonValue:

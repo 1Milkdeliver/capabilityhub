@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import hmac
 import json
 import sqlite3
 from collections.abc import Callable
@@ -50,6 +51,7 @@ class SqliteIdempotencyStore:
         clock: Callable[[], float] = time,
         monotonic_clock: Callable[[], float] = monotonic,
         sleeper: Callable[[float], None] = sleep,
+        scope_key: bytes | None = None,
     ) -> None:
         if not 1 <= result_ttl_seconds <= 86_400:
             raise ValueError("result_ttl_seconds must be from 1 to 86400")
@@ -62,6 +64,9 @@ class SqliteIdempotencyStore:
         self._clock = clock
         self._monotonic = monotonic_clock
         self._sleep = sleeper
+        if scope_key is not None and (not isinstance(scope_key, bytes) or len(scope_key) < 16):
+            raise ValueError("scope_key must contain at least 16 bytes")
+        self._scope_key = scope_key
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.execute(
@@ -89,7 +94,7 @@ class SqliteIdempotencyStore:
         return self._path
 
     def reserve(self, slot: IdempotencySlot, arguments_digest: str) -> IdempotencyRecord | None:
-        key = _slot_digest(slot)
+        key = self._slot_digest(slot)
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
@@ -124,7 +129,7 @@ class SqliteIdempotencyStore:
             connection.execute(
                 "UPDATE idempotency_records SET status = 'complete', result_json = ?, "
                 "updated_at = ? WHERE slot_digest = ? AND status = 'in_progress'",
-                (encoded, self._clock(), _slot_digest(slot)),
+                (encoded, self._clock(), self._slot_digest(slot)),
             )
 
     def uncertain(self, slot: IdempotencySlot) -> None:
@@ -132,7 +137,7 @@ class SqliteIdempotencyStore:
             connection.execute(
                 "UPDATE idempotency_records SET status = 'uncertain', updated_at = ? "
                 "WHERE slot_digest = ? AND status = 'in_progress'",
-                (self._clock(), _slot_digest(slot)),
+                (self._clock(), self._slot_digest(slot)),
             )
 
     def wait(
@@ -144,7 +149,7 @@ class SqliteIdempotencyStore:
                 row = connection.execute(
                     "SELECT arguments_digest, status, result_json "
                     "FROM idempotency_records WHERE slot_digest = ?",
-                    (_slot_digest(slot),),
+                    (self._slot_digest(slot),),
                 ).fetchone()
             if row is None or row[0] != arguments_digest:
                 return IdempotencyRecord("", "conflict")
@@ -162,9 +167,15 @@ class SqliteIdempotencyStore:
         connection.execute("PRAGMA synchronous=FULL")
         return connection
 
-
-def _slot_digest(slot: IdempotencySlot) -> str:
-    return hashlib.sha256(canonical_json(list(slot)).encode()).hexdigest()
+    def _slot_digest(self, slot: IdempotencySlot) -> str:
+        payload = canonical_json(list(slot)).encode("utf-8")
+        if self._scope_key is None:
+            return hashlib.sha256(payload).hexdigest()
+        return hmac.new(
+            self._scope_key,
+            b"capabilityhub-idempotency-slot-v1\0" + payload,
+            hashlib.sha256,
+        ).hexdigest()
 
 
 def _encode_result(result: ExecutionResult) -> str:

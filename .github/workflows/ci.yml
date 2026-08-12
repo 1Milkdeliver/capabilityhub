@@ -4,6 +4,15 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+    inputs:
+      run_full_rag_scale:
+        description: Run the real one-million-chunk RAG replay
+        required: false
+        default: false
+        type: boolean
+  schedule:
+    - cron: "17 3 * * 1"
 
 permissions:
   contents: read
@@ -34,7 +43,10 @@ jobs:
           capabilityhub benchmark
           capabilityhub benchmark --scale
       - name: Replay validation artifacts
-        run: python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
+        run: |
+          python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
+          python -c "from benchmarks.rag_scale import validate_release_artifact; validate_release_artifact('benchmarks/artifacts/rag-scale-1m.json')"
+          python -c "from benchmarks.release_gate import run_release_gate; run_release_gate()"
       - name: Build wheel
         run: python -m pip wheel --no-deps --wheel-dir dist .
       - name: Smoke-test clean base wheel
@@ -47,6 +59,7 @@ jobs:
           .wheel-smoke/bin/capabilityhub benchmark
           .wheel-smoke/bin/capabilityhub benchmark --scale
           .wheel-smoke/bin/capabilityhub import-openapi --help
+          .wheel-smoke/bin/python -m benchmarks.wheel_smoke
 
   windows-smoke:
     runs-on: windows-latest
@@ -68,6 +81,8 @@ jobs:
           capabilityhub benchmark
           capabilityhub benchmark --scale
           python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
+          python -c "from benchmarks.rag_scale import validate_release_artifact; validate_release_artifact('benchmarks/artifacts/rag-scale-1m.json')"
+          python -c "from benchmarks.release_gate import run_release_gate; run_release_gate()"
       - name: Build and smoke-test wheel
         shell: pwsh
         run: |
@@ -79,3 +94,25 @@ jobs:
           .\.wheel-smoke\Scripts\capabilityhub.exe benchmark
           .\.wheel-smoke\Scripts\capabilityhub.exe benchmark --scale
           .\.wheel-smoke\Scripts\capabilityhub.exe import-openapi --help
+          .\.wheel-smoke\Scripts\python.exe -m benchmarks.wheel_smoke
+
+  full-rag-scale:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.run_full_rag_scale)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+          cache: pip
+      - name: Install
+        run: python -m pip install --disable-pip-version-check -e '.[dev]'
+      - name: Replay one-million-chunk RAG evidence
+        run: |
+          python -m benchmarks.rag_scale --chunks 1000000 --seed 20260812 --concurrency 32 --artifact rag-scale-1m-replay.json
+          python -c "from benchmarks.rag_scale import validate_release_artifact; validate_release_artifact('rag-scale-1m-replay.json')"
+      - uses: actions/upload-artifact@v6
+        with:
+          name: rag-scale-1m-${{ github.run_id }}
+          path: rag-scale-1m-replay.json
+          if-no-files-found: error

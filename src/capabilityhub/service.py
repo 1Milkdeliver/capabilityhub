@@ -429,7 +429,6 @@ class CapabilityHubService:
         reservation: BudgetReservation | None = None
         idempotency_slot: tuple[str, str, str, str, str] | None = None
         try:
-            self._guard_dependencies(DependencyOperation.EXECUTE)
             _positive_budget(limit)
             claims = self._references.verify(
                 request.execution_ref,
@@ -470,6 +469,7 @@ class CapabilityHubService:
                         safe_message="Execution arguments were not allowed by policy.",
                         details={"reason_codes": authorization.reason_codes},
                     )
+            self._guard_dependencies(DependencyOperation.EXECUTE)
             approved = False
             if request.approval_ref is not None:
                 self._references.verify(

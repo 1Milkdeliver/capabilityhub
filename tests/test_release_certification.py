@@ -286,7 +286,10 @@ def test_full_suite_accepts_only_the_separately_certified_browser_skip(tmp_path)
 <testsuites>
   <testsuite tests="2" skipped="2">
     <testcase classname="tests.browser.test_dashboard_browser" name="browser">
-      <skipped message="could not import 'playwright.sync_api': No module named playwright" />
+      <skipped message="collection skipped">
+        tests/browser/test_dashboard_browser.py:10:
+        could not import 'playwright.sync_api': No module named playwright
+      </skipped>
     </testcase>
     <testcase classname="tests.test_runtime" name="unexpected">
       <skipped message="unrelated dependency unavailable" />

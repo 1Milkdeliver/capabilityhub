@@ -639,7 +639,14 @@ def _junit_counts(path: Path) -> tuple[int, int, int]:
 def _unexpected_platform_skips(path: Path) -> int:
     try:
         root = ET.parse(path).getroot()
-        reasons = [skipped.attrib.get("message", "") for skipped in root.iter("skipped")]
+        reasons = [
+            " ".join(
+                part
+                for part in (skipped.attrib.get("message", ""), skipped.text or "")
+                if part
+            )
+            for skipped in root.iter("skipped")
+        ]
     except (OSError, ET.ParseError) as error:
         raise ReleaseCertificationError("release_gate_artifact_invalid") from error
     if sys.platform.startswith("linux"):

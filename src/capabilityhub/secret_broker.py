@@ -435,8 +435,11 @@ def _windows_crypt(payload: bytes, *, protect: bool) -> bytes:
     buffer = ctypes.create_string_buffer(payload)
     source = DataBlob(len(payload), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_byte)))
     output = DataBlob()
-    crypt32 = ctypes.windll.crypt32
-    kernel32 = ctypes.windll.kernel32
+    windll = getattr(ctypes, "windll", None)
+    if windll is None:
+        raise SecretBrokerError("secret_store_unsupported")
+    crypt32 = windll.crypt32
+    kernel32 = windll.kernel32
     function = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
     arguments = (ctypes.byref(source), None, None, None, None, 0x01, ctypes.byref(output))
     if not function(*arguments):

@@ -165,20 +165,21 @@ def test_process_supervisor_cancels_registered_worker_tree() -> None:
     assert supervisor.active_count() == 0
 
 
-def test_unsupported_worker_isolation_fails_closed() -> None:
+def test_worker_network_isolation_is_enforced_or_fails_closed() -> None:
     supervisor = ProcessProviderSupervisor(
         resource_limits=WorkerResourceLimits(require_network_isolation=True)
     )
-    with pytest.raises(CapabilityHubError) as caught:
-        supervisor.execute(_Provider(), IDENTITY, REQUEST, _context())
-
-    assert caught.value.code == "provider_os_confinement_unavailable"
-
     capabilities = sandbox_capabilities()
     if sys.platform == "linux":
         assert capabilities.filesystem_isolation == "landlock"
         assert capabilities.network_isolation == "libseccomp"
+        assert supervisor.execute(_Provider(), IDENTITY, REQUEST, _context()).output == {
+            "ok": True
+        }
     else:
+        with pytest.raises(CapabilityHubError) as caught:
+            supervisor.execute(_Provider(), IDENTITY, REQUEST, _context())
+        assert caught.value.code == "provider_os_confinement_unavailable"
         assert capabilities.filesystem_isolation is None
         assert capabilities.network_isolation is None
     assert capabilities.cpu_limit in {"job-object", "setrlimit"}

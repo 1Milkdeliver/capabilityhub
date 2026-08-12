@@ -41,6 +41,7 @@ class ReleaseGateReport:
     seed: int
     tenant_count: int
     catalog_count: int
+    top3_correct: bool
     search: Latency
     cached_load: Latency
     concurrent_execution: Latency
@@ -86,10 +87,11 @@ def run_release_gate(*, seed: int = DEFAULT_SEED) -> ReleaseGateReport:
         for _ in range(10)
         for query in queries
     ]
-    if any(
-        fixture.expected_capability_id not in index.search(fixture.query, limit=8)
+    top3_correct = not any(
+        fixture.expected_capability_id not in index.search(fixture.query, limit=3)
         for fixture in fixtures
-    ):
+    )
+    if not top3_correct:
         raise RuntimeError("10k catalog quality fixture failed")
 
     service, context = _service()
@@ -144,6 +146,7 @@ def run_release_gate(*, seed: int = DEFAULT_SEED) -> ReleaseGateReport:
         seed=seed,
         tenant_count=1,
         catalog_count=len(catalog),
+        top3_correct=top3_correct,
         search=search,
         cached_load=cached_load,
         concurrent_execution=concurrent,

@@ -16,6 +16,7 @@ def test_release_gate_uses_real_10k_search_load_and_100_executions() -> None:
 
     assert report.tenant_count == 1
     assert report.catalog_count == CATALOG_COUNT == 10_000
+    assert report.top3_correct is True
     assert report.search.samples >= 30
     assert report.search.p95_ms < SEARCH_P95_LIMIT_MS == 150
     assert report.cached_load.samples == CONCURRENT_EXECUTIONS

@@ -16,7 +16,7 @@ This is `0.1.0a0`, not a production release. The public surface includes Python 
 a small local CLI, and an experimental MCP server adapter; none is a stable protocol
 compatibility guarantee. MCP framing and transports come from the official Python SDK.
 
-CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, local RAG, and MCP stdio adapters; these are supervised reference adapters, not a production sandbox. Separate authenticated loopback data/admin planes and scoped local state now exist, while OS-backed secrets, remote tenant deployment, OS confinement, and production RAG remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
+CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, ACL-scoped indexed RAG, and MCP stdio adapters. Separate authenticated loopback data/admin planes, scoped state, OS-backed local secret stores, spawned-worker CPU/memory limits, and process-tree cancellation now exist. Filesystem/network confinement, remote tenant deployment, and a hardened production profile remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
 
 ## Install from source
 
@@ -110,7 +110,7 @@ supported driver is explicitly configured; `execute` uses that provider by defau
 
 `load` exercises the real reference, permission, section, disclosure-budget, and resident-context path. Its response includes bounded dependency/conflict notices, total omission counts, and at most four opaque signed handles for exact section/operation rehydration; conflict values are digested and large manifests cannot expand the notice/handle lists without bound. `execute` uses an explicitly configured project Provider by default and runs it through a supervised spawned worker; `--fixture-output` remains a deterministic test path. Write-like operations require an idempotency key. Approval-required configured operations use the durable `approvals request` → `approve`/`deny` → `execute --approval-id` flow; the `--approved` shortcut is fixture-only.
 
-Project manifests can opt into the CLI process, fixed-origin HTTP API, local RAG, and MCP stdio adapters. The process supervisor enforces wall-clock termination and bounded JSON IPC, but it is not an OS CPU/memory/filesystem sandbox; those production hardening gates remain open.
+Project manifests can opt into the CLI process, fixed-origin HTTP API, local RAG, and MCP stdio adapters. The process supervisor enforces wall-clock termination, bounded JSON IPC, process-tree cleanup, Windows Job Object or POSIX CPU/memory limits, and fail-closed capability reporting. Filesystem and network confinement still require a supported sandbox backend.
 
 The supply-chain module verifies artifact bytes against the manifest digest and an explicit publisher/registry policy. Stage, health recording, and activation each re-acquire and reverify bytes. HMAC-SHA256 remains explicitly local shared-key evidence. The optional `supply-chain` extra adds Ed25519 verification with pinned publisher/registry and optional issuer/subject/transparency policy; it does not claim X.509-chain or online Rekor-proof verification.
 
@@ -118,7 +118,7 @@ Manifests may be JSON, `.yaml`, or `.yml`. YAML intake uses `safe_load` only aft
 
 `import-openapi` is an offline preview: it reads one local OpenAPI 3 JSON/YAML file, projects only explicitly selected operation IDs from one allowlisted fixed origin, and emits an inert API manifest. It rejects remote references, callbacks, webhooks, server overrides, embedded credentials, and security bindings; it never fetches a URL or writes an activation file.
 
-`ScopedSecretBroker` issues short-lived, scope-bound, use-limited handles for trusted local provider callbacks. It resolves an environment alias only after atomic handle admission and never offers a plaintext lookup API or stores secrets on disk. This is an embedding API, not an OS keychain. `ResilientProviderExecutor` adds opt-in bounded circuit breaking and retries only when a typed error is retryable, the operation is safe or idempotent, and the embedder explicitly classifies the failure as not applied; uncertain failures are never retried.
+`ScopedSecretBroker` issues short-lived, scope-bound, use-limited handles for trusted local provider callbacks. Worker envelopes carry aliases rather than plaintext; Windows DPAPI, macOS Keychain, and Linux Secret Service stores are selected strictly and unsafe or unavailable backends fail closed. `ResilientProviderExecutor` adds bounded circuit breaking and retries only when a typed error is retryable, the operation is safe or idempotent, and the adapter classifies the failure as not applied; uncertain failures are never retried.
 
 Registry admission applies automatic projection analysis over hashed routes and roots before activation/search visibility. `SqliteScopedState` partitions generic state by an HMAC of tenant, principal, session, and task; approvals, idempotency and authenticated audit queries use this boundary. `DegradedModePolicy` permits degradation only for an explicit bounded safe fallback.
 
@@ -209,7 +209,7 @@ The benchmark is local, fixture-based, and has no model, network, or paid-servic
 capabilityhub benchmark
 ```
 
-`capabilityhub benchmark --scale` covers 10,000 metadata capabilities and 100 concurrent reads. A separate disk-backed FTS benchmark records a reproducible million-chunk artifact, but it is not wired to `LocalRagProvider`, has no tenant ACL model, and proves neither model quality nor production-provider latency.
+`capabilityhub benchmark --scale` covers 10,000 metadata capabilities and 100 concurrent reads. The disk-backed million-chunk FTS benchmark reuses the production `DiskRagIndex`; tenant/ACL correctness is verified separately. This still proves neither model quality nor external-provider latency.
 
 The pinned [reference run](benchmarks/reference-run.json) uses 100 definitions across all five kinds. Ten natural-language tasks are routed by the actual deterministic lexical search; expected revisions are used only for scoring. The current fixture records 10/10 selection, five expected failure paths, and 40 cold/warm/invalidation events with zero stale use. This is deterministic fixture evidence, not model reasoning quality, real provider latency, hidden reasoning tokens, or production monetary cost. Read [benchmarks/README.md](benchmarks/README.md) and [docs/validation-plan.md](docs/validation-plan.md) before making a performance claim.
 

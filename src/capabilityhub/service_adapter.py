@@ -9,6 +9,7 @@ from typing import TypeVar
 
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.model_execution import ModelInvocationUsage, ModelRequestExecutor
 from capabilityhub.models import (
     ExecutionRequest,
     ExecutionResult,
@@ -25,6 +26,7 @@ from capabilityhub.observability import (
 )
 from capabilityhub.orchestration import (
     AppliedReasoningRouter,
+    ModelRequestPolicy,
     ReasoningConstraints,
     ReasoningEndpoint,
     ReasoningWorkload,
@@ -69,6 +71,7 @@ class CapabilityHubServiceAdapter:
         reasoning_router: AppliedReasoningRouter | None = None,
         reasoning_workload_provider: ReasoningWorkloadProvider | None = None,
         reasoning_constraints_provider: ReasoningConstraintsProvider | None = None,
+        reasoning_executor: ModelRequestExecutor | None = None,
     ) -> None:
         self.kind = kind
         self.handshake = protocol_handshake(cancellation=cancel_callback is not None)
@@ -88,6 +91,7 @@ class CapabilityHubServiceAdapter:
             reasoning_workload_provider or _default_reasoning_workload
         )
         self._reasoning_constraints_provider = reasoning_constraints_provider
+        self._reasoning_executor = reasoning_executor
 
     def dispatch(self, request: RequestEnvelope) -> JsonValue:
         """Validate an exact meta-tool payload and return JSON-domain data."""
@@ -260,7 +264,7 @@ class CapabilityHubServiceAdapter:
         )
         if not isinstance(constraints, ReasoningConstraints):
             raise _internal_provider_error()
-        _provided(
+        decision = _provided(
             lambda: self._reasoning.decide(
                 task_id=task_id,
                 operation=request.operation,
@@ -268,6 +272,29 @@ class CapabilityHubServiceAdapter:
                 constraints=constraints,
             )
         )
+        executor = self._reasoning_executor
+        if executor is None:
+            return
+        policy = _provided(
+            lambda: self._reasoning.request_policy(decision, constraints=constraints)
+        )
+        budget = self._budget(task_id)
+        reservation = budget.reserve({"reasoning_tokens": policy.estimated_tokens})
+        try:
+            usage = _provided(lambda: executor.invoke(policy))
+            if not isinstance(usage, ModelInvocationUsage):
+                raise _reasoning_execution_error("reasoning_usage_invalid")
+            reservation.reconcile({"reasoning_tokens": usage.reasoning_tokens})
+            _enforce_model_usage(policy, usage)
+        except Exception as error:
+            if reservation.active:
+                reservation.cancel()
+            self._reasoning.record_result(
+                task_id=task_id,
+                operation=request.operation,
+                error_code=_safe_error_code(error),
+            )
+            raise
 
     def _record_reasoning_failure(
         self, task_id: str, operation: str, error: Exception
@@ -440,6 +467,35 @@ def _provided(callback: Callable[[], _ProvidedT]) -> _ProvidedT:
         raise
     except Exception as exc:
         raise _internal_provider_error() from exc
+
+
+def _enforce_model_usage(
+    policy: ModelRequestPolicy, usage: ModelInvocationUsage
+) -> None:
+    if (
+        usage.endpoint != policy.endpoint
+        or usage.model != policy.model
+        or usage.effort != policy.effort
+    ):
+        raise _reasoning_execution_error("reasoning_endpoint_mismatch")
+    if (
+        policy.maximum_cost_units is not None
+        and (usage.cost_units is None or usage.cost_units > policy.maximum_cost_units)
+    ):
+        raise _reasoning_execution_error("reasoning_cost_exceeded")
+    if (
+        policy.maximum_latency_ms is not None
+        and usage.latency_ms > policy.maximum_latency_ms
+    ):
+        raise _reasoning_execution_error("reasoning_latency_exceeded")
+
+
+def _reasoning_execution_error(code: str) -> CapabilityHubError:
+    return CapabilityHubError(
+        code=code,
+        category=ErrorCategory.POLICY,
+        safe_message="The model invocation violated the applied reasoning policy.",
+    )
 
 
 def _start_observation(

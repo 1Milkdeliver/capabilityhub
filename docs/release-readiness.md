@@ -5,8 +5,9 @@
 **Do not label the current tree production-ready.** It is a pre-alpha, local Python
 control core with a tested CLI, experimental MCP SDK adapter, and deterministic
 structural-disclosure benchmark. It has local SQLite/JSON persistence and supervised
-reference adapters and an in-memory secret-handle broker. Authenticated loopback data/admin boundaries now
-exist, but there is no remote tenant deployment, OS sandbox, production provider profile, or deployment
+reference adapters and a platform-backed secret broker. Authenticated loopback data/admin boundaries,
+worker CPU/memory limits and process-tree cleanup now exist, but there is no remote tenant deployment,
+filesystem/network confinement, production provider profile, or deployment
 hardening guide.
 
 ## Evidence currently available
@@ -26,21 +27,21 @@ hardening guide.
 | Parameter authorization | Optional service context shares dependency-aware search/execute eligibility and constrains normalized paths, hosts, methods, commands, profiles, and secret aliases | Embedders must still supply reviewed caller grants; configured providers do not yet derive them automatically |
 | Supply-chain trust | Every forward staged transition re-acquires bytes; policies support explicit local HMAC evidence or optional Ed25519 keys with publisher/registry, issuer/subject, expiry, revocation and transparency metadata | Ed25519 uses the optional `cryptography` extra; no X.509 chain validation, online Rekor proof verification, key-distribution service, or signed release publication |
 | Client protocol | One versioned request/response/error envelope, correlation ID, feature negotiation and stream/cancel conformance fixture; library/HTTP and the exact three MCP tools share the strict service adapter | Broad management CLI still calls runtime functions directly; no remote multi-user service |
-| Secret broker | In-memory scope/expiry/use-bound opaque handles resolve environment aliases only inside trusted callbacks with digest-only audit | Embedding API only; not wired into every provider and not backed by an OS keychain or remote vault |
-| Provider resilience | Optional service executor applies typed retry gates, explicit failure certainty, deadline-aware backoff and bounded circuit breaking | Retry classification is embedder supplied; production adapter fault matrices and distributed breaker state remain open |
+| Secret broker | Scope/expiry/use-bound handles and alias-only worker envelopes resolve through Windows DPAPI, macOS Keychain, or Linux Secret Service | Local platform stores only; no remote vault or centrally managed rotation service |
+| Provider resilience | Shared runtime execution applies typed retry gates, real-adapter failure certainty, deadline-aware backoff and bounded circuit breaking | Distributed breaker state and external SaaS fault matrices remain open |
 | Conflict projections | Inert driver metadata produces hashed identity/name/route/port/root/permission claims and registry admission applies deterministic deny/namespace/isolate/select-one resolution | Local registry admission only; no distributed port/route allocator |
 | Scoped tenant state | Trusted HTTP identity partitions approvals, idempotency and audit query state by opaque tenant/principal/session/task digests | Raw scope is absent from keys, but not every business repository or local management surface uses the authenticated plane |
 | Degraded decisions | TTL-aware dependency observations produce deterministic allow/degraded/deny outcomes; explicit operation-specific fallbacks are required | Standalone matrix; no live external dependency observer or production fallback certification |
 | Loopback HTTP planes | Data HTTP exposes exactly search/load/execute. A separate `/admin` plane uses distinct role-scoped, expiring, single-use credentials for lifecycle/update/approval/policy/audit operations; credentials are not interchangeable | Loopback-only; Dashboard/CLI are not all routed through admin credentials, and no remote TLS/multi-user deployment profile exists |
-| Lifecycle draining | Concurrent admission pins, drain deadlines, declared cancellation requests and explicit forced-retire policy preserve old revisions in flight | Standalone coordinator; not yet wired into every service execution or provider cancellation transport |
-| Scale evidence | Fixed-seed 10k metadata/100-read CI plus a separate on-disk million-chunk FTS replay artifact with cold/warm/concurrent latency | The million-chunk index is a benchmark provider without ACLs and is not wired to production RAG; no model-quality or production-provider claim |
+| Lifecycle draining | Concurrent admission pins, drain deadlines, forced-retire policy, live generation swaps and supervised worker cancellation preserve old revisions in flight | Local runtime only; distributed coordinators remain open |
+| Scale evidence | Fixed-seed 10k metadata/100-read CI plus a million-chunk replay using the production on-disk RAG index with cold/warm/concurrent latency | ACL correctness is tested separately; no model-quality or external-provider claim |
 | Five-kind Provider matrix | One table drives real Skill/CLI/loopback HTTP/RAG/MCP discovery, service loading, supported execution/retrieval, explicit unsupported paths, deny/failure/revision/budget and secret-canary assertions | Local deterministic providers and subprocesses only; not external SaaS/gateway adversarial evidence |
-| Provider supervision | Local configured execution uses a spawned worker, wall-clock termination, bounded JSON result envelopes, and safe crash/timeout/protocol errors | No OS CPU/memory/filesystem sandbox or long-lived worker pool |
-| Local preferences/lifecycle | Atomic project/global locale and enabled/disabled/quarantined overrides with project precedence | Local catalog activation only; no install, update, rollback, process draining, or durable execution ledger |
-| CLI process adapter | Opt-in absolute-executable, fixed-argv, shell-free provider with explicit environment, deadline, output parsing, redacted failures, project-manifest wiring, and full service admission test | No sandbox, OS resource limits, or durable cancellation |
+| Provider supervision | Local configured execution uses a spawned worker, wall-clock and CPU/memory limits, bounded JSON IPC, Job Object/POSIX process-tree cleanup, and typed failures | No filesystem/network confinement backend or long-lived worker pool |
+| Local preferences/lifecycle | Atomic locale and activation overrides, validated install, stage/health/activate/rollback, drain and durable pins | Local catalog/runtime only; no distributed rollout coordinator |
+| CLI process adapter | Absolute executable, fixed argv, shell-free provider with alias-only environment, deadline, output budgets, redacted failures, resource limits and tree cancellation | Filesystem/network confinement remains unavailable |
 | HTTP API adapter | Opt-in fixed-origin JSON provider plus offline allowlisted OpenAPI 3 projection, HTTPS/loopback policy, redirect denial, encoded path/query arguments, environment-backed headers, bounded reads, project-manifest wiring, and service admission tests | OpenAPI import emits an inert preview only; no OAuth lifecycle, streaming, or automatic activation |
 | Privacy observability | The shared real-service adapter can emit bounded hashed-correlation spans, low-cardinality metrics, deterministic sampling, and SQLite aggregate retention/export while rejecting raw arguments, output, URLs, paths, secrets, and identities | Opt-in; not enabled on every runtime path and not an external telemetry backend |
-| Local RAG adapter | Opt-in bounded `.md`/`.txt` retrieval with containment checks, deterministic chunk ranking, relative line citations, deadline/output limits, and service admission test | Small read-only reference adapter; no vector index, ACL backend, embedding model, persistence, or million-chunk scale evidence |
+| Local RAG adapter | Persistent FTS index with tenant partitioning, principal ACLs, filters, digest dedupe, citations, retention/freshness, bounded output and ACL-rechecked expansion | No embedding/vector backend or managed remote RAG service |
 | MCP stdio adapter | Optional official-SDK client with fixed absolute command/args/environment, initialization and advertised-tool validation, whole-session deadline, JSON/budget checks, safe failures, and service admission test | One process/session per call; no OAuth, HTTP pooling, persistent sessions, streaming passthrough, or production gateway profile |
 | Explicit connection probes | Default remains configuration-only; `connections --probe` performs bounded DNS/TCP/TLS setup for configured MCP HTTP(S), with SSRF/mixed-DNS denial and redacted results | Reachability/TLS only; application authentication and health remain unknown, stdio and other provider kinds are unsupported |
 | Benchmark | Pinned 100-definition, five-kind fixture run in `benchmarks/reference-run.json` | Structural exposure evidence only; not model-quality evidence |
@@ -56,7 +57,7 @@ Describe 10/10 only as deterministic lexical selection accuracy on the pinned fi
 
 - Stabilize and version the CLI/MCP contracts beyond the current pre-alpha adapter.
 - Route remaining management surfaces through authenticated principals, add distributed durable state and a documented deployment profile.
-- Add OS resource sandboxing, secret brokering, network/filesystem policy enforcement, and explicit incident/recovery procedures beyond the current spawned-worker boundary.
+- Add network/filesystem confinement backends and explicit incident/recovery procedures beyond the current CPU/memory/process-tree boundary.
 - Run adversarial, failure, cache-invalidation, authorization, and multi-tenant validation against actual adapters.
 - Add model-backed, stratified evaluation for semantic selection accuracy and report model/version, reasoning tier, prompts, seeds, latency, tool calls, tokenizer, and pricing assumptions separately.
 - Publish compatible API/versioning, support, privacy/retention, and operational documentation.

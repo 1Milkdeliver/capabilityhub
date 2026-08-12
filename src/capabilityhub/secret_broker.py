@@ -7,6 +7,7 @@ keychain and intentionally provides no plaintext lookup API or persistent storag
 from __future__ import annotations
 
 import hashlib
+import importlib
 import json
 import os
 import re
@@ -20,6 +21,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from threading import RLock
 from types import MappingProxyType
+from typing import Protocol, cast
 
 from .errors import CapabilityHubError, ErrorCategory
 
@@ -400,9 +402,157 @@ class DpapiSecretStore:
         return self._root / name
 
 
+class _KeyringBackend(Protocol):
+    priority: float
+
+
+class _KeyringApi(Protocol):
+    def get_keyring(self) -> _KeyringBackend: ...
+
+    def set_password(self, service: str, username: str, password: str) -> None: ...
+
+    def get_password(self, service: str, username: str) -> str | None: ...
+
+
+class KeyringSecretStore:
+    """macOS Keychain/Linux Secret Service adapter with strict backend admission."""
+
+    backend = "system-keyring"
+
+    def __init__(
+        self,
+        *,
+        service: str = "capabilityhub",
+        platform: str = sys.platform,
+        keyring_api: _KeyringApi | None = None,
+    ) -> None:
+        if not service:
+            raise ValueError("secret store service must be non-empty")
+        self._platform = platform
+        self._api = keyring_api or _load_keyring()
+        backend = self._api.get_keyring()
+        module = type(backend).__module__
+        accepted = (
+            platform == "darwin" and module.startswith("keyring.backends.macOS")
+        ) or (
+            platform.startswith("linux")
+            and module.startswith("keyring.backends.SecretService")
+        )
+        if not accepted or getattr(backend, "priority", 0) <= 0:
+            raise SecretBrokerError("secret_store_unsupported")
+        self._service = service
+
+    def put(self, alias: str, value: str) -> str:
+        if _ALIAS.fullmatch(alias) is None or not value:
+            raise ValueError("secret store alias and value must be non-empty")
+        try:
+            self._api.set_password(self._service, _digest(alias), value)
+        except Exception as error:
+            raise SecretBrokerError("secret_store_unavailable") from error
+        return _digest(alias)
+
+    def get(self, alias: str) -> str:
+        if _ALIAS.fullmatch(alias) is None:
+            raise ValueError("secret store alias is invalid")
+        try:
+            value = self._api.get_password(self._service, _digest(alias))
+        except Exception as error:
+            raise SecretBrokerError("secret_store_unavailable") from error
+        if not isinstance(value, str) or not value:
+            raise SecretBrokerError("secret_store_unavailable")
+        return value
+
+
+def platform_secret_store(
+    *,
+    root: str | Path | None = None,
+    platform: str = sys.platform,
+    keyring_api: _KeyringApi | None = None,
+) -> DpapiSecretStore | KeyringSecretStore:
+    """Select an admitted OS store without silently falling back to plaintext."""
+
+    if platform == "win32":
+        if root is None:
+            raise ValueError("root is required for the Windows DPAPI store")
+        return DpapiSecretStore(root)
+    if platform == "darwin" or platform.startswith("linux"):
+        return KeyringSecretStore(platform=platform, keyring_api=keyring_api)
+    raise SecretBrokerError("secret_store_unsupported")
+
+
+def _load_keyring() -> _KeyringApi:
+    try:
+        module = importlib.import_module("keyring")
+    except ImportError as error:
+        raise SecretBrokerError("secret_store_dependency_missing") from error
+    return cast(_KeyringApi, module)
+
+
+@dataclass(slots=True)
+class KeyringSecretEnvelope:
+    """Serializable alias-only envelope resolved from an admitted OS keyring in-worker."""
+
+    aliases: tuple[str, ...] = field(repr=False)
+    platform: str = sys.platform
+    service: str = "capabilityhub-worker"
+    _consumed: bool = field(default=False, init=False, repr=False)
+
+    @classmethod
+    def seal(
+        cls,
+        values: Mapping[str, str],
+        *,
+        store: KeyringSecretStore | None = None,
+        platform: str = sys.platform,
+    ) -> KeyringSecretEnvelope:
+        admitted = store or KeyringSecretStore(service="capabilityhub-worker", platform=platform)
+        aliases = tuple(sorted(values))
+        for alias in aliases:
+            admitted.put(alias, values[alias])
+        return cls(aliases=aliases, platform=platform)
+
+    def open(self, *, store: KeyringSecretStore | None = None) -> dict[str, str]:
+        if self._consumed:
+            raise SecretBrokerError("secret_transport_consumed")
+        self._consumed = True
+        admitted = store or KeyringSecretStore(service=self.service, platform=self.platform)
+        try:
+            return {alias: admitted.get(alias) for alias in self.aliases}
+        except Exception as error:
+            raise SecretBrokerError("secret_transport_invalid") from error
+
+
+SecretEnvelope = DpapiSecretEnvelope | KeyringSecretEnvelope
+
+
+def secure_worker_transport_available(platform: str = sys.platform) -> bool:
+    if platform == "win32":
+        return DpapiSecretEnvelope.available()
+    try:
+        KeyringSecretStore(service="capabilityhub-worker", platform=platform)
+    except SecretBrokerError:
+        return False
+    return True
+
+
+def seal_worker_secrets(values: Mapping[str, str]) -> SecretEnvelope:
+    if sys.platform == "win32":
+        return DpapiSecretEnvelope.seal(values)
+    return KeyringSecretEnvelope.seal(values)
+
+
 @contextmanager
-def worker_secret_scope(envelope: DpapiSecretEnvelope | None) -> Iterator[None]:
-    values = None if envelope is None else envelope.open()
+def worker_secret_scope(
+    envelope: SecretEnvelope | None,
+    *,
+    store: KeyringSecretStore | None = None,
+) -> Iterator[None]:
+    if envelope is None:
+        values = None
+    elif isinstance(envelope, KeyringSecretEnvelope):
+        values = envelope.open(store=store)
+    else:
+        values = envelope.open()
     token = _worker_environment.set(values)
     try:
         yield

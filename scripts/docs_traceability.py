@@ -8,6 +8,14 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 IMPLEMENTED_EVIDENCE = {
+    "R4": (
+        ("src/capabilityhub/service_adapter.py", "capability.execute"),
+        ("tests/test_provider_conformance_matrix.py", "one_mcp_meta_tool_chain"),
+    ),
+    "R5": (
+        ("src/capabilityhub/search.py", "max_card_bytes"),
+        ("tests/test_scale_benchmark.py", "top3_hit"),
+    ),
     "R3": (
         ("src/capabilityhub/models.py", "class CapabilityKind"),
         ("tests/test_registry.py", "CapabilityKind"),
@@ -32,9 +40,53 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/registry.py", "resolve_projections"),
         ("tests/test_projection_admission.py", "conflict"),
     ),
+    "R10": (
+        ("src/capabilityhub/search.py", "SearchRankingConfig"),
+        ("tests/test_search.py", "eligibility"),
+    ),
+    "R11": (
+        ("src/capabilityhub/rag_index.py", "class DiskRagIndex"),
+        ("tests/test_rag_index.py", "acl"),
+    ),
+    "R12": (
+        ("src/capabilityhub/rag_index.py", "def expand"),
+        ("tests/test_rag_index.py", "expansion"),
+    ),
+    "R15": (
+        ("src/capabilityhub/draining.py", "class DrainController"),
+        ("tests/test_drained_service.py", "draining"),
+    ),
+    "R16": (
+        ("src/capabilityhub/drained_service.py", "cancellation_requests"),
+        ("tests/test_runtime_http_drain.py", "rollback"),
+    ),
+    "R20": (
+        ("src/capabilityhub/secret_broker.py", "class KeyringSecretStore"),
+        ("tests/test_platform_secret_store.py", "headless"),
+    ),
+    "R22": (
+        ("src/capabilityhub/resilience.py", "class ResilientProviderExecutor"),
+        ("tests/test_resilience.py", "retry"),
+    ),
+    "R23": (
+        ("src/capabilityhub/model_execution.py", "class OpenAIReasoningExecutor"),
+        ("tests/test_service_adapter.py", "reasoning_executor"),
+    ),
     "R24": (
         ("src/capabilityhub/orchestration.py", "class ReasoningOrchestrator"),
         ("tests/test_orchestration.py", "restart"),
+    ),
+    "R29": (
+        ("src/capabilityhub/idempotency.py", "class SqliteIdempotencyStore"),
+        ("tests/test_idempotency.py", "concurrent"),
+    ),
+    "R30": (
+        ("src/capabilityhub/secure_audit.py", "class SecureAuditLedger"),
+        ("tests/test_secure_audit.py", "tamper"),
+    ),
+    "R36": (
+        ("src/capabilityhub/webui.py", "class DashboardServer"),
+        ("tests/browser/test_dashboard_browser.py", '"width": 390'),
     ),
 }
 

@@ -7,6 +7,7 @@ import pytest
 from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.model_execution import ModelInvocationUsage
 from capabilityhub.models import (
     CapabilityIdentity,
     CapabilityKind,
@@ -469,3 +470,128 @@ def test_reasoning_dependency_failure_is_redacted_by_shared_adapter() -> None:
 
     assert caught.value.code == "adapter_provider_failed"
     assert "SECRET" not in str(caught.value)
+
+
+class _ModelExecutor:
+    def __init__(self) -> None:
+        self.policies = []
+
+    def invoke(self, policy):
+        self.policies.append(policy)
+        return ModelInvocationUsage(
+            policy.endpoint,
+            policy.model,
+            policy.effort,
+            100,
+            2,
+            10,
+        )
+
+
+@pytest.mark.parametrize("kind", list(AdapterKind))
+def test_all_adapters_enforce_same_concrete_model_request_policy(kind: AdapterKind) -> None:
+    base = _setup(kind)
+    budget = BudgetLedger(
+        "model-task",
+        {
+            "bytes": 50_000,
+            "loads": 10,
+            "executions": 10,
+            "portable_tokens": 10_000,
+            "reasoning_tokens": 2_000,
+        },
+    )
+    router = AppliedReasoningRouter(
+        budget_provider=lambda _task: budget,
+        endpoints=(
+            ReasoningEndpoint("low", ReasoningTier.LOW, 1, 5, "model-low", "low"),
+            ReasoningEndpoint(
+                "medium", ReasoningTier.MEDIUM, 2, 10, "model-medium", "medium"
+            ),
+            ReasoningEndpoint("high", ReasoningTier.HIGH, 9, 50, "model-high", "high"),
+        ),
+    )
+    executor = _ModelExecutor()
+    adapter = CapabilityHubServiceAdapter(
+        base._service,
+        kind=kind,
+        context_provider=lambda: ServiceContext("tenant", "principal", "session"),
+        budget_provider=lambda _task: budget,
+        reasoning_router=router,
+        reasoning_workload_provider=lambda _operation, _payload: ReasoningWorkload(
+            dependency_count=3
+        ),
+        reasoning_constraints_provider=lambda _request: ReasoningConstraints(
+            maximum_tier=ReasoningTier.MEDIUM,
+            eligible_endpoints=frozenset({"medium"}),
+            maximum_cost_units=3,
+            maximum_latency_ms=20,
+        ),
+        reasoning_executor=executor,
+    )
+
+    result = adapter.dispatch(
+        _request(adapter, "capability.search", {"query": "records", "task_id": "model-task"})
+    )
+
+    assert isinstance(result, dict)
+    policy = executor.policies[0]
+    assert (policy.endpoint, policy.model, policy.effort) == (
+        "medium",
+        "model-medium",
+        "medium",
+    )
+    assert policy.tier is ReasoningTier.MEDIUM
+    assert budget.snapshot().used["reasoning_tokens"] == 100
+
+
+class _EscalatingExecutor:
+    def __init__(self) -> None:
+        self.policies = []
+
+    def invoke(self, policy):
+        self.policies.append(policy)
+        latency = 10 if len(self.policies) == 1 else 1
+        return ModelInvocationUsage(
+            policy.endpoint, policy.model, policy.effort, 10, 1, latency
+        )
+
+
+def test_model_policy_failure_is_charged_and_escalates_once() -> None:
+    base = _setup(AdapterKind.CLI)
+    budget = BudgetLedger(
+        "model-failure",
+        {"portable_tokens": 10_000, "reasoning_tokens": 10_000, "bytes": 50_000},
+    )
+    router = AppliedReasoningRouter(
+        budget_provider=lambda _task: budget,
+        endpoints=tuple(
+            ReasoningEndpoint(tier.value, tier, 1, 1, f"model-{tier.value}", tier.value)
+            for tier in ReasoningTier
+        ),
+    )
+    executor = _EscalatingExecutor()
+    adapter = CapabilityHubServiceAdapter(
+        base._service,
+        kind=AdapterKind.CLI,
+        context_provider=lambda: ServiceContext("tenant", "principal", "session"),
+        budget_provider=lambda _task: budget,
+        reasoning_router=router,
+        reasoning_constraints_provider=lambda _request: ReasoningConstraints(
+            maximum_latency_ms=5
+        ),
+        reasoning_executor=executor,
+    )
+    payload = {"query": "records", "task_id": "model-failure"}
+
+    with pytest.raises(CapabilityHubError) as first:
+        adapter.dispatch(_request(adapter, "capability.search", payload))
+    assert first.value.code == "reasoning_latency_exceeded"
+    result = adapter.dispatch(_request(adapter, "capability.search", payload))
+
+    assert isinstance(result, dict)
+    assert [policy.tier for policy in executor.policies] == [
+        ReasoningTier.LOW,
+        ReasoningTier.MEDIUM,
+    ]
+    assert budget.snapshot().used["reasoning_tokens"] == 20

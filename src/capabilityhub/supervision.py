@@ -25,9 +25,11 @@ from capabilityhub.models import (
 )
 from capabilityhub.providers.base import CapabilityProvider, ProviderContext
 from capabilityhub.secret_broker import (
-    DpapiSecretEnvelope,
     EnvironmentAliases,
     SecretBrokerError,
+    SecretEnvelope,
+    seal_worker_secrets,
+    secure_worker_transport_available,
     worker_secret_scope,
 )
 
@@ -62,8 +64,23 @@ class WorkerResourceLimits:
             raise ValueError("memory_bytes must be at least 1048576")
         if self.require_filesystem_isolation or self.require_network_isolation:
             raise ValueError("filesystem and network isolation are not supported")
-        if os.name == "nt" and (self.cpu_seconds is not None or self.memory_bytes is not None):
-            raise ValueError("CPU and memory worker limits are not supported on Windows")
+
+
+@dataclass(frozen=True, slots=True)
+class SandboxCapabilities:
+    process_tree: str
+    cpu_limit: str
+    memory_limit: str
+    filesystem_isolation: str | None
+    network_isolation: str | None
+
+
+def sandbox_capabilities() -> SandboxCapabilities:
+    """Describe only boundaries the current platform backend can enforce."""
+
+    if os.name == "nt":
+        return SandboxCapabilities("windows-job-object", "job-object", "job-object", None, None)
+    return SandboxCapabilities("posix-process-group", "setrlimit", "setrlimit", None, None)
 
 
 @dataclass(slots=True)
@@ -79,6 +96,8 @@ class ProcessProviderSupervisor:
         default_factory=dict, init=False, repr=False
     )
     _cancelled: set[str] = field(default_factory=set, init=False, repr=False)
+    _jobs: dict[str, int] = field(default_factory=dict, init=False, repr=False)
+    _receivers: dict[str, Any] = field(default_factory=dict, init=False, repr=False)
     _worker_lock: RLock = field(default_factory=RLock, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -140,6 +159,16 @@ class ProcessProviderSupervisor:
                 retryable=True,
             ) from error
         worker_id = request.execution_ref
+        try:
+            job = _create_windows_job(process, self.resource_limits)
+        except Exception:
+            receiver.close()
+            sender.close()
+            if process.is_alive():
+                _stop(process, self.termination_grace_seconds)
+            if not process.is_alive():
+                process.close()
+            raise
         with self._worker_lock:
             if worker_id in self._workers:
                 _stop(process, self.termination_grace_seconds)
@@ -151,11 +180,26 @@ class ProcessProviderSupervisor:
                     "The isolated provider execution is already active.",
                 )
             self._workers[worker_id] = process
+            self._receivers[worker_id] = receiver
+            if job is not None:
+                self._jobs[worker_id] = job
         sender.close()
         timeout_seconds = context.deadline_ms / 1_000
         deadline = monotonic() + timeout_seconds
         try:
-            if not receiver.poll(timeout_seconds):
+            try:
+                ready = receiver.poll(timeout_seconds)
+            except (OSError, EOFError) as error:
+                with self._worker_lock:
+                    cancelled = worker_id in self._cancelled
+                if cancelled:
+                    raise _error(
+                        "provider_worker_cancelled",
+                        ErrorCategory.CANCELLED,
+                        "The isolated provider execution was cancelled.",
+                    ) from error
+                raise
+            if not ready:
                 _stop(process, self.termination_grace_seconds)
                 raise _error(
                     "provider_worker_timeout",
@@ -208,6 +252,9 @@ class ProcessProviderSupervisor:
             with self._worker_lock:
                 self._workers.pop(worker_id, None)
                 self._cancelled.discard(worker_id)
+                job = self._jobs.pop(worker_id, None)
+                self._receivers.pop(worker_id, None)
+            _close_windows_handle(job)
         return _decode(raw)
 
     def cancel(self, execution_ref: str) -> bool:
@@ -218,7 +265,11 @@ class ProcessProviderSupervisor:
             if process is None or not process.is_alive():
                 return False
             self._cancelled.add(execution_ref)
+            _close_windows_handle(self._jobs.pop(execution_ref, None))
             _stop(process, self.termination_grace_seconds)
+            receiver = self._receivers.get(execution_ref)
+            if receiver is not None:
+                receiver.close()
             return not process.is_alive()
 
     def active_count(self) -> int:
@@ -234,7 +285,7 @@ def _worker(
     identity: CapabilityIdentity,
     request: ExecutionRequest,
     context: ProviderContext,
-    secret_envelope: DpapiSecretEnvelope | None,
+    secret_envelope: SecretEnvelope | None,
     resource_limits: WorkerResourceLimits | None,
 ) -> None:
     try:
@@ -306,6 +357,97 @@ def _apply_resource_limits(limits: WorkerResourceLimits | None) -> None:
         resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_seconds, limits.cpu_seconds))
     if limits.memory_bytes is not None:
         resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
+
+
+def _create_windows_job(
+    process: multiprocessing.Process, limits: WorkerResourceLimits | None
+) -> int | None:
+    if os.name != "nt":
+        return None
+    ctypes = cast(Any, importlib.import_module("ctypes"))
+    wintypes = cast(Any, importlib.import_module("ctypes.wintypes"))
+
+    io_counters = type(
+        "_IoCounters",
+        (ctypes.Structure,),
+        {"_fields_": tuple((name, ctypes.c_ulonglong) for name in (
+            "ReadOperationCount", "WriteOperationCount", "OtherOperationCount",
+            "ReadTransferCount", "WriteTransferCount", "OtherTransferCount",
+        ))},
+    )
+    basic_limit = type(
+        "_BasicLimit",
+        (ctypes.Structure,),
+        {"_fields_": (
+            ("PerProcessUserTimeLimit", ctypes.c_longlong),
+            ("PerJobUserTimeLimit", ctypes.c_longlong),
+            ("LimitFlags", wintypes.DWORD),
+            ("MinimumWorkingSetSize", ctypes.c_size_t),
+            ("MaximumWorkingSetSize", ctypes.c_size_t),
+            ("ActiveProcessLimit", wintypes.DWORD),
+            ("Affinity", ctypes.c_size_t),
+            ("PriorityClass", wintypes.DWORD),
+            ("SchedulingClass", wintypes.DWORD),
+        )},
+    )
+    extended_limit = type(
+        "_ExtendedLimit",
+        (ctypes.Structure,),
+        {"_fields_": (
+            ("BasicLimitInformation", basic_limit),
+            ("IoInfo", io_counters),
+            ("ProcessMemoryLimit", ctypes.c_size_t),
+            ("JobMemoryLimit", ctypes.c_size_t),
+            ("PeakProcessMemoryUsed", ctypes.c_size_t),
+            ("PeakJobMemoryUsed", ctypes.c_size_t),
+        )},
+    )
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CreateJobObjectW.restype = wintypes.HANDLE
+    kernel32.CreateJobObjectW.argtypes = (wintypes.LPVOID, wintypes.LPCWSTR)
+    kernel32.SetInformationJobObject.restype = wintypes.BOOL
+    kernel32.AssignProcessToJobObject.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    handle = kernel32.CreateJobObjectW(None, None)
+    if not handle:
+        raise _isolation_error("provider_worker_job_create_failed")
+    information = extended_limit()
+    information.BasicLimitInformation.LimitFlags = 0x2000
+    if limits is not None and limits.cpu_seconds is not None:
+        information.BasicLimitInformation.LimitFlags |= 0x2
+        information.BasicLimitInformation.PerProcessUserTimeLimit = limits.cpu_seconds * 10_000_000
+    if limits is not None and limits.memory_bytes is not None:
+        information.BasicLimitInformation.LimitFlags |= 0x100
+        information.ProcessMemoryLimit = limits.memory_bytes
+    configured = kernel32.SetInformationJobObject(
+        handle, 9, ctypes.byref(information), ctypes.sizeof(information)
+    )
+    process_handle = cast(Any, process)._popen._handle
+    assigned = configured and kernel32.AssignProcessToJobObject(handle, process_handle)
+    if not assigned:
+        kernel32.CloseHandle(handle)
+        _stop(process, 0.2)
+        raise _isolation_error("provider_worker_job_assignment_failed")
+    return cast(int, handle)
+
+
+def _close_windows_handle(handle: int | None) -> None:
+    if handle is None or os.name != "nt":
+        return
+    ctypes = cast(Any, importlib.import_module("ctypes"))
+    wintypes = cast(Any, importlib.import_module("ctypes.wintypes"))
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle(handle)
+
+
+def _isolation_error(code: str) -> CapabilityHubError:
+    return _error(
+        code,
+        ErrorCategory.POLICY,
+        "The required worker isolation boundary could not be enforced.",
+    )
 
 
 def _decode(raw: bytes) -> ExecutionResult:
@@ -426,7 +568,7 @@ def _local_provider_restriction(provider: CapabilityProvider) -> str | None:
             if isinstance(headers, EnvironmentHeaders):
                 if headers.broker_factory is not None:
                     return "provider_worker_header_supplier_unsupported"
-                if not DpapiSecretEnvelope.available():
+                if not secure_worker_transport_available():
                     return "provider_worker_secret_boundary_unsupported"
                 continue
             return "provider_worker_header_supplier_unsupported"
@@ -436,7 +578,7 @@ def _local_provider_restriction(provider: CapabilityProvider) -> str | None:
             environment = cli_fixture.environment
             if environment and not isinstance(environment, EnvironmentAliases):
                 return "provider_worker_plaintext_environment_denied"
-            if environment and not DpapiSecretEnvelope.available():
+            if environment and not secure_worker_transport_available():
                 return "provider_worker_secret_boundary_unsupported"
         return None
     if isinstance(provider, McpStdioProvider):
@@ -444,7 +586,7 @@ def _local_provider_restriction(provider: CapabilityProvider) -> str | None:
             environment = mcp_fixture.environment
             if environment and not isinstance(environment, EnvironmentAliases):
                 return "provider_worker_plaintext_environment_denied"
-            if environment and not DpapiSecretEnvelope.available():
+            if environment and not secure_worker_transport_available():
                 return "provider_worker_secret_boundary_unsupported"
         return None
     if isinstance(provider, (LocalRagProvider, StaticProvider)):
@@ -473,7 +615,7 @@ def _provider_aliases(provider: CapabilityProvider) -> tuple[str, ...]:
     return tuple(dict.fromkeys(aliases))
 
 
-def _seal_aliases(aliases: tuple[str, ...]) -> DpapiSecretEnvelope | None:
+def _seal_aliases(aliases: tuple[str, ...]) -> SecretEnvelope | None:
     if not aliases:
         return None
     values: dict[str, str] = {}
@@ -483,7 +625,7 @@ def _seal_aliases(aliases: tuple[str, ...]) -> DpapiSecretEnvelope | None:
             raise SecretBrokerError("secret_alias_unavailable")
         values[alias] = value
     try:
-        return DpapiSecretEnvelope.seal(values)
+        return seal_worker_secrets(values)
     finally:
         values.clear()
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 
 import pytest
 
@@ -203,7 +204,9 @@ def test_applied_router_enforces_dependency_floor_and_endpoint_boundaries() -> N
         endpoints=(
             ReasoningEndpoint("low-fast", ReasoningTier.LOW, 1, 10),
             ReasoningEndpoint("medium-slow", ReasoningTier.MEDIUM, 3, 30),
-            ReasoningEndpoint("medium-fast", ReasoningTier.MEDIUM, 2, 20),
+            ReasoningEndpoint(
+                "medium-fast", ReasoningTier.MEDIUM, 2, 20, "model-medium", "medium"
+            ),
             ReasoningEndpoint("high", ReasoningTier.HIGH, 9, 90),
         ),
     )
@@ -222,6 +225,22 @@ def test_applied_router_enforces_dependency_floor_and_endpoint_boundaries() -> N
     assert decision.tier is ReasoningTier.MEDIUM
     assert decision.endpoint == "medium-fast"
     assert "dependency_floor:medium" in decision.reason_codes
+    policy = applied.request_policy(
+        decision,
+        constraints=ReasoningConstraints(
+            maximum_tier=ReasoningTier.MEDIUM,
+            eligible_endpoints=frozenset({"medium-fast"}),
+            maximum_cost_units=2,
+            maximum_latency_ms=25,
+        ),
+    )
+    assert (policy.model, policy.effort) == ("model-medium", "medium")
+    with pytest.raises(CapabilityHubError) as caught:
+        applied.request_policy(
+            replace(decision, endpoint="high"),
+            constraints=ReasoningConstraints(maximum_tier=ReasoningTier.MEDIUM),
+        )
+    assert caught.value.code == "reasoning_policy_mismatch"
     assert budget.snapshot().used["reasoning_tokens"] == 0
 
 

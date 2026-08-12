@@ -23,6 +23,7 @@ dependencies = ["jsonschema>=4.23,<5", "PyYAML>=6.0,<7"]
 [project.optional-dependencies]
 mcp = ["mcp>=2,<3"]
 supply-chain = ["cryptography>=43,<47"]
+secret-store = ["keyring>=25,<27"]
 dev = [
   "cryptography>=43,<47",
   "mcp>=2,<3",

@@ -27,6 +27,7 @@ from capabilityhub.models import (
     OperationType,
     SideEffect,
 )
+from capabilityhub.protocol import AdapterKind, RequestEnvelope, parse_request
 from capabilityhub.providers.base import ProviderContext
 from capabilityhub.providers.cli import CliInvocation, CliProcessFixture, CliProcessProvider
 from capabilityhub.providers.http import HttpApiFixture, HttpApiProvider, HttpInvocation
@@ -35,6 +36,7 @@ from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.service_adapter import CapabilityHubServiceAdapter
 
 CANARY = "SECRET-CONFORMANCE-CANARY-7f31"
 CASE_NAMES = ("skill", "cli", "api", "rag", "mcp")
@@ -238,6 +240,112 @@ def test_matrix_declares_each_kind_and_unsupported_surface(
         "rag": "retrieve; generic execute=unsupported",
         "mcp": "execute",
     }
+
+
+def test_one_mcp_meta_tool_chain_loads_all_kinds_and_invokes_supported_operations(
+    provider_matrix: dict[str, ProviderCase],
+) -> None:
+    """Prove the same three meta-tool envelopes cover every real provider kind."""
+
+    if "mcp" not in provider_matrix:
+        pytest.skip("official MCP SDK is not installed")
+    registry = CapabilityRegistry()
+    for case in provider_matrix.values():
+        registry.register(case.manifest)
+        registry.activate(case.manifest.identity.coordinate, case.manifest.identity.revision)
+    signer = ReferenceSigner(b"five-kind-meta-tool-chain")
+    service = CapabilityHubService(
+        registry=registry,
+        providers=tuple(case.provider for case in provider_matrix.values()),
+        references=signer,
+        audit=MemoryAuditSink(),
+    )
+    budgets: dict[str, BudgetLedger] = {}
+    adapter = CapabilityHubServiceAdapter(
+        service,
+        kind=AdapterKind.MCP,
+        context_provider=lambda: ServiceContext("tenant", "principal", "meta-session"),
+        budget_provider=lambda task_id: budgets.setdefault(
+            task_id,
+            BudgetLedger(
+                task_id,
+                {
+                    "bytes": 500_000,
+                    "loads": 5,
+                    "executions": 5,
+                    "portable_tokens": 100_000,
+                },
+            ),
+        ),
+    )
+
+    for case in provider_matrix.values():
+        task_id = f"meta-{case.name}"
+        searched = adapter.dispatch(
+            _adapter_request(
+                adapter,
+                "capability.search",
+                {"query": case.name, "task_id": task_id, "kinds": [case.kind.value]},
+            )
+        )
+        assert isinstance(searched, dict)
+        cards = searched["cards"]
+        assert isinstance(cards, list) and len(cards) == 1
+        card = cards[0]
+        assert isinstance(card, dict)
+        loaded = adapter.dispatch(
+            _adapter_request(
+                adapter,
+                "capability.load",
+                {
+                    "capability_ref": card["capability_ref"],
+                    "task_id": task_id,
+                    "operation_names": [item.name for item in case.manifest.operations],
+                },
+            )
+        )
+        assert isinstance(loaded, dict)
+        assert loaded["revision"] == case.manifest.identity.revision
+        if case.success_request is None:
+            assert loaded["execution_ref"] == ""
+            continue
+        executed = adapter.dispatch(
+            _adapter_request(
+                adapter,
+                "capability.execute",
+                {
+                    "execution_ref": loaded["execution_ref"],
+                    "operation": case.success_request.operation,
+                    "arguments": dict(case.success_request.arguments),
+                    "task_id": task_id,
+                },
+            )
+        )
+        assert isinstance(executed, dict)
+        assert executed["capability_revision"] == case.manifest.identity.revision
+
+
+def _adapter_request(
+    adapter: CapabilityHubServiceAdapter,
+    operation: str,
+    payload: dict[str, object],
+) -> RequestEnvelope:
+    handshake = adapter.handshake
+    return parse_request(
+        AdapterKind.MCP,
+        {
+            "request_id": f"request-{operation}-{payload['task_id']}",
+            "correlation_id": f"correlation-{payload['task_id']}",
+            "operation": operation,
+            "payload": payload,
+            "handshake": {
+                "api_versions": list(handshake.api_versions),
+                "supported_features": list(handshake.supported_features),
+                "required_features": list(handshake.required_features),
+            },
+        },
+        server_handshake=handshake,
+    )
 
 
 def _case(matrix: dict[str, ProviderCase], name: str) -> ProviderCase:

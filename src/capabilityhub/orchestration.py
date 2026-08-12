@@ -48,6 +48,8 @@ class ReasoningEndpoint:
     tier: ReasoningTier
     cost_units: int | None = None
     latency_ms: int | None = None
+    model: str | None = None
+    effort: str | None = None
 
     def __post_init__(self) -> None:
         if not self.name or len(self.name) > 128:
@@ -57,6 +59,13 @@ class ReasoningEndpoint:
                 isinstance(value, bool) or not isinstance(value, int) or value < 0
             ):
                 raise ValueError(f"reasoning endpoint {label} must be non-negative")
+        text_fields: tuple[tuple[str | None, str], ...] = (
+            (self.model, "model"),
+            (self.effort, "effort"),
+        )
+        for text_value, text_label in text_fields:
+            if text_value is not None and (not text_value or len(text_value) > 128):
+                raise ValueError(f"reasoning endpoint {text_label} is invalid")
 
 
 @dataclass(frozen=True, slots=True)
@@ -116,6 +125,19 @@ class AppliedReasoningDecision:
             "should_stop": self.should_stop,
             "tier": self.tier.value,
         }
+
+
+@dataclass(frozen=True, slots=True)
+class ModelRequestPolicy:
+    """Fail-closed request settings derived from one applied routing decision."""
+
+    endpoint: str
+    model: str
+    tier: ReasoningTier
+    effort: str
+    maximum_cost_units: int | None
+    maximum_latency_ms: int | None
+    estimated_tokens: int
 
 
 BudgetProvider = Callable[[str], BudgetLedger]
@@ -207,6 +229,56 @@ class AppliedReasoningRouter:
                 safe_message="Equivalent failed attempts reached the reasoning stop condition.",
             )
         return decision
+
+    def request_policy(
+        self,
+        decision: AppliedReasoningDecision,
+        *,
+        constraints: ReasoningConstraints,
+    ) -> ModelRequestPolicy:
+        """Revalidate a decision at the model-call boundary and bind concrete settings."""
+
+        endpoint = next(
+            (item for item in self._endpoints if item.name == decision.endpoint), None
+        )
+        ceiling = _TIER_POSITION[constraints.maximum_tier]
+        if (
+            endpoint is None
+            or endpoint.tier is not decision.tier
+            or _TIER_POSITION[decision.tier] > ceiling
+            or (
+                constraints.eligible_endpoints is not None
+                and endpoint.name not in constraints.eligible_endpoints
+            )
+            or (
+                constraints.maximum_cost_units is not None
+                and (
+                    endpoint.cost_units is None
+                    or endpoint.cost_units > constraints.maximum_cost_units
+                )
+            )
+            or (
+                constraints.maximum_latency_ms is not None
+                and (
+                    endpoint.latency_ms is None
+                    or endpoint.latency_ms > constraints.maximum_latency_ms
+                )
+            )
+        ):
+            raise CapabilityHubError(
+                code="reasoning_policy_mismatch",
+                category=ErrorCategory.POLICY,
+                safe_message="The reasoning decision violates the model request policy.",
+            )
+        return ModelRequestPolicy(
+            endpoint.name,
+            endpoint.model or endpoint.name,
+            endpoint.tier,
+            endpoint.effort or endpoint.tier.value,
+            constraints.maximum_cost_units,
+            constraints.maximum_latency_ms,
+            decision.estimated_tokens,
+        )
 
     def record_result(
         self,

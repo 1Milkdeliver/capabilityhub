@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor
 
@@ -29,7 +31,11 @@ from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.service import CapabilityHubService, ServiceContext
-from capabilityhub.supervision import ProcessProviderSupervisor, WorkerResourceLimits
+from capabilityhub.supervision import (
+    ProcessProviderSupervisor,
+    WorkerResourceLimits,
+    sandbox_capabilities,
+)
 
 IDENTITY = CapabilityIdentity("test", "worker", "1", "sha256:" + "0" * 64)
 REQUEST = ExecutionRequest("execution-ref", "run", {"value": 1}, "task")
@@ -102,6 +108,25 @@ class _HugeProvider(_Provider):
         )
 
 
+class _ChildProvider(_Provider):
+    def __init__(self, pid_path: str) -> None:
+        self.pid_path = pid_path
+
+    def execute(self, identity, request, context):
+        del identity, request, context
+        child = subprocess.Popen(
+            [
+                sys.executable,
+                "-c",
+                "import os,time,sys; "
+                "open(sys.argv[1], 'w').write(str(os.getpid())); time.sleep(30)",
+                self.pid_path,
+            ]
+        )
+        child.wait()
+        raise AssertionError("unreachable")
+
+
 def _context(deadline_ms: int = 5_000) -> ProviderContext:
     return ProviderContext("tenant", "principal", "session", deadline_ms, 1_000)
 
@@ -144,9 +169,60 @@ def test_unsupported_worker_isolation_fails_closed() -> None:
     with pytest.raises(ValueError, match="network isolation"):
         WorkerResourceLimits(require_network_isolation=True)
 
+    capabilities = sandbox_capabilities()
+    assert capabilities.filesystem_isolation is None
+    assert capabilities.network_isolation is None
+    assert capabilities.cpu_limit in {"job-object", "setrlimit"}
+
+
+def test_cpu_and_memory_limits_are_enforced_by_platform_backend() -> None:
+    supervisor = ProcessProviderSupervisor(
+        resource_limits=WorkerResourceLimits(cpu_seconds=2, memory_bytes=128 * 1024 * 1024)
+    )
+    result = supervisor.execute(_Provider(), IDENTITY, REQUEST, _context())
+    assert result.output == {"ok": True}
+
+
+def test_cancellation_terminates_descendant_process(tmp_path) -> None:
+    pid_path = tmp_path / "child.pid"
+    supervisor = ProcessProviderSupervisor()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(
+            supervisor.execute,
+            _ChildProvider(str(pid_path)),
+            IDENTITY,
+            REQUEST,
+            _context(10_000),
+        )
+        deadline = time.monotonic() + 5
+        while not pid_path.exists() and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert pid_path.exists()
+        child_pid = int(pid_path.read_text())
+        assert supervisor.cancel(REQUEST.execution_ref)
+        with pytest.raises(CapabilityHubError):
+            future.result(timeout=5)
+
+    deadline = time.monotonic() + 3
+    while _pid_alive(child_pid) and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert not _pid_alive(child_pid)
+
+
+def _pid_alive(pid: int) -> bool:
     if os.name == "nt":
-        with pytest.raises(ValueError, match="not supported on Windows"):
-            WorkerResourceLimits(cpu_seconds=1)
+        output = subprocess.run(
+            ("tasklist.exe", "/FI", f"PID eq {pid}", "/NH"),
+            check=False,
+            capture_output=True,
+            text=True,
+        ).stdout
+        return str(pid) in output
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    return True
 
 
 def test_process_supervisor_classifies_hard_worker_crash() -> None:

@@ -49,6 +49,7 @@ monitor and polls its safe status endpoint every three seconds. Inventory respon
 identify fresh, partial, or stale state and expose only safe diagnostic codes/counts.
 
 For installation and daily workflows, see the
+[English user guide](user-guide-en.md) or the
 [Simplified Chinese user guide](user-guide-zh-CN.md).
 
 The plugin exposes `helpme` and `myskills`, so the Codex app can present `/helpme` and

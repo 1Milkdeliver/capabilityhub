@@ -36,3 +36,22 @@ def test_readme_links_complete_english_and_chinese_user_guides() -> None:
     for command in ("/helpme", "/myskills", "capsift dashboard --project-root ."):
         assert command in english
         assert command in chinese
+
+
+def test_public_docs_link_english_and_chinese_guides_together() -> None:
+    root = Path(__file__).parents[1]
+    guide_links = {
+        root / "README.md": (
+            "docs/user-guide-en.md",
+            "docs/user-guide-zh-CN.md",
+        ),
+        root / "docs" / "ui-plugin.md": (
+            "user-guide-en.md",
+            "user-guide-zh-CN.md",
+        ),
+    }
+
+    for source, (english_link, chinese_link) in guide_links.items():
+        content = source.read_text(encoding="utf-8")
+        assert english_link in content
+        assert chinese_link in content

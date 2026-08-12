@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import importlib
 import json
 import multiprocessing
 import os
 import pickle
+import signal
+import subprocess
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from multiprocessing.connection import Connection
 from threading import RLock
 from time import monotonic
@@ -44,6 +47,26 @@ class ProviderSupervisor(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
+class WorkerResourceLimits:
+    """Optional hard worker limits; unsupported isolation fails at construction."""
+
+    cpu_seconds: int | None = None
+    memory_bytes: int | None = None
+    require_filesystem_isolation: bool = False
+    require_network_isolation: bool = False
+
+    def __post_init__(self) -> None:
+        if self.cpu_seconds is not None and self.cpu_seconds < 1:
+            raise ValueError("cpu_seconds must be positive")
+        if self.memory_bytes is not None and self.memory_bytes < 1_048_576:
+            raise ValueError("memory_bytes must be at least 1048576")
+        if self.require_filesystem_isolation or self.require_network_isolation:
+            raise ValueError("filesystem and network isolation are not supported")
+        if os.name == "nt" and (self.cpu_seconds is not None or self.memory_bytes is not None):
+            raise ValueError("CPU and memory worker limits are not supported on Windows")
+
+
+@dataclass(slots=True)
 class ProcessProviderSupervisor:
     """Run each call in a spawned process and enforce its wall-clock deadline."""
 
@@ -51,6 +74,12 @@ class ProcessProviderSupervisor:
     termination_grace_seconds: float = 0.2
     max_message_bytes: int = 4_000_000
     strict_local_providers: bool = False
+    resource_limits: WorkerResourceLimits | None = None
+    _workers: dict[str, multiprocessing.Process] = field(
+        default_factory=dict, init=False, repr=False
+    )
+    _cancelled: set[str] = field(default_factory=set, init=False, repr=False)
+    _worker_lock: RLock = field(default_factory=RLock, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if self.start_method not in multiprocessing.get_all_start_methods():
@@ -94,7 +123,7 @@ class ProcessProviderSupervisor:
         process_factory = cast(Any, process_context).Process
         process = process_factory(
             target=_worker,
-            args=(sender, provider, identity, request, context, envelope),
+            args=(sender, provider, identity, request, context, envelope, self.resource_limits),
             name=f"capabilityhub-{provider.name}",
             daemon=True,
         )
@@ -110,6 +139,18 @@ class ProcessProviderSupervisor:
                 "The isolated provider worker could not be started.",
                 retryable=True,
             ) from error
+        worker_id = request.execution_ref
+        with self._worker_lock:
+            if worker_id in self._workers:
+                _stop(process, self.termination_grace_seconds)
+                receiver.close()
+                sender.close()
+                raise _error(
+                    "provider_worker_conflict",
+                    ErrorCategory.CONFLICT,
+                    "The isolated provider execution is already active.",
+                )
+            self._workers[worker_id] = process
         sender.close()
         timeout_seconds = context.deadline_ms / 1_000
         deadline = monotonic() + timeout_seconds
@@ -126,16 +167,22 @@ class ProcessProviderSupervisor:
                 raw = receiver.recv_bytes(self.max_message_bytes)
             except EOFError as error:
                 process.join(self.termination_grace_seconds)
+                with self._worker_lock:
+                    cancelled = worker_id in self._cancelled
                 code = (
-                    "provider_worker_crashed"
+                    "provider_worker_cancelled"
+                    if cancelled
+                    else "provider_worker_crashed"
                     if process.exitcode not in (None, 0)
                     else "provider_worker_no_result"
                 )
                 raise _error(
                     code,
-                    ErrorCategory.PROVIDER,
-                    "The isolated provider worker ended without a valid result.",
-                    retryable=True,
+                    ErrorCategory.TIMEOUT if cancelled else ErrorCategory.PROVIDER,
+                    "The isolated provider execution was cancelled."
+                    if cancelled
+                    else "The isolated provider worker ended without a valid result.",
+                    retryable=not cancelled,
                 ) from error
             except OSError as error:
                 raise _error(
@@ -158,7 +205,27 @@ class ProcessProviderSupervisor:
                 _stop(process, self.termination_grace_seconds)
             if not process.is_alive():
                 process.close()
+            with self._worker_lock:
+                self._workers.pop(worker_id, None)
+                self._cancelled.discard(worker_id)
         return _decode(raw)
+
+    def cancel(self, execution_ref: str) -> bool:
+        """Terminate the registered worker tree for one opaque execution ref."""
+
+        with self._worker_lock:
+            process = self._workers.get(execution_ref)
+            if process is None or not process.is_alive():
+                return False
+            self._cancelled.add(execution_ref)
+            _stop(process, self.termination_grace_seconds)
+            return not process.is_alive()
+
+    def active_count(self) -> int:
+        """Return an aggregate only; execution references are never exposed."""
+
+        with self._worker_lock:
+            return sum(process.is_alive() for process in self._workers.values())
 
 
 def _worker(
@@ -168,8 +235,12 @@ def _worker(
     request: ExecutionRequest,
     context: ProviderContext,
     secret_envelope: DpapiSecretEnvelope | None,
+    resource_limits: WorkerResourceLimits | None,
 ) -> None:
     try:
+        if os.name != "nt" and hasattr(os, "setsid"):
+            os.setsid()
+        _apply_resource_limits(resource_limits)
         try:
             with worker_secret_scope(secret_envelope):
                 result = provider.execute(identity, request, context)
@@ -225,6 +296,16 @@ def _worker(
         sender.send_bytes(encoded)
     finally:
         sender.close()
+
+
+def _apply_resource_limits(limits: WorkerResourceLimits | None) -> None:
+    if limits is None or os.name == "nt":
+        return
+    resource = cast(Any, importlib.import_module("resource"))
+    if limits.cpu_seconds is not None:
+        resource.setrlimit(resource.RLIMIT_CPU, (limits.cpu_seconds, limits.cpu_seconds))
+    if limits.memory_bytes is not None:
+        resource.setrlimit(resource.RLIMIT_AS, (limits.memory_bytes, limits.memory_bytes))
 
 
 def _decode(raw: bytes) -> ExecutionResult:
@@ -290,11 +371,41 @@ def _decode(raw: bytes) -> ExecutionResult:
 
 
 def _stop(process: multiprocessing.Process, grace_seconds: float) -> None:
-    if process.is_alive():
-        process.terminate()
+    if process.is_alive() and os.name == "nt" and process.pid is not None:
+        try:
+            subprocess.run(
+                ("taskkill.exe", "/PID", str(process.pid), "/T", "/F"),
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=max(grace_seconds, 1.0),
+            )
+        except (OSError, subprocess.SubprocessError):
+            process.terminate()
+        process.join(grace_seconds)
+    elif process.is_alive() and process.pid is not None:
+        try:
+            posix_os = cast(Any, os)
+            if posix_os.getpgid(process.pid) == process.pid:
+                posix_os.killpg(process.pid, signal.SIGTERM)
+            else:
+                process.terminate()
+        except (OSError, ProcessLookupError):
+            process.terminate()
         process.join(grace_seconds)
     if process.is_alive() and hasattr(process, "kill"):
-        process.kill()
+        if os.name != "nt" and process.pid is not None:
+            try:
+                posix_os = cast(Any, os)
+                posix_signal = cast(Any, signal)
+                if posix_os.getpgid(process.pid) == process.pid:
+                    posix_os.killpg(process.pid, posix_signal.SIGKILL)
+                else:
+                    process.kill()
+            except (OSError, ProcessLookupError):
+                process.kill()
+        else:
+            process.kill()
         process.join(grace_seconds)
 
 

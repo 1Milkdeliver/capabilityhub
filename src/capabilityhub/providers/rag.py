@@ -6,7 +6,8 @@ import hashlib
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from time import monotonic
+from time import monotonic, time
+from typing import cast
 
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.metering import canonical_json, measure_text
@@ -18,6 +19,8 @@ from capabilityhub.models import (
     JsonValue,
 )
 from capabilityhub.providers.base import ProviderContext
+from capabilityhub.rag_index import DiskRagIndex, RagHit
+from capabilityhub.tenancy import TenantScope
 
 _WORD = re.compile(r"\w+", re.UNICODE)
 
@@ -31,6 +34,7 @@ class LocalRagFixture:
     chunk_lines: int = 12
     max_files: int = 500
     max_file_bytes: int = 512_000
+    index: DiskRagIndex | None = None
 
     def __post_init__(self) -> None:
         root = self.root.resolve()
@@ -95,7 +99,14 @@ class LocalRagProvider:
             )
         query = request.arguments.get("query")
         top_k = request.arguments.get("top_k", 5)
-        if not isinstance(query, str) or not query.strip():
+        expansion_handle = request.arguments.get("expansion_handle")
+        if expansion_handle is not None and not isinstance(expansion_handle, str):
+            raise _error(
+                "rag_expansion_handle_invalid",
+                ErrorCategory.INPUT,
+                "RAG expansion handle must be a string.",
+            )
+        if expansion_handle is None and (not isinstance(query, str) or not query.strip()):
             raise _error("rag_query_invalid", ErrorCategory.INPUT, "RAG query must be non-empty.")
         if not isinstance(top_k, int) or isinstance(top_k, bool) or not 1 <= top_k <= 20:
             raise _error(
@@ -103,22 +114,75 @@ class LocalRagProvider:
                 ErrorCategory.INPUT,
                 "RAG top_k must be an integer from 1 to 20.",
             )
-        terms = tuple(dict.fromkeys(word.casefold() for word in _WORD.findall(query)))
-        candidates = _candidates(fixture, terms, monotonic() + context.deadline_ms / 1000)
-        results: list[JsonValue] = []
-        for score, relative, start_line, text in candidates[:top_k]:
-            results.append(
-                {
-                    "citation": {
-                        "end_line": start_line + text.count("\n"),
-                        "path": relative,
-                        "start_line": start_line,
-                    },
-                    "score": score,
-                    "text": text,
-                }
+        max_bytes = request.arguments.get("max_bytes", 64_000)
+        if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1:
+            raise _error(
+                "rag_max_bytes_invalid", ErrorCategory.INPUT, "RAG max_bytes must be positive."
             )
-        output: JsonValue = {"results": results, "truncated": len(candidates) > len(results)}
+        filters = request.arguments.get("filters", {})
+        if not isinstance(filters, dict) or any(
+            not isinstance(key, str) or not isinstance(value, str)
+            for key, value in filters.items()
+        ):
+            raise _error("rag_filters_invalid", ErrorCategory.INPUT, "RAG filters are invalid.")
+        scope = TenantScope(
+            context.tenant_id, context.principal_id, context.session_id, request.task_id
+        )
+        results: list[JsonValue]
+        truncated = False
+        if fixture.index is not None:
+            hits: tuple[RagHit, ...]
+            if expansion_handle is not None:
+                hits = (
+                    fixture.index.expand(
+                        expansion_handle, scope=scope, max_bytes=max_bytes, now=time()
+                    ),
+                )
+            else:
+                assert isinstance(query, str)
+                hits = fixture.index.search(
+                    query,
+                    scope=scope,
+                    top_k=top_k,
+                    filters=cast(dict[str, str], filters),
+                    max_bytes=max_bytes,
+                    now=time(),
+                )
+            results = [_indexed_result(hit) for hit in hits]
+        else:
+            assert isinstance(query, str)
+            terms = tuple(dict.fromkeys(word.casefold() for word in _WORD.findall(query)))
+            candidates = _candidates(fixture, terms, monotonic() + context.deadline_ms / 1000)
+            results = []
+            used_bytes = 0
+            for score, relative, start_line, text in candidates[:top_k]:
+                text_bytes = len(text.encode("utf-8"))
+                if used_bytes + text_bytes > max_bytes:
+                    truncated = True
+                    break
+                used_bytes += text_bytes
+                results.append(
+                    {
+                        "citation": {
+                            "end_line": start_line + text.count("\n"),
+                            "path": relative,
+                            "start_line": start_line,
+                        },
+                        "score": score,
+                        "text": text,
+                    }
+                )
+            truncated = truncated or len(candidates) > len(results)
+        output: JsonValue = {"results": results, "truncated": truncated}
+        while results and len(canonical_json(output).encode("utf-8")) > max_bytes:
+            results.pop()
+            output = {"results": results, "truncated": True}
+        if len(canonical_json(output).encode("utf-8")) > max_bytes:
+            raise _error(
+                "rag_response_bytes_exceeded",
+                ErrorCategory.BUDGET,
+                "The RAG response cannot fit the hard byte budget.",
+            )
         measurement = measure_text(canonical_json(output))
         while results and measurement.portable_tokens > context.max_output_tokens:
             results.pop()
@@ -133,7 +197,9 @@ class LocalRagProvider:
         audit_material = canonical_json(
             {
                 "operation": request.operation,
-                "query_digest": hashlib.sha256(query.encode()).hexdigest(),
+                "query_digest": hashlib.sha256(
+                    (query if isinstance(query, str) else "expansion").encode()
+                ).hexdigest(),
                 "result_count": len(results),
                 "revision": identity.revision,
                 "task_id": request.task_id,
@@ -193,6 +259,20 @@ def _candidates(
                 candidates.append((score, relative, offset + 1, text))
     candidates.sort(key=lambda item: (-item[0], item[1], item[2]))
     return candidates
+
+
+def _indexed_result(hit: RagHit) -> JsonValue:
+    return {
+        "citation": hit.citation,
+        "created_at": hit.created_at,
+        "expansion_handle": hit.expansion_handle,
+        "fresh": hit.fresh,
+        "fresh_until": hit.fresh_until,
+        "passage_id": hit.chunk_id,
+        "retain_until": hit.retain_until,
+        "score": hit.score,
+        "text": hit.text,
+    }
 
 
 def _error(code: str, category: ErrorCategory, message: str) -> CapabilityHubError:

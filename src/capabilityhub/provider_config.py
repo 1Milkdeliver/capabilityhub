@@ -15,6 +15,7 @@ from capabilityhub.providers.http import (
     HttpInvocation,
 )
 from capabilityhub.providers.rag import LocalRagFixture, LocalRagProvider
+from capabilityhub.rag_index import DiskRagIndex
 from capabilityhub.secret_broker import EnvironmentAliases
 
 
@@ -89,6 +90,7 @@ def _fixture(
             chunk_lines=_positive_int(config, "chunkLines", 12),
             max_files=_positive_int(config, "maxFiles", 500),
             max_file_bytes=_positive_int(config, "maxFileBytes", 512_000),
+            index=_rag_index(config, project),
         )
     from capabilityhub.providers.mcp import McpStdioFixture
 
@@ -189,3 +191,20 @@ def _positive_int(value: Mapping[str, object], field: str, default: int) -> int:
     if not isinstance(raw, int) or isinstance(raw, bool) or raw < 1:
         raise ValueError(f"{field} must be a positive integer")
     return raw
+
+
+def _rag_index(config: Mapping[str, object], project: Path) -> DiskRagIndex | None:
+    configured = ("indexPath" in config, "scopeKeyFile" in config)
+    if not any(configured):
+        return None
+    if not all(configured):
+        raise ValueError("RAG indexPath and scopeKeyFile must be configured together")
+    index_path = (project / _text(config, "indexPath")).resolve()
+    key_path = (project / _text(config, "scopeKeyFile")).resolve()
+    root = project.resolve()
+    if not index_path.is_relative_to(root) or not key_path.is_relative_to(root):
+        raise ValueError("RAG index files must remain inside the project")
+    key = key_path.read_bytes()
+    if len(key) < 16:
+        raise ValueError("RAG scope key file is invalid")
+    return DiskRagIndex(index_path, scope_key=key)

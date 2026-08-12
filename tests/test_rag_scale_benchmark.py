@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 
 from benchmarks.rag_scale import (
+    BENCHMARK_SCOPE_KEY,
     QUALITY_FIXTURES,
     DiskRagIndex,
     DiskRagProvider,
@@ -18,7 +19,7 @@ from benchmarks.rag_scale import (
 
 
 def test_streamed_disk_index_executes_real_top_k_quality_queries(tmp_path) -> None:
-    index = DiskRagIndex(tmp_path / "rag.sqlite3")
+    index = DiskRagIndex(tmp_path / "rag.sqlite3", scope_key=BENCHMARK_SCOPE_KEY)
     assert index.build(stream_chunks(10_000)) == 10_000
     provider = DiskRagProvider(index)
 

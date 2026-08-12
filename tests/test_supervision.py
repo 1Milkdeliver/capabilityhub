@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
@@ -28,7 +29,7 @@ from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.service import CapabilityHubService, ServiceContext
-from capabilityhub.supervision import ProcessProviderSupervisor
+from capabilityhub.supervision import ProcessProviderSupervisor, WorkerResourceLimits
 
 IDENTITY = CapabilityIdentity("test", "worker", "1", "sha256:" + "0" * 64)
 REQUEST = ExecutionRequest("execution-ref", "run", {"value": 1}, "task")
@@ -120,6 +121,32 @@ def test_process_supervisor_terminates_worker_after_deadline() -> None:
     assert caught.value.code == "provider_worker_timeout"
     assert caught.value.category is ErrorCategory.TIMEOUT
     assert caught.value.retryable is True
+
+
+def test_process_supervisor_cancels_registered_worker_tree() -> None:
+    supervisor = ProcessProviderSupervisor()
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(supervisor.execute, _SlowProvider(), IDENTITY, REQUEST, _context())
+        deadline = time.monotonic() + 3
+        while supervisor.active_count() == 0 and time.monotonic() < deadline:
+            time.sleep(0.01)
+
+        assert supervisor.cancel(REQUEST.execution_ref) is True
+        with pytest.raises(CapabilityHubError) as caught:
+            future.result(timeout=3)
+
+    assert caught.value.code == "provider_worker_cancelled"
+    assert caught.value.retryable is False
+    assert supervisor.active_count() == 0
+
+
+def test_unsupported_worker_isolation_fails_closed() -> None:
+    with pytest.raises(ValueError, match="network isolation"):
+        WorkerResourceLimits(require_network_isolation=True)
+
+    if os.name == "nt":
+        with pytest.raises(ValueError, match="not supported on Windows"):
+            WorkerResourceLimits(cpu_seconds=1)
 
 
 def test_process_supervisor_classifies_hard_worker_crash() -> None:

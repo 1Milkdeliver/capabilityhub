@@ -253,6 +253,11 @@ class ResilientProviderExecutor(Generic[T]):
         self._clock = clock
         self._sleeper = sleeper
 
+    def snapshot(self, provider_key: str) -> CircuitSnapshot | None:
+        """Return the bounded, non-sensitive circuit state for one provider."""
+
+        return self._circuit_breaker.snapshot(provider_key)
+
     def execute(
         self,
         provider_key: str,
@@ -306,6 +311,26 @@ class ResilientProviderExecutor(Generic[T]):
             else:
                 self._circuit_breaker.record_success(permit)
                 return result
+
+
+_NOT_APPLIED_PROVIDER_ERRORS = frozenset(
+    {
+        "cli_start_failed",
+        "provider_worker_start_failed",
+    }
+)
+
+
+def classify_adapter_failure(error: CapabilityHubError) -> FailureCertainty:
+    """Classify only failures proven to occur before adapter application.
+
+    Timeouts, crashes, protocol failures, and remote transport failures remain
+    uncertain because the adapter may have applied a write before failing.
+    """
+
+    if error.code in _NOT_APPLIED_PROVIDER_ERRORS:
+        return FailureCertainty.NOT_APPLIED
+    return FailureCertainty.UNCERTAIN
 
 
 def _circuit_error(code: str, message: str) -> CapabilityHubError:

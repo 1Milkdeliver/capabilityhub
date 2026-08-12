@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from typing import cast
 
 import pytest
 
@@ -18,9 +19,11 @@ from capabilityhub.models import (
 )
 from capabilityhub.providers.base import ProviderContext
 from capabilityhub.providers.rag import LocalRagFixture, LocalRagProvider
+from capabilityhub.rag_index import DiskRagIndex, RagPassage
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.tenancy import TenantScope
 
 
 def _manifest() -> CapabilityManifest:
@@ -152,3 +155,51 @@ def test_local_rag_rejects_invalid_query_and_top_k(tmp_path) -> None:
             ExecutionRequest("unused", "retrieve", {"query": "x", "top_k": 21}, "task"),
             _context(),
         )
+
+
+def test_indexed_rag_provider_enforces_scope_filters_bytes_and_live_acl(tmp_path) -> None:
+    manifest = _manifest()
+    index = DiskRagIndex(tmp_path / "index.sqlite3", scope_key=b"indexed-provider-test-key")
+    scope = TenantScope("tenant", "principal", "session", "task")
+    index.replace(
+        scope,
+        [
+            RagPassage(
+                "selected",
+                "guide.md#L1",
+                "indexed retrieval needle",
+                {"locale": "en"},
+                ("principal",),
+            )
+        ],
+    )
+    provider = LocalRagProvider([LocalRagFixture(manifest, tmp_path, index=index)])
+    request = ExecutionRequest(
+        "unused",
+        "retrieve",
+        {"query": "retrieval needle", "filters": {"locale": "en"}, "max_bytes": 1_000},
+        "task",
+    )
+
+    result = provider.execute(manifest.identity, request, _context())
+    output = cast(dict[str, object], result.output)
+    results = cast(list[dict[str, object]], output["results"])
+    selected = results[0]
+    assert selected["passage_id"] == "selected"
+    assert selected["expansion_handle"].startswith("rag1.")
+    assert selected["fresh"] is True
+
+    index.set_acl(scope, "selected", ("other",))
+    assert provider.execute(manifest.identity, request, _context()).output["results"] == []
+    with pytest.raises(CapabilityHubError) as denied:
+        provider.execute(
+            manifest.identity,
+            ExecutionRequest(
+                "unused",
+                "retrieve",
+                {"expansion_handle": selected["expansion_handle"]},
+                "task",
+            ),
+            _context(),
+        )
+    assert denied.value.code == "rag_passage_unavailable"

@@ -14,29 +14,23 @@ import tempfile
 import time
 from collections.abc import Iterable, Iterator
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import closing
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
+
+from capabilityhub.rag_index import DiskRagIndex
 
 DEFAULT_SEED = 20_260_812
 CI_CHUNKS = 10_000
 FULL_CHUNKS = 1_000_000
 FULL_DATASET_DIGEST = "sha256:ab54b45ac8ef335440fb7a6973911e83fb1e67efdbf142196c2bfe8eebdf9b8a"
 DEFAULT_TOP_K = 5
+BENCHMARK_SCOPE_KEY = b"capabilityhub-rag-scale-benchmark"
 QUALITY_FIXTURES = (
     (37, "amber zephyr ledger"),
     (1_037, "cobalt orchard telemetry"),
     (7_919, "violet harbor contract"),
 )
-
-
-@dataclass(frozen=True, slots=True)
-class RagHit:
-    chunk_id: int
-    citation: str
-    text: str
-    score: float
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,58 +66,6 @@ class RagScaleReport:
     hard_limits: dict[str, float | int]
     hardware: dict[str, str | int | None]
     replay_command: str
-
-
-class DiskRagIndex:
-    """SQLite FTS5 index with streaming writes and per-query read connections."""
-
-    def __init__(self, path: str | Path) -> None:
-        self.path = Path(path).resolve()
-
-    def build(self, chunks: Iterable[tuple[int, str, str]]) -> int:
-        self.path.parent.mkdir(parents=True, exist_ok=True)
-        with closing(sqlite3.connect(self.path)) as connection, connection:
-            connection.execute("PRAGMA journal_mode=WAL")
-            connection.execute("PRAGMA synchronous=NORMAL")
-            connection.execute("DROP TABLE IF EXISTS chunks")
-            connection.execute(
-                "CREATE VIRTUAL TABLE chunks USING fts5("
-                "chunk_id UNINDEXED, citation UNINDEXED, text)"
-            )
-            count = 0
-            batch: list[tuple[int, str, str]] = []
-            for chunk in chunks:
-                batch.append(chunk)
-                if len(batch) == 2_000:
-                    connection.executemany("INSERT INTO chunks VALUES (?, ?, ?)", batch)
-                    count += len(batch)
-                    batch.clear()
-            if batch:
-                connection.executemany("INSERT INTO chunks VALUES (?, ?, ?)", batch)
-                count += len(batch)
-            connection.execute("INSERT INTO chunks(chunks) VALUES ('optimize')")
-        return count
-
-    def search(self, query: str, *, top_k: int = DEFAULT_TOP_K) -> tuple[RagHit, ...]:
-        if not query.strip() or not 1 <= top_k <= 20:
-            raise ValueError("query and top_k are outside benchmark bounds")
-        phrase = '"' + query.replace('"', '""') + '"'
-        uri = f"file:{self.path.as_posix()}?mode=ro"
-        with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
-            return self._search_connection(connection, phrase, top_k)
-
-    @staticmethod
-    def _search_connection(
-        connection: sqlite3.Connection, phrase: str, top_k: int
-    ) -> tuple[RagHit, ...]:
-        rows = connection.execute(
-            "SELECT chunk_id, citation, text, bm25(chunks) FROM chunks "
-            "WHERE chunks MATCH ? ORDER BY bm25(chunks), CAST(chunk_id AS INTEGER) LIMIT ?",
-            (phrase, top_k),
-        ).fetchall()
-        return tuple(
-            RagHit(int(row[0]), str(row[1]), str(row[2]), float(row[3])) for row in rows
-        )
 
 
 class DiskRagProvider:
@@ -177,7 +119,8 @@ def run_rag_scale_benchmark(
         raise ValueError(f"chunk_count must be from {minimum} to 1000000")
     if concurrent_reads < 1 or warm_repetitions < 1:
         raise ValueError("read counts must be positive")
-    selected_max_bytes = max_index_bytes or chunk_count * 1_024
+    # Includes production ACL/retention metadata plus bounded SQLite page overhead.
+    selected_max_bytes = max_index_bytes or max(4_000_000, chunk_count * 1_536)
     owned: tempfile.TemporaryDirectory[str] | None = None
     if directory is None:
         owned = tempfile.TemporaryDirectory()
@@ -185,7 +128,7 @@ def run_rag_scale_benchmark(
     else:
         root = Path(directory).resolve()
     root.mkdir(parents=True, exist_ok=True)
-    index = DiskRagIndex(root / "rag-index.sqlite3")
+    index = DiskRagIndex(root / "rag-index.sqlite3", scope_key=BENCHMARK_SCOPE_KEY)
     started = time.perf_counter_ns()
     built = index.build(stream_chunks(chunk_count, seed=seed))
     build_ms = _elapsed_ms(started)
@@ -198,17 +141,11 @@ def run_rag_scale_benchmark(
         for _ in range(warm_repetitions)
         for query in queries
     ]
-    uri = f"file:{index.path.as_posix()}?mode=ro"
-    with closing(sqlite3.connect(uri, uri=True, timeout=30)) as connection:
-        warm = [
-            _timed(
-                lambda query=query: index._search_connection(
-                    connection, '"' + query.replace('"', '""') + '"', DEFAULT_TOP_K
-                )
-            )
-            for _ in range(warm_repetitions)
-            for query in queries
-        ]
+    warm = [
+        _timed(lambda query=query: index.search(query))
+        for _ in range(warm_repetitions)
+        for query in queries
+    ]
 
     def concurrent_query(position: int) -> tuple[float, bool]:
         expected, query = QUALITY_FIXTURES[position % len(QUALITY_FIXTURES)]
@@ -220,11 +157,7 @@ def run_rag_scale_benchmark(
         concurrent_results = tuple(executor.map(concurrent_query, range(concurrent_reads)))
 
     quality = tuple(_quality(index, expected, query) for expected, query in QUALITY_FIXTURES)
-    index_bytes = sum(
-        path.stat().st_size
-        for path in root.glob("rag-index.sqlite3*")
-        if path.is_file()
-    )
+    index_bytes = index.storage_bytes()
     limits: dict[str, float | int] = {
         "max_build_seconds": max_build_seconds,
         "max_index_bytes": selected_max_bytes,

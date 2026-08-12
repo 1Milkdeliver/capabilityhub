@@ -13,6 +13,7 @@ from capabilityhub.resilience import (
     FailureCertainty,
     ResilientProviderExecutor,
     RetryPolicy,
+    classify_adapter_failure,
 )
 
 
@@ -47,6 +48,43 @@ def _failure(
         safe_message="A safe upstream error." + secret,
         retryable=retryable,
     )
+
+
+def test_adapter_failure_certainty_is_fail_closed() -> None:
+    not_started = CapabilityHubError(
+        code="provider_worker_start_failed",
+        category=ErrorCategory.PROVIDER,
+        safe_message="Worker start failed.",
+        retryable=True,
+    )
+    timed_out = CapabilityHubError(
+        code="provider_worker_timeout",
+        category=ErrorCategory.TIMEOUT,
+        safe_message="Worker timed out.",
+        retryable=True,
+    )
+
+    assert classify_adapter_failure(not_started) is FailureCertainty.NOT_APPLIED
+    assert classify_adapter_failure(timed_out) is FailureCertainty.UNCERTAIN
+
+
+def test_executor_exposes_safe_circuit_snapshot() -> None:
+    executor = ResilientProviderExecutor[str](
+        retry_policy=RetryPolicy(max_attempts=1),
+        circuit_breaker=CircuitBreaker(failure_threshold=1),
+    )
+    with pytest.raises(CapabilityHubError):
+        executor.execute(
+            "provider",
+            lambda: (_ for _ in ()).throw(_failure()),
+            operation=_operation(),
+            request=_request(),
+            deadline_seconds=1,
+        )
+
+    snapshot = executor.snapshot("provider")
+    assert snapshot is not None
+    assert snapshot.state is CircuitState.OPEN
 
 
 @pytest.mark.parametrize(

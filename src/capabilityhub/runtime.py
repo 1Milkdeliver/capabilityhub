@@ -20,6 +20,11 @@ from capabilityhub.activation_lock import (
     export_activation_lock,
     validate_activation_lock_json,
 )
+from capabilityhub.admin_control import (
+    AdminControlAccess,
+    AdminPrincipal,
+    LoopbackAdminControl,
+)
 from capabilityhub.approval_store import (
     ApprovalIntent,
     ApprovalRecord,
@@ -96,6 +101,12 @@ from capabilityhub.reasoning_store import SQLiteReasoningStore
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.residency import ResidentSection
+from capabilityhub.resilience import (
+    CircuitBreaker,
+    ResilientProviderExecutor,
+    RetryPolicy,
+    classify_adapter_failure,
+)
 from capabilityhub.retention import AuditRetentionManager
 from capabilityhub.search import SearchResponse
 from capabilityhub.secure_audit import (
@@ -146,6 +157,9 @@ DEFAULT_LOCAL_HTTP_AGGREGATE_BUDGETS = {
 }
 LOCAL_POLICY_REVISION = "local-v1"
 _LOCAL_STORE_INIT_LOCK = RLock()
+_LOCAL_PROVIDER_LOCK = RLock()
+_LOCAL_PROVIDER_SUPERVISORS: dict[Path, ProcessProviderSupervisor] = {}
+_LOCAL_PROVIDER_EXECUTORS: dict[Path, ResilientProviderExecutor[ExecutionResult]] = {}
 DEFAULT_CONTEXT_TOKENS = 16_000
 SECURE_AUDIT_KEY_ENV = "CAPABILITYHUB_AUDIT_KEY"
 LOCAL_LAST_GOOD_MAX_AGE_SECONDS = 300.0
@@ -768,7 +782,20 @@ def local_providers(
     """Return real Provider groupings from the current local registry."""
 
     selected = _select_local_scope(project_root, monitor)
-    return providers_view(selected.snapshot().registry)
+    result = providers_view(selected.snapshot().registry)
+    executor = _local_provider_executor(selected.project)
+    provider_names = sorted(provider.name for provider in selected.snapshot().providers)
+    result["circuits"] = [
+        {
+            "consecutive_failures": snapshot.consecutive_failures,
+            "provider": provider_name,
+            "state": snapshot.state.value,
+        }
+        for provider_name in provider_names
+        if (snapshot := executor.snapshot(provider_name)) is not None
+    ]
+    result["active_workers"] = _local_provider_supervisor(selected.project).active_count()
+    return result
 
 
 def local_routing(
@@ -1323,7 +1350,9 @@ def _local_execute(
             selected.project,
             persist_results=fixture_output is _CONFIGURED_PROVIDER,
         ),
-        provider_supervisor=ProcessProviderSupervisor(strict_local_providers=True),
+        provider_supervisor=_local_provider_supervisor(selected.project),
+        provider_executor=_local_provider_executor(selected.project),
+        retry_certainty_classifier=classify_adapter_failure,
         dependency_decider=dependency_decider,
     )
     context = _local_context(
@@ -1744,6 +1773,7 @@ class _RefreshingDrainedHttpService:
                 cancellable=self._cancellable,
             ),
             cancel=self._cancel,
+            pin_id_factory=lambda request, _binding: request.execution_ref,
             pin_revision=lambda coordinate, pin_id: self._update_store.pin_active(
                 coordinate, pin_id
             ).revision,
@@ -1840,6 +1870,7 @@ def local_http_control(
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
     references = ReferenceSigner(token_bytes(32))
+    supervisor = _local_provider_supervisor(selected.project)
     identity = AuthIdentity(tenant_id, principal_id, "http-loopback", session_id)
     service = CapabilityHubService(
         registry=generation.registry,
@@ -1856,7 +1887,9 @@ def local_http_control(
         idempotency_store=_local_idempotency_store(
             selected.project, scope_key=_tenant_scope_key(selected.project)
         ),
-        provider_supervisor=None,
+        provider_supervisor=supervisor if cancel_execution is None else None,
+        provider_executor=_local_provider_executor(selected.project),
+        retry_certainty_classifier=classify_adapter_failure,
     )
     context = ServiceContext(
         identity.tenant_id,
@@ -1884,8 +1917,8 @@ def local_http_control(
         monitor=selected,
         references=references,
         update_store=SQLiteUpdateStore(_state_path(selected.project)),
-        cancellable=execution_cancellable or (lambda _manifest, _operation: False),
-        cancel=cancel_execution,
+        cancellable=execution_cancellable or (lambda _manifest, _operation: True),
+        cancel=cancel_execution or supervisor.cancel,
         drain_timeout_seconds=drain_timeout_seconds,
     )
     adapter = CapabilityHubServiceAdapter(
@@ -1905,6 +1938,149 @@ def local_http_control(
     return control, control.start()
 
 
+class _LocalAdminBackend:
+    def __init__(self, project: Path, monitor: LocalCatalogMonitor | None) -> None:
+        self._project = project
+        self._monitor = monitor
+
+    def dispatch(
+        self,
+        operation: str,
+        payload: Mapping[str, JsonValue],
+        identity: AuthIdentity,
+    ) -> JsonValue:
+        if operation == "lifecycle.list":
+            _admin_payload(payload)
+            return local_lifecycle(self._project, monitor=self._monitor)
+        if operation == "lifecycle.set":
+            _admin_payload(payload, required=("coordinate", "state"), optional=("scope",))
+            return local_set_lifecycle(
+                _admin_text(payload, "coordinate"),
+                _admin_text(payload, "state"),
+                scope=_admin_text(payload, "scope", default="project"),
+                project_root=self._project,
+                monitor=self._monitor,
+            )
+        if operation == "update.list":
+            _admin_payload(payload, optional=("limit",))
+            return local_updates(
+                self._project,
+                limit=_admin_int(payload, "limit", default=100),
+                monitor=self._monitor,
+            )
+        if operation.startswith("update."):
+            action = operation.removeprefix("update.")
+            optional = ("expected_active_revision", "health_passed")
+            _admin_payload(payload, required=("target",), optional=optional)
+            expected = payload.get("expected_active_revision")
+            health = payload.get("health_passed")
+            if expected is not None and not isinstance(expected, str):
+                raise ValueError("expected_active_revision must be text")
+            if health is not None and not isinstance(health, bool):
+                raise ValueError("health_passed must be boolean")
+            return local_update_action(
+                action,
+                _admin_text(payload, "target"),
+                expected_active_revision=expected,
+                health_passed=health,
+                project_root=self._project,
+                monitor=self._monitor,
+            )
+        if operation == "approval.list":
+            _admin_payload(payload, required=("task_id",), optional=("status", "limit"))
+            task_id = _admin_text(payload, "task_id")
+            status = payload.get("status")
+            if status is not None and not isinstance(status, str):
+                raise ValueError("status must be text")
+            records = ScopedApprovalStore(
+                _state_path(self._project), scope_key=_tenant_scope_key(self._project)
+            ).list(
+                _tenant_scope(identity, task_id),
+                status=status,
+                limit=_admin_int(payload, "limit", default=50),
+            )
+            return {
+                "approvals": [_approval_json(record) for record in records],
+                "count": len(records),
+            }
+        if operation == "approval.decide":
+            _admin_payload(
+                payload,
+                required=("task_id", "approval_id", "decision"),
+            )
+            task_id = _admin_text(payload, "task_id")
+            approval_id = _admin_text(payload, "approval_id")
+            decision = _admin_text(payload, "decision")
+            store = ScopedApprovalStore(
+                _state_path(self._project), scope_key=_tenant_scope_key(self._project)
+            )
+            scope = _tenant_scope(identity, task_id)
+            if decision == "approve":
+                record = store.approve(scope, approval_id, decided_by=identity.principal_id)
+            elif decision == "deny":
+                record = store.deny(scope, approval_id, decided_by=identity.principal_id)
+            else:
+                raise ValueError("decision must be approve or deny")
+            return _approval_json(record)
+        if operation == "audit.query":
+            _admin_payload(payload, required=("task_id",), optional=("limit",))
+            return local_audit(
+                self._project,
+                limit=_admin_int(payload, "limit", default=50),
+                monitor=self._monitor,
+                identity=identity,
+                task_id=_admin_text(payload, "task_id"),
+            )
+        if operation in {"policy.query", "policy.set"}:
+            _admin_payload(
+                payload,
+                required=("task_id",),
+                optional=("rules",) if operation == "policy.set" else (),
+            )
+            scope = _tenant_scope(identity, _admin_text(payload, "task_id"))
+            state = _scoped_state(self._project)
+            if operation == "policy.set":
+                rules = payload.get("rules")
+                if not isinstance(rules, dict):
+                    raise ValueError("rules must be an object")
+                state.set(scope, "rules", rules, namespace="admin-policy")
+            return {"rules": state.get(scope, "rules", namespace="admin-policy") or {}}
+        raise ValueError("unsupported administration operation")
+
+
+def local_admin_control(
+    project_root: str | Path | None = None,
+    *,
+    roles: Iterable[str] = ("auditor",),
+    tenant_id: str = "local",
+    principal_id: str = "operator",
+    session_id: str = "admin",
+    port: int = 0,
+    token_ttl_seconds: int = 60,
+    monitor: LocalCatalogMonitor | None = None,
+) -> tuple[LoopbackAdminControl, AdminControlAccess]:
+    """Start the separate administration plane; its token is never a data credential."""
+
+    project = _catalog_project(project_root)
+    identity = AuthIdentity(tenant_id, principal_id, "admin-loopback", session_id)
+    principal = AdminPrincipal(identity, frozenset(roles))
+    control = LoopbackAdminControl(
+        _LocalAdminBackend(project, monitor),
+        principal,
+        port=port,
+        token_ttl_seconds=token_ttl_seconds,
+        audit=ScopedAuditSink(
+            _scoped_state(project),
+            tenant_id=identity.tenant_id,
+            principal_id=identity.principal_id,
+            session_id=identity.session_id,
+            identity_source=identity.source,
+            delegate=_audit_sink(project),
+        ),
+    )
+    return control, control.start()
+
+
 def mcp_serve(project_root: str | Path | None = None) -> object:
     """Start optional MCP serving only when the separately implemented server exists."""
     try:
@@ -1917,6 +2093,31 @@ def mcp_serve(project_root: str | Path | None = None) -> object:
     typed_serve = cast(Callable[..., object], serve)
     project = _project(project_root) if project_root is not None else None
     return typed_serve(project=project)
+
+
+def _local_provider_supervisor(project: Path) -> ProcessProviderSupervisor:
+    selected = project.resolve()
+    with _LOCAL_PROVIDER_LOCK:
+        supervisor = _LOCAL_PROVIDER_SUPERVISORS.get(selected)
+        if supervisor is None:
+            supervisor = ProcessProviderSupervisor(strict_local_providers=True)
+            _LOCAL_PROVIDER_SUPERVISORS[selected] = supervisor
+        return supervisor
+
+
+def _local_provider_executor(
+    project: Path,
+) -> ResilientProviderExecutor[ExecutionResult]:
+    selected = project.resolve()
+    with _LOCAL_PROVIDER_LOCK:
+        executor = _LOCAL_PROVIDER_EXECUTORS.get(selected)
+        if executor is None:
+            executor = ResilientProviderExecutor(
+                retry_policy=RetryPolicy(max_attempts=2),
+                circuit_breaker=CircuitBreaker(),
+            )
+            _LOCAL_PROVIDER_EXECUTORS[selected] = executor
+        return executor
 
 
 def _local_dependency_decision(
@@ -2225,6 +2426,33 @@ def _tenant_scope(identity: AuthIdentity, task_id: str) -> TenantScope:
 
 def _scope_from_context(context: ServiceContext, task_id: str) -> TenantScope:
     return TenantScope(context.tenant_id, context.principal_id, context.session_id, task_id)
+
+
+def _admin_payload(
+    payload: Mapping[str, JsonValue],
+    *,
+    required: tuple[str, ...] = (),
+    optional: tuple[str, ...] = (),
+) -> None:
+    keys = set(payload)
+    if not set(required) <= keys or not keys <= set((*required, *optional)):
+        raise ValueError("administration payload fields are invalid")
+
+
+def _admin_text(
+    payload: Mapping[str, JsonValue], key: str, *, default: str | None = None
+) -> str:
+    value = payload.get(key, default)
+    if not isinstance(value, str) or not value or len(value) > 512:
+        raise ValueError(f"{key} must be bounded text")
+    return value
+
+
+def _admin_int(payload: Mapping[str, JsonValue], key: str, *, default: int) -> int:
+    value = payload.get(key, default)
+    if isinstance(value, bool) or not isinstance(value, int) or not 1 <= value <= 500:
+        raise ValueError(f"{key} must be from 1 to 500")
+    return value
 
 
 def _jsonable(value: object) -> JsonValue:

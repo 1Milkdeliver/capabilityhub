@@ -23,6 +23,8 @@ from capabilityhub.activation_lock import (
 from capabilityhub.admin_control import (
     AdminControlAccess,
     AdminPrincipal,
+    AdminRequestEnvelope,
+    AuthenticatedAdminDispatcher,
     LoopbackAdminControl,
 )
 from capabilityhub.admission import validate_for_admission
@@ -224,6 +226,7 @@ def local_activation_lock(
     """Export the exact active catalog without loading capability bodies."""
 
     selected = _select_local_scope(project_root, monitor)
+
     return export_activation_lock(selected.snapshot().registry)
 
 
@@ -1517,6 +1520,7 @@ def local_approval_decide(
     decision: str,
     *,
     project_root: str | Path | None = None,
+    decided_by: str = "local-operator",
 ) -> dict[str, JsonValue]:
     """Approve or deny one pending request as the local operator."""
 
@@ -1525,9 +1529,9 @@ def local_approval_decide(
     scope = _scope_from_context(context, "local-cli")
     store = ScopedApprovalStore(_state_path(project), scope_key=_tenant_scope_key(project))
     if decision == "approve":
-        record = store.approve(scope, approval_id, decided_by="local-operator")
+        record = store.approve(scope, approval_id, decided_by=decided_by)
     elif decision == "deny":
-        record = store.deny(scope, approval_id, decided_by="local-operator")
+        record = store.deny(scope, approval_id, decided_by=decided_by)
     else:
         raise ValueError("decision must be approve or deny")
     return _approval_json(record)
@@ -1596,6 +1600,28 @@ def local_dashboard(
 
     selected = _select_local_scope(project_root, monitor)
 
+    def admin(
+        operation: str,
+        payload: Mapping[str, JsonValue],
+        roles: tuple[str, ...],
+    ) -> StatusSnapshot:
+        result = local_admin_dispatch(
+            operation,
+            payload,
+            roles=roles,
+            source="admin-dashboard",
+            project_root=selected.project,
+            monitor=selected,
+            session_id="cli",
+        )
+        if not isinstance(result, dict):
+            raise CapabilityHubError(
+                code="invalid_admin_result",
+                category=ErrorCategory.INTERNAL,
+                safe_message="The administration result was invalid.",
+            )
+        return result
+
     def snapshot() -> StatusSnapshot:
         inventory = local_inventory(monitor=selected)
         preferences = local_preferences(monitor=selected)
@@ -1606,11 +1632,15 @@ def local_dashboard(
             "inventory": inventory,
             "connections": local_connections(monitor=selected),
             "loaded_capabilities": loaded.get("entries", []),
-            "lifecycle": local_lifecycle(monitor=selected),
+            "lifecycle": admin("lifecycle.list", {}, ("lifecycle-operator",)),
             "audit": local_audit(limit=10, monitor=selected),
             "preferences": {"locale": preferences.get("locale", "auto")},
             "providers": local_providers(monitor=selected),
-            "approvals": local_approvals(selected.project, limit=10),
+            "approvals": admin(
+                "approval.list",
+                {"task_id": "local-cli", "limit": 10},
+                ("approver",),
+            ),
             "context": local_context(selected.project),
             "reasoning": local_reasoning("dashboard", project_root=selected.project),
             "updates": local_updates(monitor=selected),
@@ -1629,13 +1659,25 @@ def local_dashboard(
         )
 
     def lifecycle(coordinate: str, state: str) -> StatusSnapshot:
-        return local_set_lifecycle(coordinate, state, scope="project", monitor=selected)
+        return admin(
+            "lifecycle.set",
+            {"coordinate": coordinate, "state": state, "scope": "project"},
+            ("lifecycle-operator",),
+        )
 
     def language(locale: str) -> StatusSnapshot:
         return local_set_locale(locale, scope="project", monitor=selected)
 
     def approval(approval_id: str, decision: str) -> StatusSnapshot:
-        return local_approval_decide(approval_id, decision, project_root=selected.project)
+        return admin(
+            "approval.decide",
+            {
+                "task_id": "local-cli",
+                "approval_id": approval_id,
+                "decision": decision,
+            },
+            ("approver",),
+        )
 
     def context(action: str, key: str) -> StatusSnapshot:
         return local_context_action(action, key, project_root=selected.project)
@@ -1975,6 +2017,8 @@ class _LocalAdminBackend:
     ) -> JsonValue:
         if operation == "lifecycle.list":
             _admin_payload(payload)
+            if self._monitor is None:
+                return local_lifecycle(self._project)
             return local_lifecycle(self._project, monitor=self._monitor)
         if operation == "lifecycle.set":
             _admin_payload(payload, required=("coordinate", "state"), optional=("scope",))
@@ -2016,6 +2060,12 @@ class _LocalAdminBackend:
             status = payload.get("status")
             if status is not None and not isinstance(status, str):
                 raise ValueError("status must be text")
+            if _is_local_admin_identity(identity, task_id):
+                return local_approvals(
+                    self._project,
+                    status=status,
+                    limit=_admin_int(payload, "limit", default=50),
+                )
             records = ScopedApprovalStore(
                 _state_path(self._project), scope_key=_tenant_scope_key(self._project)
             ).list(
@@ -2035,6 +2085,13 @@ class _LocalAdminBackend:
             task_id = _admin_text(payload, "task_id")
             approval_id = _admin_text(payload, "approval_id")
             decision = _admin_text(payload, "decision")
+            if _is_local_admin_identity(identity, task_id):
+                return local_approval_decide(
+                    approval_id,
+                    decision,
+                    project_root=self._project,
+                    decided_by=identity.principal_id,
+                )
             store = ScopedApprovalStore(
                 _state_path(self._project), scope_key=_tenant_scope_key(self._project)
             )
@@ -2111,6 +2168,56 @@ class _LocalAdminBackend:
                 state.set(scope, "rules", rules, namespace="admin-policy")
             return {"rules": state.get(scope, "rules", namespace="admin-policy") or {}}
         raise ValueError("unsupported administration operation")
+
+
+def _is_local_admin_identity(identity: AuthIdentity, task_id: str) -> bool:
+    return (
+        identity.tenant_id == "local"
+        and identity.principal_id == "operator"
+        and identity.session_id == "cli"
+        and identity.source in {"admin-cli", "admin-dashboard"}
+        and task_id == "local-cli"
+    )
+
+
+def local_admin_dispatch(
+    operation: str,
+    payload: Mapping[str, JsonValue],
+    *,
+    roles: Iterable[str],
+    source: str,
+    project_root: str | Path | None = None,
+    monitor: LocalCatalogMonitor | None = None,
+    tenant_id: str = "local",
+    principal_id: str = "operator",
+    session_id: str = "cli",
+) -> dict[str, JsonValue]:
+    """Dispatch a trusted in-process management envelope through the admin backend."""
+
+    project = _catalog_project(project_root)
+    identity = AuthIdentity(tenant_id, principal_id, source, session_id)
+    dispatcher = AuthenticatedAdminDispatcher(
+        _LocalAdminBackend(project, monitor),
+        AdminPrincipal(identity, frozenset(roles)),
+        audit=ScopedAuditSink(
+            _scoped_state(project),
+            tenant_id=identity.tenant_id,
+            principal_id=identity.principal_id,
+            session_id=identity.session_id,
+            identity_source=identity.source,
+            delegate=_audit_sink(project),
+        ),
+    )
+    result = dispatcher.dispatch(
+        AdminRequestEnvelope(token_bytes(16).hex(), operation, payload)
+    )
+    if not isinstance(result, dict):
+        raise CapabilityHubError(
+            code="invalid_admin_result",
+            category=ErrorCategory.INTERNAL,
+            safe_message="The administration result was invalid.",
+        )
+    return result
 
 
 def local_admin_control(

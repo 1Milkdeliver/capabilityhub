@@ -51,8 +51,12 @@ class AdminPrincipal:
     roles: frozenset[str]
 
     def __post_init__(self) -> None:
-        if self.identity.source != "admin-loopback":
-            raise ValueError("admin identity source must be admin-loopback")
+        if self.identity.source not in {
+            "admin-loopback",
+            "admin-cli",
+            "admin-dashboard",
+        }:
+            raise ValueError("admin identity source must be a trusted admin entry")
         if not self.roles or not self.roles <= _ROLE_OPERATIONS.keys():
             raise ValueError("admin roles must be known and non-empty")
 
@@ -66,6 +70,67 @@ class AdminControlAccess:
     url: str
     bearer_token: str = field(repr=False)
     expires_in_seconds: int = 60
+
+
+@dataclass(frozen=True, slots=True)
+class AdminRequestEnvelope:
+    request_id: str
+    operation: str
+    payload: Mapping[str, JsonValue]
+
+    def __post_init__(self) -> None:
+        if not self.request_id or len(self.request_id) > 128:
+            raise ValueError("admin request_id is invalid")
+
+
+class AuthenticatedAdminDispatcher:
+    """One role check, identity injection, and audit path for every local admin entry."""
+
+    def __init__(
+        self,
+        backend: AdminBackend,
+        principal: AdminPrincipal,
+        *,
+        audit: AuditSink,
+    ) -> None:
+        self._backend = backend
+        self._principal = principal
+        self._audit = audit
+        self._lock = RLock()
+        self._sequence = 0
+
+    def dispatch(self, request: AdminRequestEnvelope) -> JsonValue:
+        if request.operation not in _ALL_OPERATIONS:
+            raise _admin_error("admin_operation_unsupported", ErrorCategory.INPUT)
+        if request.operation not in self._principal.allowed_operations:
+            raise _admin_error("admin_role_denied", ErrorCategory.POLICY)
+        try:
+            result = self._backend.dispatch(
+                request.operation,
+                request.payload,
+                self._principal.identity,
+            )
+        except Exception:
+            self._emit(request, "failure")
+            raise
+        self._emit(request, "success")
+        return result
+
+    def _emit(self, request: AdminRequestEnvelope, outcome: str) -> None:
+        with self._lock:
+            self._sequence += 1
+            sequence = self._sequence
+        self._audit.emit(
+            AuditEvent(
+                event_id=f"admin-{request.request_id}-{sequence:08d}",
+                sequence=sequence,
+                task_id="admin-control",
+                event_type=request.operation,
+                capability_revision=None,
+                outcome=outcome,
+                reason_codes=(f"admin_authenticated:{self._principal.identity.source}",),
+            )
+        )
 
 
 class LoopbackAdminControl:
@@ -94,6 +159,7 @@ class LoopbackAdminControl:
         self._backend = backend
         self._principal = principal
         self._audit = audit
+        self._dispatcher = AuthenticatedAdminDispatcher(backend, principal, audit=audit)
         self._host = host
         self._requested_port = port
         self._max_body_bytes = max_body_bytes
@@ -157,17 +223,13 @@ class LoopbackAdminControl:
             raise _admin_error("admin_role_denied", ErrorCategory.POLICY)
         if not isinstance(payload, dict) or any(not isinstance(key, str) for key in payload):
             raise _admin_error("admin_payload_invalid", ErrorCategory.INPUT)
-        try:
-            result = self._backend.dispatch(
+        return self._dispatcher.dispatch(
+            AdminRequestEnvelope(
+                secrets.token_hex(16),
                 operation,
                 cast(Mapping[str, JsonValue], payload),
-                self._principal.identity,
             )
-        except Exception:
-            self._emit(operation, "failure")
-            raise
-        self._emit(operation, "success")
-        return result
+        )
 
     def _emit(self, operation: str, outcome: str) -> None:
         with self._lock:

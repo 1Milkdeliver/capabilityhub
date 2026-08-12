@@ -1,0 +1,21 @@
+{
+  "schema": "capabilityhub.production-reference.v1",
+  "listeners": [
+    {"plane": "data", "bind": "127.0.0.1:9443", "tls": "mutual-required"},
+    {"plane": "admin", "bind": "127.0.0.1:9444", "tls": "mutual-required"}
+  ],
+  "dependencies": [
+    {"name": "registry", "ttl_seconds": 30, "on_unknown": "deny"},
+    {"name": "index", "ttl_seconds": 30, "on_unknown": "deny"},
+    {"name": "policy", "ttl_seconds": 5, "on_unknown": "deny"},
+    {"name": "provider", "ttl_seconds": 2, "on_unknown": "deny"}
+  ],
+  "worker": {
+    "process_tree_cleanup": "required",
+    "filesystem_isolation": "required-or-fail-closed",
+    "network_isolation": "required-or-fail-closed"
+  },
+  "state": {"backend": "sqlite", "backup": "operator-required"},
+  "external_credentials": "not-required-for-validation",
+  "claim": "reference-profile-not-production-certification"
+}

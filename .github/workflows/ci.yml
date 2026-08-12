@@ -78,6 +78,8 @@ jobs:
           python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
           python -c "from benchmarks.rag_scale import validate_release_artifact; validate_release_artifact('benchmarks/artifacts/rag-scale-1m.json')"
           python -c "from benchmarks.release_gate import run_release_gate; run_release_gate()"
+          python -c "from capabilityhub.production_profile import load_production_profile, profile_digest; profile_digest(load_production_profile('examples/production-reference.json'))"
+          python -c "from benchmarks.adversarial_gate import run_adversarial_gate; run_adversarial_gate()"
           python -m benchmarks.model_eval --artifact model-eval-offline.json
           python -c "from benchmarks.model_eval import validate_artifact; validate_artifact('model-eval-offline.json')"
       - name: Build wheel
@@ -117,6 +119,8 @@ jobs:
           python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"
           python -c "from benchmarks.rag_scale import validate_release_artifact; validate_release_artifact('benchmarks/artifacts/rag-scale-1m.json')"
           python -c "from benchmarks.release_gate import run_release_gate; run_release_gate()"
+          python -c "from capabilityhub.production_profile import load_production_profile, profile_digest; profile_digest(load_production_profile('examples/production-reference.json'))"
+          python -c "from benchmarks.adversarial_gate import run_adversarial_gate; run_adversarial_gate()"
       - name: Build and smoke-test wheel
         shell: pwsh
         run: |

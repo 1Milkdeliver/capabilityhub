@@ -8,6 +8,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 
 IMPLEMENTED_EVIDENCE = {
+    "R1": (
+        ("src/capabilityhub/admin_control.py", "class AuthenticatedAdminDispatcher"),
+        ("tests/test_admin_control.py", "not_interchangeable"),
+    ),
     "R4": (
         ("src/capabilityhub/service_adapter.py", "capability.execute"),
         ("tests/test_provider_conformance_matrix.py", "one_mcp_meta_tool_chain"),
@@ -68,6 +72,10 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/grant_policy.py", "class PrincipalGrantPolicy"),
         ("tests/test_grant_policy_runtime.py", "requires_new_authenticated_service_snapshot"),
     ),
+    "R18": (
+        ("src/capabilityhub/approval_store.py", "class ApprovalIntent"),
+        ("tests/test_admin_entry_consistency.py", "exact_authenticated_principal"),
+    ),
     "R20": (
         ("src/capabilityhub/secret_broker.py", "class KeyringSecretStore"),
         ("tests/test_platform_secret_store.py", "headless"),
@@ -88,6 +96,14 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/runtime.py", "DurableHierarchicalBudgetProvider"),
         ("tests/test_tenant_business_isolation.py", "opaque_hierarchical_budget"),
     ),
+    "R27": (
+        ("src/capabilityhub/scoped_context_state.py", "class ScopedContextState"),
+        ("tests/test_scoped_context_state.py", "cross_scope"),
+    ),
+    "R28": (
+        ("src/capabilityhub/admin_control.py", "class AdminRequestEnvelope"),
+        ("tests/test_admin_dispatcher.py", "admin-dashboard"),
+    ),
     "R29": (
         ("src/capabilityhub/idempotency.py", "class SqliteIdempotencyStore"),
         ("tests/test_idempotency.py", "concurrent"),
@@ -95,6 +111,10 @@ IMPLEMENTED_EVIDENCE = {
     "R30": (
         ("src/capabilityhub/secure_audit.py", "class SecureAuditLedger"),
         ("tests/test_secure_audit.py", "tamper"),
+    ),
+    "R31": (
+        ("src/capabilityhub/dependency_observer.py", "class LiveDependencyObserver"),
+        ("tests/test_dependency_observer.py", "fails_closed"),
     ),
     "R32": (
         ("benchmarks/rag_scale.py", "DiskRagIndex"),

@@ -400,16 +400,27 @@ def _main(argv: Sequence[str] | None = None) -> int:
         if args.action == "set":
             if args.coordinate is None or args.state is None:
                 raise _usage("lifecycle set requires a coordinate and state")
-            payload = runtime.local_set_lifecycle(
-                args.coordinate,
-                args.state,
-                scope=args.scope,
+            payload = runtime.local_admin_dispatch(
+                "lifecycle.set",
+                {
+                    "coordinate": args.coordinate,
+                    "state": args.state,
+                    "scope": args.scope,
+                },
+                roles=("lifecycle-operator",),
+                source="admin-cli",
                 project_root=args.project_root,
             )
         else:
             if args.coordinate is not None or args.state is not None:
                 raise _usage("lifecycle list does not accept a coordinate or state")
-            payload = runtime.local_lifecycle(args.project_root)
+            payload = runtime.local_admin_dispatch(
+                "lifecycle.list",
+                {},
+                roles=("lifecycle-operator",),
+                source="admin-cli",
+                project_root=args.project_root,
+            )
         _print_json(payload, pretty=args.pretty)
         return 0
     if args.command == "updates":
@@ -547,10 +558,15 @@ def _main(argv: Sequence[str] | None = None) -> int:
         if args.action == "list":
             if args.target is not None or args.operation is not None:
                 raise _usage("approvals list does not accept a target or operation")
-            payload = runtime.local_approvals(
-                args.project_root,
-                status=args.status,
-                limit=args.limit,
+            approval_payload = {"task_id": "local-cli", "limit": args.limit}
+            if args.status is not None:
+                approval_payload["status"] = args.status
+            payload = runtime.local_admin_dispatch(
+                "approval.list",
+                approval_payload,
+                roles=("approver",),
+                source="admin-cli",
+                project_root=args.project_root,
             )
         elif args.action == "request":
             if args.target is None or args.operation is None:
@@ -569,9 +585,15 @@ def _main(argv: Sequence[str] | None = None) -> int:
                 raise _usage(f"approvals {args.action} requires one approval ID")
             if args.status is not None:
                 raise _usage(f"approvals {args.action} does not accept --status")
-            payload = runtime.local_approval_decide(
-                args.target,
-                args.action,
+            payload = runtime.local_admin_dispatch(
+                "approval.decide",
+                {
+                    "task_id": "local-cli",
+                    "approval_id": args.target,
+                    "decision": args.action,
+                },
+                roles=("approver",),
+                source="admin-cli",
                 project_root=args.project_root,
             )
         _print_json(payload, pretty=args.pretty)

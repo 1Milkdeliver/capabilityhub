@@ -15,6 +15,14 @@ It also displays staged update pointers/pins and whether the optional secure aud
 setting is present, without exposing the key or adding browser-side update actions.
 The page also shows the latest ten redacted project audit events. It omits arguments,
 credentials, provider output, raw task identifiers, and absolute audit paths.
+The language picker uses bundled English and Simplified Chinese dictionaries and applies
+the saved project preference immediately without a model call. The capability library
+pages through bounded metadata cards with introductions, Provider names, activation state,
+and estimated future instruction tokens; enabling a card itself spends zero model tokens.
+The optional conversation view reads Codex's small `session_index.jsonl`, then inspects only
+tool-call envelopes for the selected task. It never parses message or reasoning bodies,
+refuses oversized traces, and labels its results as observations rather than a complete
+account of Codex-native context loading.
 
 The repository-local Codex plugin provides two minimal menu skills. They can be
 installed as an always-available help entry without loading the catalog into each chat.

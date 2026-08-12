@@ -251,6 +251,7 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
 
     with local_dashboard(project, monitor=monitor) as server:
         payload = _get_json(f"{server.url}/api/status")
+        capabilities = _get_json(f"{server.url}/api/capabilities?q=&limit=12&offset=0")
         query = urlencode({"q": "demo", "kind": "skill", "limit": 5})
         searched = _get_json(f"{server.url}/api/search?{query}")
         csrf = payload["dashboard"]["csrf_token"]
@@ -268,6 +269,10 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
         refreshed = _get_json(f"{server.url}/api/status")
 
     assert payload["inventory"]["active_by_kind"]["skill"] == 1
+    assert payload["conversations"]["status"] in {"available", "unavailable"}
+    assert capabilities["total"] >= 1
+    assert capabilities["entries"][0]["summary"]
+    assert "estimated_load_tokens" in capabilities["entries"][0]
     assert payload["health"]["catalog_loaded"] is False
     assert payload["active_capabilities"] == []
     assert payload["connections"]["scope"] == "configuration_only"

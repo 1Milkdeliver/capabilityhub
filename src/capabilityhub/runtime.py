@@ -39,6 +39,7 @@ from capabilityhub.auth import AuthIdentity
 from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.budget_store import SqliteBudgetRepository
+from capabilityhub.codex_sessions import codex_task_capabilities, codex_task_index
 from capabilityhub.compatibility import (
     FeatureHandshake,
     decide_compatibility,
@@ -143,7 +144,9 @@ from capabilityhub.tenancy import SqliteScopedState, TenantScope
 from capabilityhub.update_store import SQLiteUpdateStore
 from capabilityhub.webui import (
     ApprovalProvider,
+    CapabilityListProvider,
     ContextProvider,
+    ConversationProvider,
     DashboardServer,
     LanguageProvider,
     LifecycleProvider,
@@ -319,6 +322,8 @@ def dashboard(
     language_provider: LanguageProvider | None = None,
     approval_provider: ApprovalProvider | None = None,
     context_provider: ContextProvider | None = None,
+    capability_list_provider: CapabilityListProvider | None = None,
+    conversation_provider: ConversationProvider | None = None,
 ) -> DashboardServer:
     """Create (but do not implicitly retain) a localhost-only dashboard server."""
     server = DashboardServer(
@@ -330,6 +335,8 @@ def dashboard(
         language_provider=language_provider,
         approval_provider=approval_provider,
         context_provider=context_provider,
+        capability_list_provider=capability_list_provider,
+        conversation_provider=conversation_provider,
     )
     server.start()
     return server
@@ -344,6 +351,74 @@ def local_inventory(
 
     selected = _select_local_scope(project_root, monitor)
     return selected.snapshot().inventory_json()
+
+
+def local_capabilities(
+    query: str = "",
+    kind: str | None = None,
+    offset: int = 0,
+    limit: int = 12,
+    project_root: str | Path | None = None,
+    *,
+    monitor: LocalCatalogMonitor | None = None,
+) -> dict[str, JsonValue]:
+    """Return paged capability introductions without loading capability bodies."""
+
+    selected = _select_local_scope(project_root, monitor)
+    generation = selected.snapshot()
+    preferences = resolved_preferences(home=selected.home, project=selected.project)
+    raw_states = preferences["capabilities"]
+    assert isinstance(raw_states, dict)
+    active = generation.registry.activations
+    revisions_by_coordinate: dict[str, list[str]] = {}
+    for revision, manifest in generation.registry.revisions.items():
+        revisions_by_coordinate.setdefault(manifest.identity.coordinate, []).append(revision)
+    normalized_query = query.casefold().strip()
+    entries: list[dict[str, JsonValue]] = []
+    for coordinate in sorted(revisions_by_coordinate):
+        revision = active.get(coordinate) or sorted(revisions_by_coordinate[coordinate])[-1]
+        manifest = generation.registry.revision(revision)
+        if kind is not None and manifest.kind.value != kind:
+            continue
+        searchable = " ".join((coordinate, manifest.summary, manifest.provider)).casefold()
+        if normalized_query and normalized_query not in searchable:
+            continue
+        state_value = raw_states.get(coordinate)
+        state = state_value if isinstance(state_value, str) else (
+            "enabled" if coordinate in active else "disabled"
+        )
+        summary = " ".join(manifest.summary.split())
+        if len(summary) > 420:
+            summary = summary[:419] + "…"
+        entries.append(
+            {
+                "active": coordinate in active,
+                "coordinate": coordinate,
+                "estimated_load_tokens": sum(
+                    section.portable_tokens for section in manifest.sections
+                ),
+                "kind": manifest.kind.value,
+                "operations": [operation.name for operation in manifest.operations[:8]],
+                "provider": manifest.provider,
+                "revision": revision,
+                "state": state,
+                "summary": summary,
+            }
+        )
+    bounded_offset = max(offset, 0)
+    bounded_limit = min(max(limit, 1), 500)
+    page = entries[bounded_offset : bounded_offset + bounded_limit]
+    return {
+        "entries": list(cast(Iterable[JsonValue], page)),
+        "limit": bounded_limit,
+        "next_offset": (
+            bounded_offset + len(page)
+            if bounded_offset + len(page) < len(entries)
+            else None
+        ),
+        "offset": bounded_offset,
+        "total": len(entries),
+    }
 
 
 def _local_cli_adapter(
@@ -1690,6 +1765,7 @@ def local_dashboard(
             "health": local_health(selected.project),
             "inventory": inventory,
             "connections": local_connections(monitor=selected),
+            "conversations": codex_task_index(selected.home, limit=100),
             "loaded_capabilities": loaded.get("entries", []),
             "lifecycle": admin("lifecycle.list", {}, ("lifecycle-operator",)),
             "audit": local_audit(limit=10, monitor=selected),
@@ -1741,6 +1817,18 @@ def local_dashboard(
     def context(action: str, key: str) -> StatusSnapshot:
         return local_context_action(action, key, project_root=selected.project)
 
+    def capabilities(query: str, kind: str | None, offset: int, limit: int) -> StatusSnapshot:
+        return local_capabilities(
+            query,
+            kind,
+            offset,
+            limit,
+            monitor=selected,
+        )
+
+    def conversation(task_id: str) -> StatusSnapshot:
+        return codex_task_capabilities(task_id, selected.home)
+
     return dashboard(
         snapshot,
         port=port,
@@ -1749,6 +1837,8 @@ def local_dashboard(
         language_provider=language,
         approval_provider=approval,
         context_provider=context,
+        capability_list_provider=capabilities,
+        conversation_provider=conversation,
     )
 
 

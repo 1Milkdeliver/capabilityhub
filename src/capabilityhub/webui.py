@@ -22,6 +22,8 @@ LifecycleProvider = Callable[[str, str], StatusSnapshot]
 LanguageProvider = Callable[[str], StatusSnapshot]
 ApprovalProvider = Callable[[str, str], StatusSnapshot]
 ContextProvider = Callable[[str, str], StatusSnapshot]
+CapabilityListProvider = Callable[[str, str | None, int, int], StatusSnapshot]
+ConversationProvider = Callable[[str], StatusSnapshot]
 
 
 class DashboardServer:
@@ -38,6 +40,8 @@ class DashboardServer:
         language_provider: LanguageProvider | None = None,
         approval_provider: ApprovalProvider | None = None,
         context_provider: ContextProvider | None = None,
+        capability_list_provider: CapabilityListProvider | None = None,
+        conversation_provider: ConversationProvider | None = None,
     ) -> None:
         if host != "localhost" and not ip_address(host).is_loopback:
             raise ValueError("dashboard host must be a loopback address")
@@ -49,6 +53,8 @@ class DashboardServer:
         self._language_provider = language_provider
         self._approval_provider = approval_provider
         self._context_provider = context_provider
+        self._capability_list_provider = capability_list_provider
+        self._conversation_provider = conversation_provider
         self._csrf_token = secrets.token_urlsafe(32)
         self._server: ThreadingHTTPServer | None = None
         self._thread: Thread | None = None
@@ -78,6 +84,8 @@ class DashboardServer:
                 language_provider=self._language_provider,
                 approval_provider=self._approval_provider,
                 context_provider=self._context_provider,
+                capability_list_provider=self._capability_list_provider,
+                conversation_provider=self._conversation_provider,
                 csrf_token=self._csrf_token,
             )
             server = ThreadingHTTPServer((self._host, self._port), handler)
@@ -124,6 +132,8 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         language_provider: LanguageProvider | None,
         approval_provider: ApprovalProvider | None,
         context_provider: ContextProvider | None,
+        capability_list_provider: CapabilityListProvider | None,
+        conversation_provider: ConversationProvider | None,
         csrf_token: str,
         directory: str | None = None,
     ) -> None:
@@ -133,6 +143,8 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self._language_provider = language_provider
         self._approval_provider = approval_provider
         self._context_provider = context_provider
+        self._capability_list_provider = capability_list_provider
+        self._conversation_provider = conversation_provider
         self._csrf_token = csrf_token
         super().__init__(request, client_address, server, directory=directory)
 
@@ -143,6 +155,12 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
             return
         if parsed.path == "/api/search":
             self._write_search(parse_qs(parsed.query))
+            return
+        if parsed.path == "/api/capabilities":
+            self._write_capabilities(parse_qs(parsed.query))
+            return
+        if parsed.path == "/api/conversation":
+            self._write_conversation(parse_qs(parsed.query))
             return
         super().do_GET()
 
@@ -221,6 +239,8 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
                 "approval_mutation": self._approval_provider is not None,
                 "context_mutation": self._context_provider is not None,
                 "search": self._search_provider is not None,
+                "capability_list": self._capability_list_provider is not None,
+                "conversations": self._conversation_provider is not None,
             }
             payload = _json_bytes(snapshot)
         except (TypeError, ValueError):
@@ -252,6 +272,40 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
             self.send_error(HTTPStatus.BAD_REQUEST, "Search limit must be from 1 to 10")
             return
         self._write_callback(lambda: search_provider(text, kind, limit))
+
+    def _write_capabilities(self, query: Mapping[str, list[str]]) -> None:
+        provider = self._capability_list_provider
+        if provider is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Capability listing is not configured")
+            return
+        text = query.get("q", [""])[0]
+        kind = query.get("kind", [None])[0]
+        try:
+            offset = int(query.get("offset", ["0"])[0])
+            limit = int(query.get("limit", ["12"])[0])
+        except ValueError:
+            offset = -1
+            limit = 0
+        if (
+            len(text) > 200
+            or kind not in {None, "skill", "mcp", "cli", "api", "rag"}
+            or offset < 0
+            or not 1 <= limit <= 500
+        ):
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid capability list request")
+            return
+        self._write_callback(lambda: provider(text, kind, offset, limit))
+
+    def _write_conversation(self, query: Mapping[str, list[str]]) -> None:
+        provider = self._conversation_provider
+        task_id = query.get("id", [""])[0]
+        if provider is None:
+            self.send_error(HTTPStatus.NOT_FOUND, "Conversation inspection is not configured")
+            return
+        if len(task_id) > 64:
+            self.send_error(HTTPStatus.BAD_REQUEST, "Invalid conversation request")
+            return
+        self._write_callback(lambda: provider(task_id))
 
     def _write_callback(self, callback: Callable[[], StatusSnapshot]) -> None:
         try:

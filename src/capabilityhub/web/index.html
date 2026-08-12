@@ -10,20 +10,27 @@
 <body>
   <main id="top">
     <header>
-      <p class="eyebrow">LOCAL / CONTROLLED</p>
-      <h1>CapSift</h1>
-      <p id="state" aria-live="polite">Loading live Inventory…</p>
-      <nav aria-label="Dashboard navigation">
-        <a href="#search-title">Search</a>
-        <a href="#manage-title">Manage</a>
-        <button id="back" type="button">Back</button>
-        <a href="#top">Home</a>
+      <div class="topbar">
+        <div>
+          <p class="eyebrow" data-i18n="eyebrow">LOCAL / CONTROLLED</p>
+          <h1>CapSift</h1>
+        </div>
+        <label class="language-picker"><span data-i18n="language">Language</span>
+          <select id="language"><option value="auto" data-i18n="auto">Auto</option><option value="en">English</option><option value="zh-CN">简体中文</option></select>
+        </label>
+      </div>
+      <div class="status-line"><span class="status-dot" aria-hidden="true"></span><p id="state" aria-live="polite" data-i18n="loading">Loading live Inventory…</p></div>
+      <nav aria-label="Dashboard navigation" data-i18n-aria-label="navigation">
+        <a href="#capabilities-title" data-i18n="capabilityLibrary">Capabilities</a>
+        <a href="#conversations-title" data-i18n="conversations">Conversations</a>
+        <a href="#manage-title" data-i18n="manage">Manage</a>
+        <a href="#details-title" data-i18n="details">Details</a>
       </nav>
     </header>
 
     <section aria-labelledby="inventory-title">
-      <h2 id="inventory-title">Inventory</h2>
-      <p class="hint">What Codex can find right now. Professional names stay visible.</p>
+      <h2 id="inventory-title" data-i18n="inventory">Inventory</h2>
+      <p class="hint" data-i18n="inventoryHint">What Codex can find right now. Professional names stay visible.</p>
       <dl class="metrics kinds">
         <div><dt>Skill</dt><dd id="kind-skill">—</dd></div>
         <div><dt>MCP</dt><dd id="kind-mcp">—</dd></div>
@@ -33,115 +40,134 @@
       </dl>
     </section>
 
-    <section aria-labelledby="search-title">
-      <h2 id="search-title">Search</h2>
-      <p class="hint">Find compact capability cards without loading their bodies.</p>
-      <form id="search-form" class="controls">
-        <label>Task or name <input id="search-query" maxlength="500" placeholder="Example: work with PDF files"></label>
-        <label>Kind
-          <select id="search-kind" aria-label="Capability kind">
-            <option value="">All</option><option>skill</option><option>mcp</option><option>cli</option><option>api</option><option>rag</option>
+    <section class="primary-section" aria-labelledby="capabilities-title">
+      <div class="section-heading">
+        <div><h2 id="capabilities-title" data-i18n="capabilityLibrary">Capabilities</h2>
+        <p class="hint" data-i18n="capabilityLibraryHint">Browse, understand, and control capabilities without loading their bodies.</p></div>
+        <span id="capability-count" class="count-badge">—</span>
+      </div>
+      <form id="search-form" class="controls toolbar-controls">
+        <label><span data-i18n="taskOrName">Task or name</span> <input id="search-query" maxlength="500" placeholder="Example: work with PDF files" data-i18n-placeholder="searchPlaceholder"></label>
+        <label><span data-i18n="kind">Kind</span>
+          <select id="search-kind" aria-label="Capability kind" data-i18n-aria-label="capabilityKind">
+            <option value="" data-i18n="all">All</option><option>skill</option><option>mcp</option><option>cli</option><option>api</option><option>rag</option>
           </select>
         </label>
-        <button type="submit">Search</button>
+        <label><span data-i18n="activationStatus">Status</span>
+          <select id="activation-filter"><option value="" data-i18n="all">All</option><option value="enabled" data-i18n="enabledLabel">Enabled</option><option value="disabled" data-i18n="disabledLabel">Disabled</option></select>
+        </label>
+        <button type="submit" data-i18n="search">Search</button>
       </form>
-      <ul id="search-list" class="cards"></ul>
+      <div class="token-note" data-i18n="tokenNote">Turning a capability on costs 0 Token now. The estimate applies only when its instructions are loaded later.</div>
+      <ul id="search-list" class="cards capability-cards"></ul>
+      <button id="load-more" class="secondary-button" type="button" data-i18n="loadMore">Load more</button>
+    </section>
+
+    <section class="primary-section" aria-labelledby="conversations-title">
+      <div class="section-heading">
+        <div><h2 id="conversations-title" data-i18n="conversations">Conversations</h2>
+        <p class="hint" data-i18n="conversationsHint">Choose a local Codex task to see capability calls observed by CapSift. Conversation text is not read.</p></div>
+      </div>
+      <div class="conversation-layout">
+        <label><span data-i18n="chooseConversation">Choose conversation</span>
+          <select id="conversation-select"><option value="" data-i18n="chooseConversationPlaceholder">Select a conversation</option></select>
+        </label>
+        <div id="conversation-summary" class="conversation-summary" aria-live="polite" data-i18n="chooseConversationHelp">Select a conversation to inspect observed capability use.</div>
+      </div>
+      <ul id="conversation-capabilities" class="cards compact-cards"></ul>
     </section>
 
     <section aria-labelledby="manage-title">
-      <h2 id="manage-title">Manage</h2>
-      <p class="hint">Project-only language and activation controls. No files are deleted or executed.</p>
-      <div class="controls">
-        <label>Language
-          <select id="language"><option value="auto">Auto</option><option value="en">English</option><option value="zh-CN">简体中文</option></select>
-        </label>
-        <button id="save-language" type="button">Save language</button>
-      </div>
+      <h2 id="manage-title" data-i18n="manage">Manage</h2>
+      <p class="hint" data-i18n="manageHint">Project activation controls. No files are deleted or executed.</p>
       <ul id="lifecycle-list" class="cards"></ul>
     </section>
 
-    <section aria-labelledby="summary-title">
-      <h2 id="summary-title">Status</h2>
+    <h2 id="details-title" class="group-title" data-i18n="details">Details</h2>
+    <div class="details-grid">
+    <section class="detail-panel" aria-labelledby="summary-title">
+      <h2 id="summary-title" data-i18n="status">Status</h2>
       <dl class="metrics">
-        <div><dt>Snapshot</dt><dd id="snapshot-status">—</dd></div>
-        <div><dt>Generation</dt><dd id="generation">—</dd></div>
-        <div><dt>Active</dt><dd id="active-total">—</dd></div>
-        <div><dt>Inactive</dt><dd id="inactive-total">—</dd></div>
+        <div><dt data-i18n="snapshot">Snapshot</dt><dd id="snapshot-status">—</dd></div>
+        <div><dt data-i18n="generation">Generation</dt><dd id="generation">—</dd></div>
+        <div><dt data-i18n="active">Active</dt><dd id="active-total">—</dd></div>
+        <div><dt data-i18n="inactive">Inactive</dt><dd id="inactive-total">—</dd></div>
       </dl>
     </section>
 
     <section aria-labelledby="notices-title">
-      <h2 id="notices-title">Notices</h2>
-      <p class="hint">Safe counts only. Paths, commands, URLs, and credentials are hidden.</p>
+      <h2 id="notices-title" data-i18n="notices">Notices</h2>
+      <p class="hint" data-i18n="noticesHint">Safe counts only. Paths, commands, URLs, and credentials are hidden.</p>
       <ul id="notice-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="health-title">
-      <h2 id="health-title">Health</h2>
-      <p class="hint">Checks wiring without loading capability bodies.</p>
+      <h2 id="health-title" data-i18n="health">Health</h2>
+      <p class="hint" data-i18n="healthHint">Checks wiring without loading capability bodies.</p>
       <ul id="health-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="connections-title">
-      <h2 id="connections-title">Connections</h2>
-      <p class="hint">Configured state only. No network probe is performed.</p>
+      <h2 id="connections-title" data-i18n="connections">Connections</h2>
+      <p class="hint" data-i18n="connectionsHint">Configured state only. No network probe is performed.</p>
       <ul id="connection-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="providers-title">
-      <h2 id="providers-title">Providers</h2>
-      <p class="hint">Which local adapter supplies each discovered capability.</p>
+      <h2 id="providers-title" data-i18n="providers">Providers</h2>
+      <p class="hint" data-i18n="providersHint">Which local adapter supplies each discovered capability.</p>
       <ul id="provider-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="loaded-title">
-      <h2 id="loaded-title">Loaded</h2>
-      <p class="hint">Recent successful loads from redacted project audit. Bodies are not retained here.</p>
+      <h2 id="loaded-title" data-i18n="loaded">Loaded</h2>
+      <p class="hint" data-i18n="loadedHint">Recent successful loads from redacted project audit. Bodies are not retained here.</p>
       <ul id="loaded-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="approvals-title">
-      <h2 id="approvals-title">Approvals</h2>
-      <p class="hint">Exact, expiring requests. Arguments and their digests are never displayed.</p>
+      <h2 id="approvals-title" data-i18n="approvals">Approvals</h2>
+      <p class="hint" data-i18n="approvalsHint">Exact, expiring requests. Arguments and their digests are never displayed.</p>
       <ul id="approval-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="context-title">
-      <h2 id="context-title">Context</h2>
-      <p class="hint">Metadata for disclosed sections. Pin, unpin, or forget without reloading bodies.</p>
+      <h2 id="context-title" data-i18n="context">Context</h2>
+      <p class="hint" data-i18n="contextHint">Metadata for disclosed sections. Pin, unpin, or forget without reloading bodies.</p>
       <ul id="context-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="reasoning-title">
-      <h2 id="reasoning-title">Reasoning</h2>
-      <p class="hint">Persistent advisory state for the Dashboard task. Recommendations do not call a model.</p>
+      <h2 id="reasoning-title" data-i18n="reasoning">Reasoning</h2>
+      <p class="hint" data-i18n="reasoningHint">Persistent advisory state for the Dashboard task. Recommendations do not call a model.</p>
       <dl class="metrics">
-        <div><dt>Current tier</dt><dd id="reasoning-tier">—</dd></div>
-        <div><dt>Budget left</dt><dd id="reasoning-budget">—</dd></div>
-        <div><dt>Escalations</dt><dd id="reasoning-escalations">—</dd></div>
+        <div><dt data-i18n="currentTier">Current tier</dt><dd id="reasoning-tier">—</dd></div>
+        <div><dt data-i18n="budgetLeft">Budget left</dt><dd id="reasoning-budget">—</dd></div>
+        <div><dt data-i18n="escalations">Escalations</dt><dd id="reasoning-escalations">—</dd></div>
       </dl>
     </section>
 
     <section aria-labelledby="updates-title">
-      <h2 id="updates-title">Updates</h2>
-      <p class="hint">Staged revision, health gate, active pointer, rollback target, and in-flight pins.</p>
+      <h2 id="updates-title" data-i18n="updates">Updates</h2>
+      <p class="hint" data-i18n="updatesHint">Staged revision, health gate, active pointer, rollback target, and in-flight pins.</p>
       <ul id="update-list" class="cards"></ul>
     </section>
 
     <section aria-labelledby="audit-security-title">
-      <h2 id="audit-security-title">Audit security</h2>
-      <p class="hint">Optional HMAC chain status. The signing key value is never displayed.</p>
+      <h2 id="audit-security-title" data-i18n="auditSecurity">Audit security</h2>
+      <p class="hint" data-i18n="auditSecurityHint">Optional HMAC chain status. The signing key value is never displayed.</p>
       <dl class="metrics">
-        <div><dt>Secure chain</dt><dd id="secure-audit-status">—</dd></div>
-        <div><dt>Key setting</dt><dd id="secure-audit-key">—</dd></div>
+        <div><dt data-i18n="secureChain">Secure chain</dt><dd id="secure-audit-status">—</dd></div>
+        <div><dt data-i18n="keySetting">Key setting</dt><dd id="secure-audit-key">—</dd></div>
       </dl>
     </section>
 
     <section aria-labelledby="audit-title">
-      <h2 id="audit-title">Audit</h2>
-      <p class="hint">Recent redacted project events. Arguments and credentials are never shown.</p>
+      <h2 id="audit-title" data-i18n="audit">Audit</h2>
+      <p class="hint" data-i18n="auditHint">Recent redacted project events. Arguments and credentials are never shown.</p>
       <ul id="audit-list" class="cards"></ul>
     </section>
+    </div>
   </main>
   <script src="/app.js"></script>
 </body>

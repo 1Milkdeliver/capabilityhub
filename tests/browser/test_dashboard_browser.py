@@ -37,6 +37,15 @@ def _snapshot() -> dict[str, object]:
         },
         "audit": {"events": []},
         "connections": {"connections": []},
+        "conversations": {
+            "entries": [
+                {
+                    "id": "019ff540-d2c0-72d3-8fde-c00c42ae6f58",
+                    "title": "Demo task",
+                    "updated_at": "2026-08-12T09:15:05Z",
+                }
+            ]
+        },
         "context": {
             "entries": [
                 {
@@ -83,9 +92,15 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
 
     calls: list[tuple[str, ...]] = []
     usage = {"model_calls": 0, "token_usage": 0}
+    preference = {"locale": "en"}
 
     def snapshot() -> dict[str, object]:
-        return {**_snapshot(), **usage}
+        return {**_snapshot(), **usage, "preferences": dict(preference)}
+
+    def save_language(locale: str) -> dict[str, bool]:
+        preference["locale"] = locale
+        calls.append(("language", locale))
+        return {"saved": True}
 
     with DashboardServer(
         snapshot,
@@ -102,13 +117,44 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
         lifecycle_provider=lambda coordinate, state: (
             calls.append(("lifecycle", coordinate, state)) or {"saved": True}
         ),
-        language_provider=lambda locale: calls.append(("language", locale)) or {"saved": True},
+        language_provider=save_language,
         approval_provider=lambda approval_id, decision: (
             calls.append(("approval", approval_id, decision)) or {"saved": True}
         ),
         context_provider=lambda action, key: (
             calls.append(("context", action, key)) or {"saved": True}
         ),
+        capability_list_provider=lambda query, kind, offset, limit: {
+            "entries": [
+                {
+                    "active": True,
+                    "coordinate": "demo/tool",
+                    "estimated_load_tokens": 42,
+                    "kind": kind or "skill",
+                    "operations": ["load"],
+                    "provider": "local",
+                    "revision": "demo/tool@1",
+                    "state": "enabled",
+                    "summary": f"Result for {query or 'catalog'}",
+                }
+            ],
+            "limit": limit,
+            "next_offset": None,
+            "offset": offset,
+            "total": 1,
+        },
+        conversation_provider=lambda task_id: {
+            "capabilities": [
+                {
+                    "kind": "skill",
+                    "name": "demo",
+                    "source": "observed_skill_instruction_read",
+                }
+            ],
+            "status": "observed",
+            "task_id": task_id,
+            "total": 1,
+        },
     ) as dashboard:
         dashboard_url = dashboard.url
         console_findings: list[str] = []
@@ -139,7 +185,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             page.goto(dashboard_url, wait_until="networkidle")
             page.get_by_text("Live snapshot updated.").wait_for()
             assert page.get_by_role("heading", name="CapSift", level=1).is_visible()
-            assert page.get_by_role("heading", name="Search", level=2).is_visible()
+            assert page.get_by_role("heading", name="Capabilities", level=2).is_visible()
             assert page.get_by_label("Task or name").is_visible()
             assert page.get_by_label("Capability kind").is_visible()
 
@@ -147,22 +193,24 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             page.get_by_label("Task or name").fill("demo")
             page.get_by_label("Capability kind").select_option("skill")
             page.get_by_role("button", name="Search", exact=True).click()
-            page.get_by_text("demo/tool (skill)").wait_for()
+            page.locator("#search-list strong").get_by_text("demo/tool", exact=True).wait_for()
             with page.expect_response(lambda response: response.url.endswith("/api/status")):
-                page.locator("#search-list").get_by_role("button", name="Disable").click()
-            page.get_by_label("Language").select_option("zh-CN")
+                page.locator("#search-list").get_by_role("button", name="Block loading").click()
             with page.expect_response(lambda response: response.url.endswith("/api/language")):
-                page.get_by_role("button", name="Save language").click()
+                page.get_by_label("Language").select_option("zh-CN")
+            page.get_by_role("heading", name="能力库", level=2).wait_for()
+            with page.expect_response(lambda response: "/api/conversation" in response.url):
+                page.get_by_label("选择对话").select_option(
+                    "019ff540-d2c0-72d3-8fde-c00c42ae6f58"
+                )
+            page.locator("#conversation-capabilities").get_by_text("SKILL · demo").wait_for()
             with page.expect_response(lambda response: response.url.endswith("/api/status")):
-                page.locator("#approval-list").get_by_role("button", name="Approve").click()
+                page.locator("#approval-list").get_by_role("button", name="批准").click()
             with page.expect_response(lambda response: response.url.endswith("/api/status")):
-                page.locator("#context-list").get_by_role("button", name="Pin").click()
+                page.locator("#context-list").get_by_role("button", name="固定").click()
 
-            page.get_by_role("link", name="Search", exact=True).click()
-            assert page.url.endswith("#search-title")
-            page.get_by_role("button", name="Back").click()
-            page.get_by_role("link", name="Home").click()
-            assert page.url.endswith("#top")
+            page.get_by_role("link", name="能力库", exact=True).click()
+            assert page.url.endswith("#capabilities-title")
 
             page.keyboard.press("Tab")
             assert page.evaluate("() => document.activeElement?.matches('a,button,input,select')")
@@ -170,6 +218,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
                 os.environ.get("CAPABILITYHUB_BROWSER_ARTIFACTS", ".artifacts/browser")
             )
             artifact_dir.mkdir(parents=True, exist_ok=True)
+            page.evaluate("scrollTo(0, 0)")
             page.screenshot(path=artifact_dir / "dashboard-desktop.png", full_page=True)
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.locator("main").evaluate("node => node.scrollWidth <= innerWidth")

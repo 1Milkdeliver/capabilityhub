@@ -75,6 +75,10 @@ def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
     assert "loaded-list" in assets
     assert "/api/approval" in assets
     assert "/api/context" in assets
+    assert "/api/capabilities" in assets
+    assert "/api/conversation" in assets
+    assert '"zh-CN"' in assets
+    assert "data-i18n" in assets
     assert "reasoning-tier" in assets
     assert "update-list" in assets
     assert "secure-audit-status" in assets
@@ -104,6 +108,12 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
             approval_calls.append((approval_id, decision)) or {"saved": True}
         ),
         context_provider=lambda action, key: context_calls.append((action, key)) or {"saved": True},
+        capability_list_provider=lambda query, kind, offset, limit: {
+            "entries": [], "limit": limit, "next_offset": None, "offset": offset, "total": 0,
+        },
+        conversation_provider=lambda task_id: {
+            "capabilities": [], "status": "observed", "task_id": task_id, "total": 0,
+        },
     ) as dashboard:
         with urlopen(f"{dashboard.url}/api/status", timeout=2) as response:
             status = json.loads(response.read())
@@ -112,6 +122,14 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
         with urlopen(f"{dashboard.url}/api/search?{query}", timeout=2) as response:
             search = json.loads(response.read())
         assert search == {"kind": "skill", "limit": 3, "query": "pdf", "results": []}
+        capabilities_query = urlencode({"q": "pdf", "kind": "skill", "offset": 0, "limit": 12})
+        capabilities_url = f"{dashboard.url}/api/capabilities?{capabilities_query}"
+        with urlopen(capabilities_url, timeout=2) as response:
+            capabilities = json.loads(response.read())
+        assert capabilities["total"] == 0
+        with urlopen(f"{dashboard.url}/api/conversation?id=task-one", timeout=2) as response:
+            conversation = json.loads(response.read())
+        assert conversation["task_id"] == "task-one"
 
         denied = Request(
             f"{dashboard.url}/api/language",

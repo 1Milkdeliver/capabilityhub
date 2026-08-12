@@ -152,6 +152,11 @@ def _system_read_roots() -> tuple[Path, ...]:
 
 
 def _add_path_rule(libc: Any, ruleset_fd: int, path: Path, access: int) -> None:
+    # Landlock rejects directory-only rights such as READ_DIR when the parent
+    # fd refers to a regular file.  The only file currently admitted here is
+    # the dynamic-loader cache, which needs read access and nothing else.
+    if path.is_file():
+        access &= 1 << 2
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_PATH", 0)
     path_fd = os.open(path, flags)
     try:

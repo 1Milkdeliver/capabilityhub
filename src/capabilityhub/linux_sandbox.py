@@ -8,6 +8,7 @@ import errno
 import os
 import platform
 import sys
+import sysconfig
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, cast
@@ -31,8 +32,15 @@ _NETWORK_SYSCALLS = (
     "accept4",
     "sendto",
     "sendmsg",
+    "sendmmsg",
     "recvfrom",
     "recvmsg",
+    "recvmmsg",
+    "shutdown",
+    "socketcall",
+    "io_uring_setup",
+    "io_uring_enter",
+    "io_uring_register",
 )
 
 
@@ -98,6 +106,7 @@ def apply_linux_sandbox(
         if not capabilities.network:
             raise LinuxSandboxApplyError("seccomp_unavailable")
         try:
+            _close_inherited_network_fds()
             _apply_seccomp_network_deny()
         except LinuxSandboxApplyError:
             raise
@@ -168,17 +177,49 @@ def _apply_landlock(root: Path, abi: int) -> None:
 
 def _system_read_roots() -> tuple[Path, ...]:
     candidates = {
-        Path("/usr"),
-        Path("/bin"),
-        Path("/lib"),
-        Path("/lib64"),
         # The dynamic loader may consult this file when starting a descendant.
         # Do not grant all of /etc: provider code must not gain read access to
         # unrelated machine configuration or service credentials.
         Path("/etc/ld.so.cache"),
-        Path(sys.executable).resolve().parent.parent,
+        Path("/dev/null"),
+        Path(sys.executable).resolve(),
     }
+    for value in sysconfig.get_paths().values():
+        path = Path(value)
+        if path.is_absolute():
+            candidates.add(path.resolve())
+    maps = Path("/proc/self/maps")
+    try:
+        for line in maps.read_text(encoding="utf-8").splitlines():
+            fields = line.split(maxsplit=5)
+            if len(fields) == 6 and fields[5].startswith("/"):
+                mapped = Path(fields[5])
+                if mapped.is_file():
+                    candidates.add(mapped.resolve())
+    except OSError:
+        pass
     return tuple(sorted((path for path in candidates if path.exists()), key=str))
+
+
+def _close_inherited_network_fds() -> None:
+    descriptor_root = Path("/proc/self/fd")
+    try:
+        descriptors = tuple(descriptor_root.iterdir())
+    except OSError as error:
+        raise LinuxSandboxApplyError("network_fd_inventory_failed") from error
+    for entry in descriptors:
+        try:
+            descriptor = int(entry.name)
+            target = os.readlink(entry)
+        except (OSError, ValueError):
+            continue
+        if descriptor <= 2 or not target.startswith("socket:["):
+            continue
+        try:
+            os.close(descriptor)
+        except OSError as error:
+            if error.errno != errno.EBADF:
+                raise LinuxSandboxApplyError("network_fd_close_failed") from error
 
 
 def _add_path_rule(libc: Any, ruleset_fd: int, path: Path, access: int) -> None:

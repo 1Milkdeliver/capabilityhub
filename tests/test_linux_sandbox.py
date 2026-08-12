@@ -37,6 +37,7 @@ class _LinuxMaliciousProvider:
         outside = Path(self.outside)
         (allowed / "provider.txt").write_text("allowed", encoding="utf-8")
         outside_denied = _write_denied(outside / "provider.txt")
+        sensitive_read_denied = _read_denied(Path("/etc/passwd"))
         network_denied = _network_denied()
         child_result = allowed / "child.json"
         script = """
@@ -49,17 +50,28 @@ allowed = Path(sys.argv[1])
 outside = Path(sys.argv[2])
 (allowed / "child.txt").write_text("allowed", encoding="utf-8")
 filesystem_denied = False
+sensitive_read_denied = False
 network_denied = False
 try:
     (outside / "child.txt").write_text("escape", encoding="utf-8")
 except PermissionError:
     filesystem_denied = True
 try:
+    Path("/etc/passwd").read_bytes()
+except PermissionError:
+    sensitive_read_denied = True
+try:
     socket.socket()
 except PermissionError:
     network_denied = True
 (allowed / "child.json").write_text(
-    json.dumps({"filesystem": filesystem_denied, "network": network_denied}),
+    json.dumps(
+        {
+            "filesystem": filesystem_denied,
+            "network": network_denied,
+            "sensitive_read": sensitive_read_denied,
+        }
+    ),
     encoding="utf-8",
 )
 """
@@ -75,8 +87,10 @@ except PermissionError:
             {
                 "allowed": (allowed / "provider.txt").is_file(),
                 "filesystem_denied": outside_denied,
+                "sensitive_read_denied": sensitive_read_denied,
                 "network_denied": network_denied,
                 "child_filesystem_denied": child["filesystem"],
+                "child_sensitive_read_denied": child["sensitive_read"],
                 "child_network_denied": child["network"],
             },
             self.name,
@@ -96,6 +110,14 @@ def _write_denied(path: Path) -> bool:
 def _network_denied() -> bool:
     try:
         socket.socket()
+    except PermissionError:
+        return True
+    return False
+
+
+def _read_denied(path: Path) -> bool:
+    try:
+        path.read_bytes()
     except PermissionError:
         return True
     return False
@@ -130,9 +152,43 @@ def test_linux_landlock_and_seccomp_confine_provider_and_descendant(tmp_path: Pa
     assert result.output == {
         "allowed": True,
         "filesystem_denied": True,
+        "sensitive_read_denied": True,
         "network_denied": True,
         "child_filesystem_denied": True,
+        "child_sensitive_read_denied": True,
         "child_network_denied": True,
     }
     assert (allowed / "child.txt").read_text(encoding="utf-8") == "allowed"
     assert list(outside.iterdir()) == []
+
+
+def test_linux_network_confinement_closes_inherited_socket() -> None:
+    parent, inherited = socket.socketpair()
+    try:
+        inherited.set_inheritable(True)
+        script = """
+import os
+import sys
+from capabilityhub.linux_sandbox import apply_linux_sandbox
+
+descriptor = int(sys.argv[1])
+apply_linux_sandbox(filesystem_root=None, deny_network=True)
+try:
+    os.fstat(descriptor)
+except OSError:
+    print("closed")
+else:
+    raise SystemExit("inherited socket remained open")
+"""
+        completed = subprocess.run(
+            (sys.executable, "-c", script, str(inherited.fileno())),
+            check=True,
+            capture_output=True,
+            pass_fds=(inherited.fileno(),),
+            text=True,
+            timeout=5,
+        )
+        assert completed.stdout.strip() == "closed"
+    finally:
+        inherited.close()
+        parent.close()

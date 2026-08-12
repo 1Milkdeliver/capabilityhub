@@ -25,6 +25,7 @@ from capabilityhub.admin_control import (
     AdminPrincipal,
     LoopbackAdminControl,
 )
+from capabilityhub.admission import validate_for_admission
 from capabilityhub.approval_store import (
     ApprovalIntent,
     ApprovalRecord,
@@ -167,9 +168,10 @@ LOCAL_LAST_GOOD_MAX_AGE_SECONDS = 300.0
 
 def validate(paths: list[str | Path]) -> int:
     """Validate manifest files and return their count without executing providers."""
-    for path in paths:
-        load_manifest(path)
-    return len(paths)
+    manifests = tuple(load_manifest(path) for path in paths)
+    project = Path(paths[0]).resolve().parent if paths else Path.cwd()
+    validate_for_admission(manifests, project=project)
+    return len(manifests)
 
 
 def local_manifest_export(path: str | Path) -> dict[str, JsonValue]:

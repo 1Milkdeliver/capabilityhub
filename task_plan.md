@@ -1,5 +1,12 @@
 # CapabilityHub Development Plan
 
+## Phase 30 — conservative release evidence
+
+- Re-audit all 36 discovery requirements against runtime paths and broad acceptance gates.
+- Keep useful-but-incomplete work `Partial`; a passing unit test alone cannot promote a row.
+- Bind every `Implemented` claim and public menu/control-plane claim to source and test markers in CI.
+- Keep remote tenancy, provider conformance, production RAG ACLs, and measured quality as gates.
+
 ## Goal
 
 Build and validate an open-source capability control plane that discovers, routes, lazily loads, executes, audits, and budgets Skills, MCP tools, CLIs, APIs, and RAG sources while minimizing context-token overhead.

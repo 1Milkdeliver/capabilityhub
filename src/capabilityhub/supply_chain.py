@@ -539,4 +539,7 @@ def _b64(value: bytes) -> str:
 
 
 def _unb64(value: str) -> bytes:
-    return urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    decoded = urlsafe_b64decode(value + "=" * (-len(value) % 4))
+    if _b64(decoded) != value:
+        raise ValueError("non-canonical base64url")
+    return decoded

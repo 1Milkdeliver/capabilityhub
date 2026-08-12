@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-08-12 — requirement evidence refresh
+
+- Reconciled all 36 rows after authenticated data/admin planes, tenant-scoped business state,
+  registry projection admission, optional Ed25519 verification, and million-chunk FTS replay landed.
+- Corrected broad-scope overclaims: R4, R5, R8, R10, and R12 remain partial; R14 now has direct
+  registry-admission evidence.
+- Added per-row source/test evidence and CI traceability checks for implemented and public claims.
+- Remote tenancy, full provider conformance, RAG ACLs, certificate/transparency infrastructure, and
+  measured model quality remain explicit gates.
+
 ## 2026-08-11
 
 - Confirmed the requested autonomous, parallel development scope.

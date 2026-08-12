@@ -21,11 +21,13 @@ from types import MappingProxyType
 
 from capabilityhub.metering import canonical_json
 from capabilityhub.models import JsonValue
+from capabilityhub.search import SearchRankingConfig
 
 DEFAULT_SEED = 20_260_812
 DEFAULT_CAPABILITY_COUNT = 10_000
 DEFAULT_CONCURRENT_READS = 100
 TOP_K = 8
+SEARCH_P95_LIMIT_MS = 1_000.0
 _WORD_RE = re.compile(r"[a-z0-9]+")
 _SCOPE_LIMITS = (
     "10k synthetic metadata capabilities only",
@@ -74,6 +76,7 @@ class QualityEvidence:
     expected_capability_id: str
     rank: int | None
     top8_hit: bool
+    top3_hit: bool
 
 
 @dataclass(frozen=True, slots=True)
@@ -91,6 +94,9 @@ class ScaleBenchmarkReport:
     dataset_digest: str
     hardware: Mapping[str, JsonValue]
     scope_limits: tuple[str, ...]
+    ranking_revision: str
+    ranking_digest: str
+    index_revision: str
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "hardware", MappingProxyType(dict(self.hardware)))
@@ -99,16 +105,29 @@ class ScaleBenchmarkReport:
 class MetadataSearchIndex:
     """Immutable postings index safe for concurrent reads after construction."""
 
-    def __init__(self, capabilities: Iterable[MetadataCapability]) -> None:
+    def __init__(
+        self,
+        capabilities: Iterable[MetadataCapability],
+        *,
+        ranking: SearchRankingConfig | None = None,
+    ) -> None:
         records = tuple(capabilities)
+        self._ranking = ranking or SearchRankingConfig()
         by_id = {record.capability_id: record for record in records}
         if len(by_id) != len(records):
             raise ValueError("capability ids must be unique")
         postings: dict[str, set[str]] = {}
-        tokens_by_id: dict[str, frozenset[str]] = {}
+        tokens_by_id: dict[
+            str, tuple[frozenset[str], frozenset[str], frozenset[str]]
+        ] = {}
         for record in records:
-            tokens = frozenset(_tokens(" ".join((record.title, record.summary, *record.keywords))))
-            tokens_by_id[record.capability_id] = tokens
+            title = frozenset(_tokens(record.title))
+            summary = frozenset(_tokens(record.summary))
+            keywords = frozenset(
+                token for value in record.keywords for token in _tokens(value)
+            )
+            tokens = title | summary | keywords
+            tokens_by_id[record.capability_id] = (title, summary, keywords)
             for token in tokens:
                 postings.setdefault(token, set()).add(record.capability_id)
         self._records = MappingProxyType(by_id)
@@ -116,6 +135,16 @@ class MetadataSearchIndex:
         self._postings = MappingProxyType(
             {token: frozenset(ids) for token, ids in postings.items()}
         )
+        material = f"{_catalog_digest(records)}\0{self._ranking.digest}".encode()
+        self.index_revision = "sha256:" + hashlib.sha256(material).hexdigest()
+
+    @property
+    def ranking_revision(self) -> str:
+        return self._ranking.revision
+
+    @property
+    def ranking_digest(self) -> str:
+        return self._ranking.digest
 
     def search(self, query: str, *, limit: int = TOP_K) -> tuple[str, ...]:
         if limit <= 0:
@@ -127,11 +156,22 @@ class MetadataSearchIndex:
         ranked = sorted(
             candidates,
             key=lambda capability_id: (
-                -sum(token in self._tokens[capability_id] for token in query_tokens),
+                -self._score(capability_id, frozenset(query_tokens)),
                 capability_id,
             ),
         )
         return tuple(ranked[:limit])
+
+    def _score(self, capability_id: str, query: frozenset[str]) -> int:
+        title, summary, keywords = self._tokens[capability_id]
+        score = (
+            len(query & title) * self._ranking.weights["name"]
+            + len(query & summary) * self._ranking.weights["summary"]
+            + len(query & keywords) * self._ranking.weights["alias"]
+        )
+        if title == query:
+            score += self._ranking.weights["exact_name"]
+        return score
 
 
 def generate_metadata_catalog(
@@ -215,20 +255,30 @@ def run_scale_benchmark(
         concurrent_results = [future.result() for future in futures]
 
     quality = tuple(_quality_evidence(index, fixture) for fixture in fixtures)
+    cold = _latency(cold_samples)
+    warm = _latency(warm_samples)
+    concurrent = _latency(item[0] for item in concurrent_results)
+    if warm.p95_ms > SEARCH_P95_LIMIT_MS or concurrent.p95_ms > SEARCH_P95_LIMIT_MS:
+        raise RuntimeError("10k metadata search p95 exceeded the hard limit")
+    if any(not evidence.top3_hit for evidence in quality):
+        raise RuntimeError("10k metadata quality fixture missed the correct top three")
     return ScaleBenchmarkReport(
         seed=seed,
         capability_count=len(catalog),
         top_k=TOP_K,
         concurrent_read_target=concurrent_reads,
         catalog_build_ms=round(catalog_build_ms, 6),
-        cold=_latency(cold_samples),
-        warm=_latency(warm_samples),
-        concurrent=_latency(item[0] for item in concurrent_results),
+        cold=cold,
+        warm=warm,
+        concurrent=concurrent,
         concurrent_quality_hits=sum(item[1] for item in concurrent_results),
         quality=quality,
         dataset_digest=_catalog_digest(catalog),
         hardware=_hardware_metadata(),
         scope_limits=_SCOPE_LIMITS,
+        ranking_revision=index.ranking_revision,
+        ranking_digest=index.ranking_digest,
+        index_revision=index.index_revision,
     )
 
 
@@ -243,6 +293,7 @@ def _quality_evidence(index: MetadataSearchIndex, fixture: QualityFixture) -> Qu
         expected_capability_id=fixture.expected_capability_id,
         rank=rank,
         top8_hit=rank is not None and rank <= TOP_K,
+        top3_hit=rank is not None and rank <= 3,
     )
 
 

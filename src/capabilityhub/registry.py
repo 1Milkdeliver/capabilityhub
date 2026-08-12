@@ -7,6 +7,7 @@ imports, initializes, or executes provider code.
 from __future__ import annotations
 
 import hashlib
+import json
 import re
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
@@ -46,6 +47,13 @@ class CapabilityRegistry:
     @property
     def projection_resolution(self) -> ProjectionResolution:
         return self._projection_resolution
+
+    @property
+    def active_digest(self) -> str:
+        payload = json.dumps(
+            dict(sorted(self._active.items())), sort_keys=True, separators=(",", ":")
+        ).encode()
+        return "sha256:" + hashlib.sha256(payload).hexdigest()
 
     def register(self, manifest: CapabilityManifest) -> CapabilityManifest:
         """Store one immutable revision. Dependency activation is a separate step."""

@@ -40,7 +40,7 @@ remain visible without a restart or repeated scans. The local Dashboard uses tha
 monitor and polls its safe status endpoint every three seconds. Inventory responses
 identify fresh, partial, or stale state and expose only safe diagnostic codes/counts.
 
-For beginner-focused installation and daily workflows, see the
+For installation and daily workflows, see the
 [Simplified Chinese user guide](user-guide-zh-CN.md).
 
 The plugin exposes `helpme` and `myskills`, so the Codex app can present `/helpme` and

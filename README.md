@@ -1,6 +1,6 @@
 # CapSift
 
-> 第一次使用 Codex？请从 [CapSift 中文使用说明书](docs/user-guide-zh-CN.md) 开始。
+> 使用 CapSift？请从 [CapSift 中文使用说明书](docs/user-guide-zh-CN.md) 开始。
 > 从 CapabilityHub 升级？请查看[无损迁移说明](docs/migration-capabilityhub-to-capsift.md)。
 
 CapSift is a self-hosted Python control plane for progressively disclosing agent capabilities. A release is certified only when the signed Release Certification manifest succeeds for that exact source revision and artifact set. It has one manifest model for five capability kinds:

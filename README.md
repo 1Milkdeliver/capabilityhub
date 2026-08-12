@@ -1,6 +1,6 @@
 # CapabilityHub
 
-CapabilityHub is a certified self-hosted Python control plane for progressively disclosing agent capabilities. It has one manifest model for five capability kinds:
+CapabilityHub is a self-hosted Python control plane for progressively disclosing agent capabilities. A release is certified only when the signed Release Certification manifest succeeds for that exact source revision and artifact set. It has one manifest model for five capability kinds:
 
 - Skills (`SKILL.md` content)
 - MCP-described capabilities

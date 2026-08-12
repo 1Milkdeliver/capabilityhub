@@ -13,11 +13,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 35 - stable `0.1.0` certified self-hosted release.
+Phase 35 - `0.1.0` self-hosted release certification.
 
 ## Next Step
 
-Maintain the certified boundary and reject regressions through the release gates.
+Produce and verify the signed exact-revision release manifest, then maintain that boundary.
 
 ## Phases
 

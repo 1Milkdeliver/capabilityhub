@@ -1,12 +1,14 @@
 # Progress
 
-## 2026-08-12 — stable 0.1.0 certification
+## 2026-08-12 — 0.1.0 certification candidate
 
 - Completed and traceability-checked all 36 requirement rows.
-- Real Codex evidence passed quality non-inferiority and measured lazy cost at 40.65% of eager.
+- A prior real Codex run passed the quality and cost gates; the exact release result is taken only
+  from the same-revision signed model artifact.
 - Ubuntu 24.04 proved inherited Landlock allow-root and libseccomp deny-network confinement.
 - Python 3.11/3.12/3.13, Windows wheel, real Chrome, 10k search, one-million-chunk RAG,
-  five-provider adversarial, supply-chain, plugin install, Ruff and mypy gates passed.
+  five-provider adversarial, supply-chain, plugin install, Ruff and mypy gates are configured as
+  mandatory release evidence.
 - Release Certification is configured to aggregate fresh same-revision evidence into a
   signed manifest; a release is valid only when that workflow succeeds for its exact SHA.
 

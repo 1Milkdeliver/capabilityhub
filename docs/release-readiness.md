@@ -2,21 +2,21 @@
 
 ## Current decision
 
-CapabilityHub `0.1.0` is ready for the certified self-hosted reference scope. The
-authoritative [completion matrix](completion-matrix.md) is 36/36 Implemented. GitHub
-Release Certification reruns and signs fresh, same-revision evidence; missing, stale,
-skipped, partial, mixed-revision, or failed evidence is rejected.
+CapabilityHub `0.1.0` is a certification candidate for the self-hosted reference scope. The
+authoritative [completion matrix](completion-matrix.md) is 36/36 Implemented. A release is
+certified only after GitHub Release Certification reruns and signs fresh, same-revision evidence;
+missing, stale, skipped, partial, mixed-revision, or failed evidence is rejected.
 
 This is a production claim for the documented self-hosted profile, not a claim that
 CapabilityHub is a hosted multi-region service, a universal Sigstore implementation,
 or a replacement for an external identity provider, vault, gateway, or vector database.
 
-## Certified evidence
+## Required certification evidence
 
 | Area | Release evidence and boundary |
 |---|---|
 | Five capability kinds | Skill discovery/load plus configured CLI, fixed-origin API, ACL-scoped indexed RAG, and MCP stdio providers share search/load/execute admission. Skill scripts are never executed. |
-| Progressive disclosure | Real Codex `gpt-5.4-mini` low-effort evidence covers 30 paired tasks. Lazy mode passed quality non-inferiority and used 40.65% of eager estimated cost with zero tool calls. |
+| Progressive disclosure | Real Codex low-effort evidence must cover at least 30 paired observations, pass quality non-inferiority and the configured cost-reduction gate, report real usage, and bind to the exact source and artifact subject. Exact metrics come from the signed release artifact. |
 | Search and scale | Hard token/total-byte/per-card limits, authorized pre-score filtering, correct top-3 on 10k metadata, 100 concurrent service execution, and a production `DiskRagIndex` replay with one million chunks. |
 | Identity and policy | Immutable revisions, signed scoped references, default-deny principal grants, dependency intersections, exact-intent approvals, scoped idempotency, hierarchical budgets, and tenant/session HMAC partitioning. |
 | Data/admin separation | Loopback and optional TLS 1.2+ mTLS listeners expose separate data and role-scoped admin paths. Credentials are not interchangeable. Dashboard management uses the same authenticated dispatcher. |
@@ -34,7 +34,7 @@ or a replacement for an external identity provider, vault, gateway, or vector da
   deployment and bind certificates to explicit tenant/principal/role identities.
 - Enable only providers whose normalized grants, approval policy, supply-chain policy,
   budgets, and confinement requirements are configured. Unknown state fails closed.
-- Linux is the certified filesystem/network-confined worker platform. Windows provides
+- Linux is the filesystem/network-confined worker platform required by certification. Windows provides
   Job Object CPU/RAM/process-tree control and rejects a production request that requires
   unavailable filesystem/network confinement.
 - Platform key stores, certificate issuance, OS patching, backup, external identity

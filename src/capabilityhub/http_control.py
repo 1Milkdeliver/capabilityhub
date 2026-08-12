@@ -89,7 +89,11 @@ class LoopbackHttpControl:
                 raise RuntimeError("HTTP control is already running")
             credential = self._authenticator.start_session()
             handler = partial(_ControlHandler, control=self)
-            server_type = _IPv6ThreadingHTTPServer if self._host == "::1" else ThreadingHTTPServer
+            server_type = (
+                _IPv6ThreadingHTTPServer
+                if self._host == "::1"
+                else _LoopbackThreadingHTTPServer
+            )
             try:
                 server = server_type((self._host, self._requested_port), handler)
             except Exception:
@@ -167,7 +171,11 @@ class LoopbackHttpControl:
         return success_response(request, output)
 
 
-class _IPv6ThreadingHTTPServer(ThreadingHTTPServer):
+class _LoopbackThreadingHTTPServer(ThreadingHTTPServer):
+    request_queue_size = 128
+
+
+class _IPv6ThreadingHTTPServer(_LoopbackThreadingHTTPServer):
     address_family = socket.AF_INET6
 
 

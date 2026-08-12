@@ -229,10 +229,11 @@ def _close_inherited_network_fds() -> None:
 
 def _add_path_rule(libc: Any, ruleset_fd: int, path: Path, access: int) -> None:
     # Landlock rejects directory-only rights such as READ_DIR when the parent
-    # fd refers to a regular file.  The only file currently admitted here is
-    # the dynamic-loader cache, which needs read access and nothing else.
+    # fd refers to a regular file. Exact runtime files retain READ_FILE and
+    # EXECUTE so the pinned interpreter and loader can start descendants; the
+    # ordinary UNIX mode bits still prevent executing non-executable files.
     if path.is_file():
-        access &= 1 << 2
+        access &= (1 << 0) | (1 << 2)
     flags = os.O_RDONLY | getattr(os, "O_CLOEXEC", 0) | getattr(os, "O_PATH", 0)
     path_fd = os.open(path, flags)
     try:

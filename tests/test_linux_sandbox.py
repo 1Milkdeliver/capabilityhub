@@ -75,17 +75,32 @@ except PermissionError:
     encoding="utf-8",
 )
 """
-        subprocess.run(
-            (sys.executable, "-c", script, str(allowed), str(outside)),
-            check=True,
-            timeout=5,
+        child_stage = "complete"
+        try:
+            subprocess.run(
+                (sys.executable, "-c", script, str(allowed), str(outside)),
+                check=True,
+                timeout=5,
+            )
+        except PermissionError:
+            child_stage = "spawn_permission_denied"
+        except subprocess.CalledProcessError:
+            child_stage = "child_exit_failed"
+        except subprocess.TimeoutExpired:
+            child_stage = "child_timeout"
+        if child_stage == "complete" and not child_result.is_file():
+            child_stage = "child_result_missing"
+        child = (
+            json.loads(child_result.read_text(encoding="utf-8"))
+            if child_stage == "complete"
+            else {"filesystem": False, "network": False, "sensitive_read": False}
         )
-        child = json.loads(child_result.read_text(encoding="utf-8"))
         return ExecutionResult(
             identity.revision,
             request.operation,
             {
                 "allowed": (allowed / "provider.txt").is_file(),
+                "child_stage": child_stage,
                 "filesystem_denied": outside_denied,
                 "sensitive_read_denied": sensitive_read_denied,
                 "network_denied": network_denied,
@@ -151,6 +166,7 @@ def test_linux_landlock_and_seccomp_confine_provider_and_descendant(tmp_path: Pa
 
     assert result.output == {
         "allowed": True,
+        "child_stage": "complete",
         "filesystem_denied": True,
         "sensitive_read_denied": True,
         "network_denied": True,

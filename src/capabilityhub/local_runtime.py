@@ -237,6 +237,14 @@ def local_dependency_observations(
         if generation.inventory.get("status") == "stale"
         else DependencyStatus.AVAILABLE
     )
+    # A successful immutable generation is the request's catalog snapshot.
+    # Re-observing it during the same load/execute transaction must not turn it
+    # stale merely because provider startup crossed the monitor refresh TTL.
+    # Failed-refresh generations remain tied to their original observation so
+    # the explicit last-good fallback age is still enforced.
+    catalog_observed_at = (
+        generation.observed_at if catalog_status is DependencyStatus.STALE else now
+    )
     provider_status = DependencyStatus.UNKNOWN
     if provider_name is not None:
         available_providers = generation.providers if providers is None else tuple(providers)
@@ -249,13 +257,13 @@ def local_dependency_observations(
         DependencyObservation(
             Dependency.REGISTRY,
             catalog_status,
-            generation.observed_at,
+            catalog_observed_at,
             generation.observation_ttl_seconds,
         ),
         DependencyObservation(
             Dependency.INDEX,
             catalog_status,
-            generation.observed_at,
+            catalog_observed_at,
             generation.observation_ttl_seconds,
         ),
         DependencyObservation(

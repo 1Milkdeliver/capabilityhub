@@ -8,10 +8,11 @@ import json
 import math
 import sqlite3
 import unicodedata
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from time import time
-from typing import cast
+from typing import TypeVar, cast
 from uuid import uuid4
 
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
@@ -20,6 +21,7 @@ from capabilityhub.models import JsonValue
 
 _SCOPE_DOMAIN = b"capabilityhub-tenant-scope-v1\0"
 _KEY_DOMAIN = b"capabilityhub-scoped-key-v1\0"
+_Result = TypeVar("_Result")
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,6 +188,63 @@ class SqliteScopedState:
         return _decode(row[0])
 
     get_cache = get
+
+    def transact_entry(
+        self,
+        scope: TenantScope,
+        key: str,
+        update: Callable[[JsonValue | None], tuple[JsonValue | None, _Result]],
+        *,
+        namespace: str = "default",
+        now: float | None = None,
+    ) -> _Result:
+        """Atomically transform one opaque scoped entry without exposing its scope."""
+
+        digest = self._scope_digest(scope)
+        selected_namespace = _name(namespace, "namespace")
+        key_digest = self._key_digest(digest, selected_namespace, key)
+        current = _timestamp(now)
+        try:
+            with self._transaction() as connection:
+                row = connection.execute(
+                    "SELECT value_json, expires_at FROM scoped_entries "
+                    "WHERE scope_digest = ? AND namespace = ? AND key_digest = ?",
+                    (digest, selected_namespace, key_digest),
+                ).fetchone()
+                value = (
+                    None
+                    if row is None
+                    or (row[1] is not None and _stored_time(row[1]) <= current)
+                    else _decode(row[0])
+                )
+                replacement, result = update(value)
+                if replacement is None:
+                    connection.execute(
+                        "DELETE FROM scoped_entries WHERE scope_digest = ? "
+                        "AND namespace = ? AND key_digest = ?",
+                        (digest, selected_namespace, key_digest),
+                    )
+                else:
+                    connection.execute(
+                        "INSERT INTO scoped_entries "
+                        "(scope_digest, namespace, key_digest, value_json, updated_at, "
+                        "expires_at) VALUES (?, ?, ?, ?, ?, NULL) "
+                        "ON CONFLICT(scope_digest, namespace, key_digest) DO UPDATE SET "
+                        "value_json=excluded.value_json, updated_at=excluded.updated_at, "
+                        "expires_at=NULL",
+                        (
+                            digest,
+                            selected_namespace,
+                            key_digest,
+                            _encode(replacement),
+                            current,
+                        ),
+                    )
+                return result
+        except TenantStateError:
+            raise
+        except (sqlite3.Error, TypeError, ValueError) as error:
+            raise _store_error("tenant_state_write_failed") from error
 
     def delete(self, scope: TenantScope, key: str, *, namespace: str = "default") -> bool:
         digest = self._scope_digest(scope)

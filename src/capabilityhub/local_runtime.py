@@ -9,6 +9,7 @@ from pathlib import Path
 from threading import RLock
 from time import monotonic, time
 
+from capabilityhub.admission import validate_manifest_semantics
 from capabilityhub.degraded import Dependency, DependencyObservation, DependencyStatus
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_catalog import discover_local_catalog, local_catalog_fingerprint
@@ -107,6 +108,7 @@ class LocalCatalogMonitor:
         registration_conflicts = 0
         for manifest in sorted(catalog.manifests, key=lambda item: item.identity.revision):
             try:
+                validate_manifest_semantics(manifest, project=self._project)
                 registry.register(manifest)
             except CapabilityHubError:
                 registration_conflicts += 1

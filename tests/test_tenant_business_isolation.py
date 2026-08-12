@@ -20,7 +20,12 @@ from capabilityhub.auth import AuthIdentity
 from capabilityhub.http_control import HttpControlAccess
 from capabilityhub.idempotency import SqliteIdempotencyStore
 from capabilityhub.protocol import protocol_handshake
-from capabilityhub.runtime import local_audit, local_http_control
+from capabilityhub.runtime import (
+    local_audit,
+    local_budget_report,
+    local_http_control,
+    local_search,
+)
 from capabilityhub.tenancy import SqliteScopedState, TenantScope
 
 SCOPE_KEY = b"tenant-business-isolation-key-32b"
@@ -184,6 +189,32 @@ def test_authenticated_http_identity_partitions_runtime_audit_query(tmp_path: Pa
     hidden = local_audit(project, identity=outsider, task_id="same-task")
     assert hidden["events"] == []
     assert hidden["stored"] == 0
+
+
+def test_cli_uses_restart_safe_opaque_hierarchical_budget(tmp_path: Path) -> None:
+    project = tmp_path / "project"
+    project.mkdir()
+    before = local_budget_report(project_root=project)
+
+    local_search("", project_root=project)
+    after = local_budget_report(project_root=project)
+    restarted = local_budget_report(project_root=project)
+
+    assert after["used"]["portable_tokens"] > before["used"]["portable_tokens"]
+    assert restarted["used"] == after["used"]
+    path = project / ".capabilityhub" / "state.sqlite3"
+    with sqlite3.connect(path) as connection:
+        scopes = connection.execute(
+            "SELECT root_id, scope_id FROM hierarchical_budget_scopes"
+        ).fetchall()
+        legacy_scopes = connection.execute(
+            "SELECT scope FROM budget_scopes"
+        ).fetchall()
+    assert len(scopes) == 4
+    assert all(len(root_id) == len(scope_id) == 64 for root_id, scope_id in scopes)
+    raw = path.read_bytes()
+    assert b"operator" not in raw
+    assert legacy_scopes == [("local-cli",)]  # Explicit backward-compatible local identity.
 
 
 def _post_search(access: HttpControlAccess) -> dict[str, object]:

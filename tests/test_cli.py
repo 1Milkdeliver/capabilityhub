@@ -5,7 +5,6 @@ import json
 import pytest
 
 from capabilityhub import runtime
-from capabilityhub.budget_store import SqliteBudgetRepository
 from capabilityhub.cli import build_parser, main
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 
@@ -405,9 +404,7 @@ def test_budget_report_reads_durable_project_usage(tmp_path, capsys) -> None:
     configured = json.loads(capsys.readouterr().out)
     assert configured["limits"]["executions"] == 2
 
-    ledger = SqliteBudgetRepository(tmp_path / ".capabilityhub" / "state.sqlite3").ledger(
-        "local-cli", {}
-    )
+    ledger = runtime._persistent_budget(tmp_path)
     ledger.spend({"executions": 1})
 
     assert main(["budget-report", "--project-root", str(tmp_path)]) == 0

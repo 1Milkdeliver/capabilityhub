@@ -8,9 +8,10 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
-from typing import TypeVar, cast
+from typing import Protocol, TypeVar, cast
 
 from .models import JsonValue, ReasoningTier
+from .tenancy import SqliteScopedState, TenantScope
 
 _Result = TypeVar("_Result")
 _SCHEMA = """
@@ -51,6 +52,18 @@ class StoredReasoningState:
                 "last_recommendation",
                 MappingProxyType(dict(self.last_recommendation)),
             )
+
+
+class ReasoningStateStore(Protocol):
+    def read(self, task_id: str) -> StoredReasoningState: ...
+
+    def transact(
+        self,
+        task_id: str,
+        update: Callable[[StoredReasoningState], tuple[StoredReasoningState, _Result]],
+    ) -> _Result: ...
+
+    def reset(self, task_id: str) -> None: ...
 
 
 class SQLiteReasoningStore:
@@ -177,3 +190,118 @@ class SQLiteReasoningStore:
     def _validate_task_id(task_id: str) -> None:
         if not task_id:
             raise ValueError("task_id must be non-empty")
+
+
+class ScopedReasoningStore:
+    """Reasoning state backed only by the shared opaque TenantScope repository."""
+
+    _NAMESPACE = "reasoning"
+    _KEY = "state"
+
+    def __init__(
+        self,
+        state: SqliteScopedState,
+        *,
+        scope_provider: Callable[[str], TenantScope],
+    ) -> None:
+        self._state = state
+        self._scope_provider = scope_provider
+
+    def read(self, task_id: str) -> StoredReasoningState:
+        SQLiteReasoningStore._validate_task_id(task_id)
+        value = self._state.get(
+            self._scope_provider(task_id), self._KEY, namespace=self._NAMESPACE
+        )
+        return _decode_scoped_state(task_id, value)
+
+    def transact(
+        self,
+        task_id: str,
+        update: Callable[[StoredReasoningState], tuple[StoredReasoningState, _Result]],
+    ) -> _Result:
+        SQLiteReasoningStore._validate_task_id(task_id)
+
+        def transform(value: JsonValue | None) -> tuple[JsonValue, _Result]:
+            current = _decode_scoped_state(task_id, value)
+            replacement, result = update(current)
+            if replacement.task_id != task_id:
+                raise ValueError("replacement task_id must match transaction task_id")
+            return _encode_scoped_state(replacement), result
+
+        return self._state.transact_entry(
+            self._scope_provider(task_id),
+            self._KEY,
+            transform,
+            namespace=self._NAMESPACE,
+        )
+
+    def reset(self, task_id: str) -> None:
+        SQLiteReasoningStore._validate_task_id(task_id)
+        self._state.delete(
+            self._scope_provider(task_id), self._KEY, namespace=self._NAMESPACE
+        )
+
+
+def _encode_scoped_state(state: StoredReasoningState) -> dict[str, JsonValue]:
+    attempts: list[JsonValue] = [
+        [attempt, evidence, count]
+        for (attempt, evidence), count in sorted(state.attempt_counts.items())
+    ]
+    return {
+        "attempts": attempts,
+        "escalations_used": state.escalations_used,
+        "last_recommendation": (
+            None
+            if state.last_recommendation is None
+            else dict(state.last_recommendation)
+        ),
+        "recommendation_count": state.recommendation_count,
+        "tier": state.tier.value if state.tier is not None else None,
+    }
+
+
+def _decode_scoped_state(task_id: str, value: JsonValue | None) -> StoredReasoningState:
+    if value is None:
+        return StoredReasoningState(task_id)
+    if not isinstance(value, dict):
+        raise ValueError("scoped reasoning state is invalid")
+    try:
+        raw_attempts = value["attempts"]
+        raw_tier = value["tier"]
+        raw_last = value["last_recommendation"]
+        if not isinstance(raw_attempts, list):
+            raise TypeError
+        if raw_tier is not None and not isinstance(raw_tier, str):
+            raise TypeError
+        attempts: dict[tuple[str, str], int] = {}
+        for item in raw_attempts:
+            if (
+                not isinstance(item, list)
+                or len(item) != 3
+                or not isinstance(item[0], str)
+                or not isinstance(item[1], str)
+                or not isinstance(item[2], int)
+                or isinstance(item[2], bool)
+                or item[2] < 0
+            ):
+                raise TypeError
+            attempts[(item[0], item[1])] = item[2]
+        if raw_last is not None and not isinstance(raw_last, dict):
+            raise TypeError
+        escalations = value["escalations_used"]
+        count = value["recommendation_count"]
+        if any(
+            isinstance(item, bool) or not isinstance(item, int) or item < 0
+            for item in (escalations, count)
+        ):
+            raise TypeError
+        return StoredReasoningState(
+            task_id,
+            tier=None if raw_tier is None else ReasoningTier(raw_tier),
+            escalations_used=cast(int, escalations),
+            recommendation_count=cast(int, count),
+            attempt_counts=attempts,
+            last_recommendation=raw_last,
+        )
+    except (KeyError, TypeError, ValueError) as error:
+        raise ValueError("scoped reasoning state is invalid") from error

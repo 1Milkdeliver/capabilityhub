@@ -28,6 +28,10 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/references.py", "class ReferenceSigner"),
         ("tests/test_references.py", "tampered"),
     ),
+    "R8": (
+        ("src/capabilityhub/admission.py", "validate_manifest_semantics"),
+        ("tests/test_local_runtime.py", "invalid_driver_before_registry_admission"),
+    ),
     "R9": (
         ("src/capabilityhub/registry.py", "class CapabilityRegistry"),
         ("tests/test_registry.py", "immutable"),
@@ -60,6 +64,10 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/drained_service.py", "cancellation_requests"),
         ("tests/test_runtime_http_drain.py", "rollback"),
     ),
+    "R17": (
+        ("src/capabilityhub/grant_policy.py", "class PrincipalGrantPolicy"),
+        ("tests/test_grant_policy_runtime.py", "requires_new_authenticated_service_snapshot"),
+    ),
     "R20": (
         ("src/capabilityhub/secret_broker.py", "class KeyringSecretStore"),
         ("tests/test_platform_secret_store.py", "headless"),
@@ -76,6 +84,10 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/orchestration.py", "class ReasoningOrchestrator"),
         ("tests/test_orchestration.py", "restart"),
     ),
+    "R25": (
+        ("src/capabilityhub/runtime.py", "DurableHierarchicalBudgetProvider"),
+        ("tests/test_tenant_business_isolation.py", "opaque_hierarchical_budget"),
+    ),
     "R29": (
         ("src/capabilityhub/idempotency.py", "class SqliteIdempotencyStore"),
         ("tests/test_idempotency.py", "concurrent"),
@@ -83,6 +95,14 @@ IMPLEMENTED_EVIDENCE = {
     "R30": (
         ("src/capabilityhub/secure_audit.py", "class SecureAuditLedger"),
         ("tests/test_secure_audit.py", "tamper"),
+    ),
+    "R32": (
+        ("benchmarks/rag_scale.py", "DiskRagIndex"),
+        ("tests/test_scale_benchmark.py", "concurrent"),
+    ),
+    "R33": (
+        ("src/capabilityhub/compatibility.py", "MINIMUM_DEPRECATION_DAYS"),
+        ("tests/test_service_adapter.py", "old_client_new_server"),
     ),
     "R36": (
         ("src/capabilityhub/webui.py", "class DashboardServer"),

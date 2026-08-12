@@ -46,7 +46,7 @@ def _catalog(tmp_path) -> tuple[LocalCatalogMonitor, dict[str, str], Path]:
         spec: dict[str, object] = {
             "type": kind,
             "summary": f"Authorization fixture for {kind}",
-            "provider": "matrix-provider",
+            "provider": "static",
             "permissions": permissions[kind],
             "operations": [operation],
         }

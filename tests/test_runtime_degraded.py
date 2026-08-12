@@ -32,7 +32,7 @@ def _api_monitor(tmp_path) -> tuple[LocalCatalogMonitor, str]:
         "spec": {
             "type": "api",
             "summary": "Read records",
-            "provider": "configured-provider",
+            "provider": "static",
             "operations": [{"name": "read"}],
             "sections": {"contract": {"content": "read safely", "tokens": 3}},
         },

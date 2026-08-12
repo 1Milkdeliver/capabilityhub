@@ -9,7 +9,7 @@ from urllib.parse import urlsplit
 
 from capabilityhub.compatibility import V1ALPHA1_FEATURES
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
-from capabilityhub.models import CapabilityKind, CapabilityManifest
+from capabilityhub.models import CapabilityKind, CapabilityManifest, OperationType
 from capabilityhub.registry import CapabilityRegistry
 
 _PERMISSION = re.compile(r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)*$")
@@ -31,7 +31,7 @@ def validate_for_admission(
     selected = tuple(manifests)
     root = Path(project).resolve()
     for manifest in selected:
-        _validate_manifest(manifest, root)
+        validate_manifest_semantics(manifest, project=root)
     candidate = CapabilityRegistry()
     candidate.register_many(selected)
     candidate.validate_staged()
@@ -59,7 +59,12 @@ def install_validated(
     return candidate
 
 
-def _validate_manifest(manifest: CapabilityManifest, _project: Path) -> None:
+def validate_manifest_semantics(
+    manifest: CapabilityManifest, *, project: str | Path = "."
+) -> None:
+    """Validate one inert manifest without requiring its dependency graph yet."""
+
+    _project = Path(project).resolve()
     if any(
         not _PERMISSION.fullmatch(item) or item.split(".", 1)[0] not in _ROOTS
         for item in manifest.permissions
@@ -72,6 +77,13 @@ def _validate_manifest(manifest: CapabilityManifest, _project: Path) -> None:
     if set(required) - set(V1ALPHA1_FEATURES):
         raise _invalid("unsupported_required_feature")
     raw_driver = manifest.metadata.get("driver")
+    if raw_driver is None and all(
+        operation.operation_type is OperationType.EXPAND for operation in manifest.operations
+    ):
+        # Metadata-only inspection/expansion capabilities have no data-plane
+        # driver to initialize. Any executable/retrieval surface still requires
+        # a kind-specific driver below.
+        return
     if raw_driver is None and manifest.provider == "static":
         # Static manifests are inert, side-effect-free fixtures. They have no
         # external driver configuration to validate or initialize.

@@ -158,6 +158,32 @@ def test_real_service_roundtrip_uses_same_logic_for_every_adapter_kind(kind: Ada
     json.dumps(executed)
 
 
+@pytest.mark.parametrize("kind", list(AdapterKind))
+def test_old_client_new_server_fails_closed_identically_for_every_adapter(
+    kind: AdapterKind,
+) -> None:
+    adapter = _setup(kind)
+    with pytest.raises(CapabilityHubError) as caught:
+        parse_request(
+            kind,
+            {
+                "request_id": "old-request",
+                "correlation_id": "old-correlation",
+                "operation": "capability.search",
+                "payload": {"query": "records", "task_id": "old-task"},
+                "handshake": {
+                    "api_versions": ["capabilityhub.io/v1alpha0"],
+                    "supported_features": ["protocol.base"],
+                    "required_features": ["protocol.base"],
+                },
+            },
+            server_handshake=adapter.handshake,
+        )
+    assert caught.value.code == "incompatible_protocol"
+    assert caught.value.details["reason_codes"][0] == "no_shared_api_version"
+    assert "old-request" not in repr(caught.value.details)
+
+
 def test_http_shared_adapter_propagates_idempotency_key_for_result_reuse() -> None:
     adapter = _setup(AdapterKind.HTTP)
     search = adapter.dispatch(

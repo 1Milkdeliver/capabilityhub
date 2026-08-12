@@ -14,7 +14,7 @@ from .budget import BudgetLedger
 from .errors import CapabilityHubError, ErrorCategory
 from .models import JsonValue, ReasoningTier, SideEffect
 from .reasoning import ReasoningRouter
-from .reasoning_store import SQLiteReasoningStore, StoredReasoningState
+from .reasoning_store import ReasoningStateStore, StoredReasoningState
 
 DEFAULT_TIER_TOKEN_ESTIMATES: Mapping[ReasoningTier, int] = MappingProxyType(
     {
@@ -363,7 +363,7 @@ class ReasoningOrchestrator:
         budget: BudgetLedger,
         budget_counter: str = "reasoning_tokens",
         tier_token_estimates: Mapping[ReasoningTier | str, int] | None = None,
-        store: SQLiteReasoningStore | None = None,
+        store: ReasoningStateStore | None = None,
     ) -> None:
         if not budget_counter:
             raise ValueError("budget_counter must be non-empty")

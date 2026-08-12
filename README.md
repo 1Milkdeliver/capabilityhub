@@ -16,7 +16,7 @@ This is `0.1.0a0`, not a production release. The public surface includes Python 
 a small local CLI, and an experimental MCP server adapter; none is a stable protocol
 compatibility guarantee. MCP framing and transports come from the official Python SDK.
 
-CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, ACL-scoped indexed RAG, and MCP stdio adapters. Separate authenticated loopback data/admin planes, scoped state, OS-backed local secret stores, spawned-worker CPU/memory limits, and process-tree cancellation now exist. Filesystem/network confinement, remote tenant deployment, and a hardened production profile remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
+CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, ACL-scoped indexed RAG, and MCP stdio adapters. Separate authenticated data/admin planes now have loopback and optional mTLS reference transports; scoped grant/state/budget controls, OS-backed local secret stores, spawned-worker CPU/memory limits, and process-tree cancellation also exist. Filesystem/network confinement and a hardened production profile remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
 
 ## Install from source
 
@@ -63,7 +63,7 @@ Search and load are not permission grants. Search cards are filtered against the
 
 Embedders can additionally attach a `ParameterAuthorizer` to the caller context. The same deny-by-default decision then filters search and execution, intersects dependency privileges, and constrains normalized filesystem roots, hosts, HTTP methods, commands, profiles, and secret aliases. Raw secret-bearing argument fields are rejected and authorization results contain only stable reason codes.
 
-The transport-neutral protocol module defines one request/response/error envelope and feature handshake for library, CLI, MCP, and loopback HTTP adapters, including explicit streaming and cancellation negotiation. It is a conformance contract, not a claim that CapabilityHub ships a remote HTTP control-plane service.
+The transport-neutral protocol module defines one request/response/error envelope and feature handshake for library, CLI, MCP, and HTTP adapters, including explicit streaming and cancellation negotiation. The optional mTLS reference transport maps client certificates to tenant/principal identities and keeps data and role-scoped admin listeners separate; it is still a reference deployment boundary, not a production-service claim.
 
 ## CLI and MCP
 
@@ -124,7 +124,7 @@ Registry admission applies automatic projection analysis over hashed routes and 
 
 `SQLiteHierarchicalBudgetStore` supplies restart-safe parent/child reservations whose admission is atomic across every ancestor and whose raw tenant/task scope never lands in SQLite. The loopback HTTP runtime uses it for tenant→principal→session→task accounting while preserving the existing CLI ledger. `InMemoryObservability` and `SqliteMetricStore` provide bounded, low-cardinality spans and aggregate metrics with hashed correlation domains; the shared service adapter can attach them without accepting arguments, outputs, URLs, paths, secrets, or raw identities as telemetry fields. Observability remains opt-in and is not an external telemetry exporter.
 
-`LoopbackHttpControl` is the authenticated data plane and exposes only `POST /protocol` with search/load/execute. `LoopbackAdminControl` is a separate `POST /admin` plane with distinct short-lived single-use credentials and minimum lifecycle/update/approval/policy/audit roles. Data/admin credentials are not interchangeable. Both are loopback adapters, not remote TLS services.
+`LoopbackHttpControl` is the local authenticated data plane and exposes only `POST /protocol` with search/load/execute. `LoopbackAdminControl` is a separate `POST /admin` plane with distinct short-lived single-use credentials and minimum lifecycle/update/approval/policy/audit roles. `RemoteTlsControl` provides an optional TLS 1.2+ mutual-TLS reference profile with separate listeners, certificate-bound tenant/principal/audience/role mapping, and non-interchangeable data/admin credentials. See [remote deployment](docs/remote-deployment.md) for its limits.
 
 `connections` remains configuration-only by default. `connections --probe` is an explicit bounded diagnostic for configured MCP HTTP(S) endpoints: it performs DNS, TCP, and TLS setup only, rejects private/link-local/reserved and mixed-DNS targets unless loopback is explicitly allowed, and never sends an HTTP request or invokes a capability. A successful result means transport reachability (and, for HTTPS, verified TLS); application authentication and health remain unknown.
 

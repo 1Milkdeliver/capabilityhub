@@ -36,7 +36,7 @@ from capabilityhub.audit import AuditEvent, AuditSink, ScopedAuditSink, read_sco
 from capabilityhub.auth import AuthIdentity
 from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
-from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
+from capabilityhub.budget_store import SqliteBudgetRepository
 from capabilityhub.compatibility import (
     FeatureHandshake,
     decide_compatibility,
@@ -62,8 +62,10 @@ from capabilityhub.drained_service import (
 )
 from capabilityhub.draining import DrainController, DrainOutcome, LifecycleState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
+from capabilityhub.grant_policy import PrincipalGrantPolicy, parse_grant_document
 from capabilityhub.hierarchical_budget import (
     DurableHierarchicalBudgetProvider,
+    HierarchicalBudgetScope,
     SQLiteHierarchicalBudgetStore,
     load_or_create_hmac_key,
 )
@@ -98,7 +100,7 @@ from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.reasoning import ReasoningRouter
-from capabilityhub.reasoning_store import SQLiteReasoningStore
+from capabilityhub.reasoning_store import ScopedReasoningStore
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.residency import ResidentSection
@@ -419,8 +421,9 @@ def local_search(
     context = _local_context(
         granted_permissions,
         parameter_authorizer=parameter_authorizer,
+        project=selected.project,
     )
-    budget = BudgetLedger("local-search", {"bytes": 1_000_000, "portable_tokens": 900})
+    budget = _persistent_budget(selected.project)
     adapter = _local_cli_adapter(
         service, context=context, budget=budget, project=selected.project
     )
@@ -1085,6 +1088,7 @@ def local_load(
     context = _local_context(
         granted_permissions,
         parameter_authorizer=parameter_authorizer,
+        project=selected.project,
     )
     budget = _persistent_budget(selected.project)
     load_ref = signer.issue(
@@ -1210,8 +1214,10 @@ def local_reasoning(
     project = _catalog_project(project_root)
     orchestrator = ReasoningOrchestrator(
         router=ReasoningRouter(policy_revision="local-reasoning-v1"),
-        budget=_persistent_budget(project),
-        store=SQLiteReasoningStore(_state_path(project)),
+        budget=_persistent_budget(project, task_id),
+        store=ScopedReasoningStore(
+            _scoped_state(project), scope_provider=_local_cli_scope
+        ),
     )
     if action == "state":
         return orchestrator.state(task_id)
@@ -1360,6 +1366,7 @@ def _local_execute(
     context = _local_context(
         granted_permissions,
         parameter_authorizer=parameter_authorizer,
+        project=selected.project,
         allow_irreversible=allow_irreversible,
         deadline_ms=deadline_ms,
     )
@@ -1533,11 +1540,23 @@ def local_budget_report(
     """Return or configure the durable local CLI budget without scanning the catalog."""
 
     project = _catalog_project(project_root)
-    repository = SqliteBudgetRepository(_state_path(project))
-    ledger = repository.ledger("local-cli", DEFAULT_LOCAL_BUDGETS)
+    state = _scoped_state(project)
+    config_scope = _local_cli_scope("budget-configuration")
+    ledger = _persistent_budget(project)
+    # Compatibility-only local identity view for pre-hierarchical CLI installations.
+    legacy_repository = SqliteBudgetRepository(_state_path(project))
+    legacy = legacy_repository.ledger("local-cli", DEFAULT_LOCAL_BUDGETS)
     if limits:
-        ledger = repository.configure("local-cli", limits)
-    report = _budget_json(ledger.snapshot())
+        current_limits = dict(ledger.snapshot().limits)
+        ledger.configure(limits, expected_limits=current_limits)
+        legacy = legacy_repository.configure("local-cli", limits)
+        state.set(
+            config_scope,
+            "task-limits",
+            dict(ledger.snapshot().limits),
+            namespace="budget",
+        )
+    report = _combined_budget_json(ledger.snapshot(), legacy.snapshot())
     report["persistent"] = True
     report["storage"] = "sqlite"
     return report
@@ -1898,6 +1917,9 @@ def local_http_control(
         identity.principal_id,
         identity.session_id,
         granted_permissions=frozenset(granted_permissions or ()),
+        parameter_authorizer=PrincipalGrantPolicy(
+            _state_path(selected.project), scope_key=_tenant_scope_key(selected.project)
+        ).authorizer(identity),
     )
     selected_task_limits = {
         **DEFAULT_LOCAL_BUDGETS,
@@ -2034,6 +2056,47 @@ class _LocalAdminBackend:
                 task_id=_admin_text(payload, "task_id"),
             )
         if operation in {"policy.query", "policy.set"}:
+            if "target_source" in payload:
+                _admin_payload(
+                    payload,
+                    required=("task_id", "target_source"),
+                    optional=(
+                        "target_principal",
+                        "providers",
+                        "expected_revision",
+                    ) if operation == "policy.set" else ("target_principal",),
+                )
+                target = AuthIdentity(
+                    identity.tenant_id,
+                    _admin_text(
+                        payload,
+                        "target_principal",
+                        default=identity.principal_id,
+                    ),
+                    _admin_text(payload, "target_source"),
+                    "policy",
+                )
+                policy = PrincipalGrantPolicy(
+                    _state_path(self._project),
+                    scope_key=_tenant_scope_key(self._project),
+                )
+                if operation == "policy.set":
+                    providers = payload.get("providers")
+                    expected = payload.get("expected_revision")
+                    if not isinstance(expected, int) or isinstance(expected, bool):
+                        raise ValueError("expected_revision must be an integer")
+                    snapshot = policy.set(
+                        actor=identity,
+                        target=target,
+                        providers=parse_grant_document(providers),
+                        expected_revision=expected,
+                    )
+                else:
+                    snapshot = policy.read(target)
+                return {
+                    "revision": snapshot.revision,
+                    "document_digest": snapshot.document_digest,
+                }
             _admin_payload(
                 payload,
                 required=("task_id",),
@@ -2233,9 +2296,15 @@ def _local_context(
     granted_permissions: list[str] | None,
     *,
     parameter_authorizer: ParameterAuthorizer | None = None,
+    project: Path | None = None,
     allow_irreversible: bool = False,
     deadline_ms: int = 30_000,
 ) -> ServiceContext:
+    if parameter_authorizer is None and project is not None:
+        identity = AuthIdentity("local", "operator", "local-cli", "cli")
+        parameter_authorizer = PrincipalGrantPolicy(
+            _state_path(project), scope_key=_tenant_scope_key(project)
+        ).authorizer(identity)
     permissions = frozenset(granted_permissions or ())
     if parameter_authorizer is not None:
         permissions = (
@@ -2264,8 +2333,71 @@ def _budget_json(snapshot: BudgetSnapshot) -> dict[str, JsonValue]:
     }
 
 
-def _persistent_budget(project: Path) -> SqliteBudgetLedger:
-    return SqliteBudgetRepository(_state_path(project)).ledger("local-cli", DEFAULT_LOCAL_BUDGETS)
+def _combined_budget_json(
+    current: BudgetSnapshot, legacy: BudgetSnapshot
+) -> dict[str, JsonValue]:
+    """Report legacy local-only counters without routing new CLI use through them."""
+
+    report = _budget_json(current)
+    used = {
+        counter: current.used.get(counter, 0) + legacy.used.get(counter, 0)
+        for counter in current.limits
+    }
+    reserved = {
+        counter: current.reserved.get(counter, 0) + legacy.reserved.get(counter, 0)
+        for counter in current.limits
+    }
+    report["used"] = cast(dict[str, JsonValue], used)
+    report["reserved"] = cast(dict[str, JsonValue], reserved)
+    report["remaining"] = {
+        counter: max(0, limit - used[counter] - reserved[counter])
+        for counter, limit in current.limits.items()
+    }
+    return report
+
+
+def _persistent_budget(project: Path, task_id: str = "local-cli") -> HierarchicalBudgetScope:
+    state = _scoped_state(project)
+    stored = state.get(
+        _local_cli_scope("budget-configuration"),
+        "task-limits",
+        namespace="budget",
+    )
+    task_limits: Mapping[str, int]
+    if stored is None:
+        task_limits = DEFAULT_LOCAL_BUDGETS
+    elif isinstance(stored, dict) and all(
+        isinstance(key, str)
+        and isinstance(value, int)
+        and not isinstance(value, bool)
+        and value >= 0
+        for key, value in stored.items()
+    ):
+        task_limits = cast(dict[str, int], stored)
+    else:
+        raise CapabilityHubError(
+            code="budget_configuration_invalid",
+            category=ErrorCategory.INTERNAL,
+            safe_message="The local budget configuration is invalid.",
+        )
+    provider = DurableHierarchicalBudgetProvider(
+        SQLiteHierarchicalBudgetStore(
+            _state_path(project),
+            hmac_key=load_or_create_hmac_key(_budget_hmac_key_path(project)),
+        ),
+        tenant_scope="local",
+        principal_scope="operator",
+        session_scope="cli",
+        aggregate_limits=DEFAULT_LOCAL_HTTP_AGGREGATE_BUDGETS,
+        task_limits=task_limits,
+    )
+    return provider(task_id)
+
+
+def _local_cli_scope(task_id: str) -> TenantScope:
+    """Explicit local-only identity used when the CLI has no authenticated caller."""
+
+    return TenantScope("local", "operator", "cli", task_id)
 
 
 def _context_state(project: Path) -> LocalContextState:

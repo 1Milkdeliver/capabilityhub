@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 
 V1ALPHA1 = "capabilityhub.io/v1alpha1"
 V1ALPHA1_FEATURES = (
@@ -11,6 +12,7 @@ V1ALPHA1_FEATURES = (
     "manifest.explicit-migration-report",
     "security.required-features-fail-closed",
 )
+MINIMUM_DEPRECATION_DAYS = 180
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +39,79 @@ class CompatibilityDecision:
     unsupported_server_required: tuple[str, ...]
     ignored_client_optional: tuple[str, ...]
     reason_codes: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
+class VersionLifecycle:
+    """Published support dates for one transport API version."""
+
+    version: str
+    introduced_on: date
+    deprecated_on: date | None = None
+    sunset_on: date | None = None
+    migration_target: str | None = None
+
+    def __post_init__(self) -> None:
+        if not self.version:
+            raise ValueError("version must be non-empty")
+        if (self.deprecated_on is None) != (self.sunset_on is None):
+            raise ValueError("deprecation and sunset dates must be declared together")
+        if self.deprecated_on is not None and self.sunset_on is not None:
+            if self.deprecated_on < self.introduced_on:
+                raise ValueError("deprecation cannot precede introduction")
+            if (self.sunset_on - self.deprecated_on).days < MINIMUM_DEPRECATION_DAYS:
+                raise ValueError("deprecation window is shorter than policy")
+            if not self.migration_target:
+                raise ValueError("deprecated versions require a migration target")
+
+
+@dataclass(frozen=True, slots=True)
+class VersionSupportDecision:
+    version: str
+    accepted: bool
+    deprecated: bool
+    sunset: bool
+    migration_target: str | None
+    reason_code: str
+
+
+@dataclass(frozen=True, slots=True)
+class CompatibilityPolicy:
+    """Deterministic release support policy used by every client boundary."""
+
+    versions: tuple[VersionLifecycle, ...]
+
+    def __post_init__(self) -> None:
+        if not self.versions or len({item.version for item in self.versions}) != len(
+            self.versions
+        ):
+            raise ValueError("compatibility versions must be non-empty and unique")
+
+    def assess(self, version: str, *, as_of: date) -> VersionSupportDecision:
+        lifecycle = next((item for item in self.versions if item.version == version), None)
+        if lifecycle is None or as_of < lifecycle.introduced_on:
+            return VersionSupportDecision(
+                version, False, False, False, None, "api_version_unsupported"
+            )
+        deprecated = lifecycle.deprecated_on is not None and as_of >= lifecycle.deprecated_on
+        sunset = lifecycle.sunset_on is not None and as_of >= lifecycle.sunset_on
+        return VersionSupportDecision(
+            version,
+            not sunset,
+            deprecated,
+            sunset,
+            lifecycle.migration_target,
+            "api_version_sunset"
+            if sunset
+            else "api_version_deprecated"
+            if deprecated
+            else "api_version_supported",
+        )
+
+
+RELEASE_COMPATIBILITY_POLICY = CompatibilityPolicy(
+    (VersionLifecycle(V1ALPHA1, date(2026, 8, 11)),)
+)
 
 
 def v1alpha1_handshake(

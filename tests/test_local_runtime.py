@@ -136,7 +136,7 @@ def test_inventory_classifies_inactive_dependencies(tmp_path) -> None:
         "spec": {
             "type": "api",
             "summary": "Needs a missing dependency",
-            "provider": "fixture",
+            "provider": "static",
             "operations": [{"name": "read"}],
             "dependencies": [{"coordinate": "project/missing"}],
         },
@@ -157,3 +157,41 @@ def test_inventory_classifies_inactive_dependencies(tmp_path) -> None:
     assert excluded["dependency_inactive"] == 1
     assert excluded["activation_conflict"] == 0
     assert excluded["activation_failed"] == 0
+
+
+def test_runtime_catalog_rejects_invalid_driver_before_registry_admission(tmp_path) -> None:
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    document = {
+        "apiVersion": "capabilityhub.io/v1alpha1",
+        "kind": "Capability",
+        "metadata": {
+            "namespace": "project",
+            "name": "unsafe",
+            "version": "1",
+            "digest": "sha256:" + "b" * 64,
+        },
+        "spec": {
+            "type": "cli",
+            "summary": "invalid relative executable",
+            "provider": "cli-process",
+            "driver": {
+                "name": "cli-process",
+                "config": {"executable": "relative", "operations": {"run": {}}},
+            },
+            "operations": [{"name": "run"}],
+        },
+    }
+    (root / "unsafe.json").write_text(json.dumps(document), encoding="utf-8")
+
+    generation = LocalCatalogMonitor(
+        home=tmp_path / "home",
+        project=tmp_path,
+        refresh_interval_seconds=0,
+    ).snapshot()
+
+    assert all(
+        manifest.identity.coordinate != "project/unsafe"
+        for manifest in generation.registry.revisions.values()
+    )
+    assert generation.inventory["invalid_count"] >= 1

@@ -1,10 +1,16 @@
 from __future__ import annotations
 
+from datetime import date
+
 import pytest
 
 from capabilityhub.compatibility import (
+    MINIMUM_DEPRECATION_DAYS,
+    RELEASE_COMPATIBILITY_POLICY,
     V1ALPHA1,
+    CompatibilityPolicy,
     FeatureHandshake,
+    VersionLifecycle,
     decide_compatibility,
     v1alpha1_handshake,
 )
@@ -76,3 +82,40 @@ def test_handshake_rejects_duplicate_or_unadvertised_requirements() -> None:
         FeatureHandshake((V1ALPHA1, V1ALPHA1), ())
     with pytest.raises(ValueError, match="advertised"):
         FeatureHandshake((V1ALPHA1,), ("manifest.json",), ("security.required",))
+
+
+def test_published_release_policy_accepts_current_and_rejects_unknown_old_client() -> None:
+    current = RELEASE_COMPATIBILITY_POLICY.assess(V1ALPHA1, as_of=date(2026, 8, 12))
+    old = RELEASE_COMPATIBILITY_POLICY.assess(
+        "capabilityhub.io/v1alpha0", as_of=date(2026, 8, 12)
+    )
+
+    assert current.accepted and current.reason_code == "api_version_supported"
+    assert not old.accepted and old.reason_code == "api_version_unsupported"
+
+
+def test_deprecation_window_is_enforced_and_sunset_is_deterministic() -> None:
+    with pytest.raises(ValueError, match="shorter"):
+        VersionLifecycle(
+            "v1",
+            date(2025, 1, 1),
+            deprecated_on=date(2026, 1, 1),
+            sunset_on=date(2026, 1, 1),
+            migration_target="v2",
+        )
+    lifecycle = VersionLifecycle(
+        "v1",
+        date(2025, 1, 1),
+        deprecated_on=date(2026, 1, 1),
+        sunset_on=date(2026, 1, 1).fromordinal(
+            date(2026, 1, 1).toordinal() + MINIMUM_DEPRECATION_DAYS
+        ),
+        migration_target="v2",
+    )
+    policy = CompatibilityPolicy((lifecycle,))
+
+    deprecated = policy.assess("v1", as_of=date(2026, 2, 1))
+    sunset = policy.assess("v1", as_of=lifecycle.sunset_on or date.max)
+    assert deprecated.accepted and deprecated.deprecated and not deprecated.sunset
+    assert deprecated.migration_target == "v2"
+    assert not sunset.accepted and sunset.sunset

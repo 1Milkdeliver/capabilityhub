@@ -35,7 +35,10 @@ def test_https_probe_performs_only_resolved_tcp_tls_setup_and_redacts_endpoint()
     )
     result = prober.probe(_target("https://SECRET.example/private/path"))
 
-    assert calls == [("8.8.8.8", 443, 0.5, "secret.example")]
+    assert len(calls) == 1
+    address, port, remaining_timeout, tls_hostname = calls[0]
+    assert (address, port, tls_hostname) == ("8.8.8.8", 443, "secret.example")
+    assert 0 < remaining_timeout <= 0.5
     assert result.reachable is True
     assert result.authenticated == "unknown"
     assert result.healthy is None

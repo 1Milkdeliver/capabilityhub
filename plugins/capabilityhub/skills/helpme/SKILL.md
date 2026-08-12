@@ -9,6 +9,11 @@ license: MIT
 Render help from the static message catalogs in `references/locales/`. Do not ask a
 model to translate catalog messages at runtime.
 
+Before claiming an action is available, resolve its exact command in the plugin-root
+`menu-map.json`. An absent command uses the explicit `*` unavailable mapping. MCP entries
+call the bundled server, CLI entries require an installed full CapabilityHub CLI, menu and
+navigation entries are static, and unavailable entries must display their mapped reason.
+
 ## Language selection
 
 Resolve the locale once in this order:

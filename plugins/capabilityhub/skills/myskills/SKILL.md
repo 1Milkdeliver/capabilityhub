@@ -8,6 +8,9 @@ license: MIT
 
 Use the language-selection rules from the sibling `helpme` skill, then render the matching
 static catalog in `references/locales/`. Never translate stable menu text at runtime.
+Resolve commands through the plugin-root `menu-map.json`; an absent command is explicitly
+Unavailable via its `*` mapping. Never infer that the optional full CLI is installed merely
+because the bundled MCP search/load runtime is available.
 
 ## Interaction
 

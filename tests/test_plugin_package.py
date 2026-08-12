@@ -2,16 +2,30 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import shutil
+import subprocess
 from pathlib import Path
-from typing import cast
+from typing import Any, TextIO, cast
 
-from mcp import Client
+from mcp import Client, ClientSession, StdioServerParameters
+from mcp.client.stdio import stdio_client
 
 from capabilityhub.mcp_server import create_empty_mcp_server
 
 ROOT = Path(__file__).parents[1]
 PLUGIN = ROOT / "plugins" / "capabilityhub"
+NODE = Path(
+    shutil.which("node")
+    or "C:/Users/Huawei/.cache/codex-runtimes/codex-primary-runtime/"
+    "dependencies/node/bin/node.exe"
+)
+
+
+def _clean_path_environment() -> dict[str, str]:
+    environment = dict(os.environ)
+    environment["PATH"] = ""
+    return environment
 
 
 def test_helpme_is_the_plugin_entry_and_menu_is_progressive() -> None:
@@ -30,8 +44,8 @@ def test_plugin_declares_portable_local_mcp_runtime() -> None:
     assert config == {
         "mcpServers": {
             "capabilityhub-local": {
-                "args": ["mcp-serve"],
-                "command": "capabilityhub",
+                "args": ["./runtime/capabilityhub_mcp.cjs"],
+                "command": "node",
                 "cwd": ".",
                 "description": (
                     "Local progressive inventory, search, load, and controlled execution."
@@ -40,6 +54,136 @@ def test_plugin_declares_portable_local_mcp_runtime() -> None:
             }
         }
     }
+
+
+def test_bundled_mcp_runs_from_clean_path_and_serves_three_tools(tmp_path: Path) -> None:
+    installed = tmp_path / "plugin"
+    shutil.copytree(PLUGIN, installed)
+    process = subprocess.Popen(
+        [str(NODE), str(installed / "runtime" / "capabilityhub_mcp.cjs")],
+        cwd=installed,
+        env=_clean_path_environment(),
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        text=True,
+        encoding="utf-8",
+    )
+    assert process.stdin is not None
+    assert process.stdout is not None
+    process_input = cast(TextIO, process.stdin)
+    process_output = cast(TextIO, process.stdout)
+
+    def request(
+        identifier: int, method: str, params: dict[str, object] | None = None
+    ) -> dict[str, Any]:
+        message: dict[str, object] = {"jsonrpc": "2.0", "id": identifier, "method": method}
+        if params is not None:
+            message["params"] = params
+        process_input.write(json.dumps(message) + "\n")
+        process_input.flush()
+        return cast(dict[str, Any], json.loads(process_output.readline()))
+
+    initialized = request(
+        1,
+        "initialize",
+        {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {}},
+    )
+    assert initialized["result"]["serverInfo"]["name"] == "capabilityhub-plugin"
+    listed = request(2, "tools/list")
+    assert [tool["name"] for tool in listed["result"]["tools"]] == [
+        "capability.search",
+        "capability.load",
+        "capability.execute",
+    ]
+    searched = request(
+        3,
+        "tools/call",
+        {"name": "capability.search", "arguments": {"query": ""}},
+    )
+    payload = searched["result"]["structuredContent"]
+    assert payload["inventory"]["active_by_kind"] == {
+        "api": 0,
+        "cli": 0,
+        "mcp": 1,
+        "rag": 0,
+        "skill": 2,
+    }
+    assert {card["coordinate"] for card in payload["cards"]} == {
+        "plugin/helpme",
+        "plugin/myskills",
+    }
+    revision = payload["cards"][0]["revision"]
+    loaded = request(
+        4,
+        "tools/call",
+        {"name": "capability.load", "arguments": {"capability_ref": revision}},
+    )
+    assert loaded["result"]["isError"] is False
+    denied = request(
+        5,
+        "tools/call",
+        {"name": "capability.execute", "arguments": {"capability_ref": revision}},
+    )
+    assert denied["result"]["isError"] is True
+    assert denied["result"]["structuredContent"]["error"]["code"] == (
+        "operation_not_supported"
+    )
+    process_input.close()
+    assert process.wait(timeout=5) == 0
+    assert process.stderr is not None
+    assert process.stderr.read() == ""
+
+
+def test_official_mcp_client_lists_and_calls_bundled_runtime_with_clean_path(
+    tmp_path: Path,
+) -> None:
+    installed = tmp_path / "plugin"
+    shutil.copytree(PLUGIN, installed)
+    parameters = StdioServerParameters(
+        command=str(NODE),
+        args=[str(installed / "runtime" / "capabilityhub_mcp.cjs")],
+        cwd=installed,
+        env=_clean_path_environment(),
+    )
+
+    async def scenario() -> None:
+        async with (
+            stdio_client(parameters) as (read_stream, write_stream),
+            ClientSession(read_stream, write_stream) as session,
+        ):
+            await session.initialize()
+            listed = await session.list_tools()
+            assert [tool.name for tool in listed.tools] == [
+                "capability.search",
+                "capability.load",
+                "capability.execute",
+            ]
+            searched = await session.call_tool("capability.search", {"query": ""})
+            assert searched.is_error is False
+            payload = cast(dict[str, object], searched.structured_content)
+            inventory = cast(dict[str, object], payload["inventory"])
+            assert inventory["active_total"] == 3
+
+    asyncio.run(scenario())
+
+
+def test_every_visible_menu_command_resolves_to_runtime_or_unavailable() -> None:
+    mapping = json.loads((PLUGIN / "menu-map.json").read_text(encoding="utf-8"))
+    assert mapping["*"]["type"] == "unavailable"
+    valid_types = {"mcp", "cli", "menu", "navigation", "unavailable"}
+    visible: set[str] = set()
+    for skill in ("helpme", "myskills"):
+        locale_dir = PLUGIN / "skills" / skill / "references" / "locales"
+        for path in locale_dir.glob("*.json"):
+            catalog = json.loads(path.read_text(encoding="utf-8"))
+            visible.update(_catalog_commands(catalog))
+    for command in visible:
+        route = mapping.get(command, mapping["*"])
+        assert route["type"] in valid_types
+        assert route["target"]
+    assert mapping["/myskills risks <name>"]["type"] == "unavailable"
+    assert mapping["/myskills conflicts"]["type"] == "unavailable"
 
 
 def test_helpme_locale_catalogs_have_matching_parenthesized_menus() -> None:
@@ -193,3 +337,15 @@ def _group_items(groups: list[dict[str, object]]) -> dict[str, str]:
         assert all(isinstance(key, str) and isinstance(value, str) for key, value in items.items())
         merged.update(items)
     return merged
+
+
+def _catalog_commands(value: object) -> set[str]:
+    result: set[str] = set()
+    if isinstance(value, dict):
+        result.update(key for key in value if isinstance(key, str) and key.startswith("/"))
+        for child in value.values():
+            result.update(_catalog_commands(child))
+    elif isinstance(value, list):
+        for child in value:
+            result.update(_catalog_commands(child))
+    return result

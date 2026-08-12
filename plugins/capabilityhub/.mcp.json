@@ -4,8 +4,8 @@
       "title": "CapabilityHub Local",
       "description": "Local progressive inventory, search, load, and controlled execution.",
       "cwd": ".",
-      "command": "capabilityhub",
-      "args": ["mcp-serve"]
+      "command": "node",
+      "args": ["./runtime/capabilityhub_mcp.cjs"]
     }
   }
 }

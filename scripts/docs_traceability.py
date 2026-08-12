@@ -88,6 +88,10 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/secret_broker.py", "class KeyringSecretStore"),
         ("tests/test_platform_secret_store.py", "headless"),
     ),
+    "R21": (
+        ("src/capabilityhub/linux_sandbox.py", "def apply_linux_sandbox"),
+        ("tests/test_linux_sandbox.py", "confine_provider_and_descendant"),
+    ),
     "R22": (
         ("src/capabilityhub/resilience.py", "class ResilientProviderExecutor"),
         ("tests/test_resilience.py", "retry"),

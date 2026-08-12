@@ -27,7 +27,7 @@ run does not upgrade a row by itself.
 | R18 | Exact-intent approvals | Implemented | Durable single-use approvals bind revision, operation, normalized-argument digest, tenant/principal/session/task, side effect, policy revision and expiry; CLI, Dashboard, loopback and mTLS decisions use authenticated scoped approver identities and clients without that channel fail closed |
 | R19 | Supply-chain trust | Implemented | Production policy can require a pinned digest, publisher/registry-scoped certificate root, Ed25519 artifact signature, identity SAN, signed transparency checkpoint and RFC6962-style inclusion proof; online freshness, root/log revocation, replay and fork checks fail closed and every staged transition re-verifies the bundle |
 | R20 | Secret broker | Implemented | Providers resolve aliases only inside scoped single-use worker callbacks; Windows DPAPI, macOS Keychain, and Linux Secret Service storage are selected strictly, with missing/headless/insecure backends failing closed |
-| R21 | Provider isolation | Partial | Local configured execution uses supervised spawned workers with bounded JSON IPC; OS resource sandboxing remains open |
+| R21 | Provider isolation | Implemented | Supervised workers enforce hard deadlines, process-tree cancellation and bounded JSON IPC; Windows Job Objects enforce CPU/RAM/tree limits, while the mandatory Ubuntu 24.04 gate proves Landlock allow-root filesystem confinement and libseccomp network denial for malicious providers and descendants |
 | R22 | Typed failure and retry | Implemented | Real local adapters run through structured failure classification, bounded retry/circuit breaking, explicit not-applied certainty, side-effect/idempotency gates, hard deadlines, and supervised cancellation |
 | R23 | Reasoning-tier routing | Implemented | Every shared adapter applies a budget/risk decision before work; optional real model execution is bound to the selected endpoint, model, effort, cost and latency, with post-use enforcement and bounded failure escalation |
 | R24 | Anti-loop escalation | Implemented | SQLite task orchestration persists only attempt/evidence digests, caps escalation and returns an observable stop decision across restarts and concurrent callers |
@@ -70,7 +70,7 @@ These are narrow, reproducible evidence paths; they do not close a `Partial` row
 | R18 | `approval_store.py`, `admin_control.py` | `test_approval_store.py`, `test_admin_control.py` |
 | R19 | `supply_chain.py`, `lifecycle.py` | `test_supply_chain.py`, `test_supply_chain_public.py` |
 | R20 | `secret_broker.py` | `test_secret_broker.py`, `test_provider_conformance_matrix.py` |
-| R21 | `supervision.py` | `test_supervision.py`, `test_provider_conformance_matrix.py` |
+| R21 | `supervision.py`, `linux_sandbox.py`, `.github/workflows/ci.yml` | `test_supervision.py`, `test_linux_sandbox.py`, mandatory Ubuntu CI |
 | R22 | `resilience.py`, `service.py` | `test_resilience.py`, `test_service.py` |
 | R23 | `reasoning.py`, `reasoning_store.py` | `test_reasoning.py`, `test_reasoning_store.py` |
 | R24 | `orchestration.py` | `test_orchestration.py` |

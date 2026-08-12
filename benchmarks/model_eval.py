@@ -14,6 +14,7 @@ import tempfile
 import time
 from collections.abc import Sequence
 from dataclasses import asdict, dataclass
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, Protocol, cast
 
@@ -116,6 +117,9 @@ class EvaluationArtifact:
     release_ready: bool
     trials: tuple[TrialRecord, ...]
     skip_reason: str | None = None
+    source_revision: str = "unknown"
+    subject_digest: str = "unknown"
+    created_at: str = ""
 
 
 class OfflineFixtureAdapter:
@@ -191,6 +195,8 @@ def run_evaluation(
     *,
     config: EvalConfig | None = None,
     catalog: FixtureCatalog | None = None,
+    source_revision: str = "unknown",
+    subject_digest: str = "unknown",
 ) -> EvaluationArtifact:
     selected_config = config or EvalConfig()
     fixtures = catalog or load_fixtures()
@@ -220,13 +226,33 @@ def run_evaluation(
         cost_ok,
         non_inferior and cost_ok,
         tuple(records),
+        None,
+        source_revision,
+        subject_digest,
+        datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     )
 
 
 def skipped_artifact(provider: str, model: str, reason: str) -> EvaluationArtifact:
     zero = Interval(0, 0, 0)
     return EvaluationArtifact(
-        SCHEMA, "skipped", provider, model, "", {}, {}, zero, zero, False, False, False, (), reason
+        SCHEMA,
+        "skipped",
+        provider,
+        model,
+        "",
+        {},
+        {},
+        zero,
+        zero,
+        False,
+        False,
+        False,
+        (),
+        reason,
+        "unknown",
+        "unknown",
+        datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     )
 
 
@@ -249,7 +275,15 @@ def write_artifact(artifact: EvaluationArtifact, destination: str | Path) -> Pat
     return target
 
 
-def validate_artifact(path: str | Path, *, require_complete: bool = True) -> dict[str, Any]:
+def validate_artifact(
+    path: str | Path,
+    *,
+    require_complete: bool = True,
+    source_revision: str | None = None,
+    subject_digest: str | None = None,
+    now: datetime | None = None,
+    max_age: timedelta = timedelta(hours=24),
+) -> dict[str, Any]:
     try:
         payload = json.loads(Path(path).read_text(encoding="utf-8"))
         if not isinstance(payload, dict) or payload.get("schema") != SCHEMA:
@@ -274,6 +308,21 @@ def validate_artifact(path: str | Path, *, require_complete: bool = True) -> dic
                 bool(payload["non_inferiority_passed"]) and bool(payload["cost_budget_passed"])
             ):
                 raise ValueError
+            if require_complete and not bool(payload["release_ready"]):
+                raise ValueError
+            if source_revision is not None and payload["source_revision"] != source_revision:
+                raise ValueError
+            if subject_digest is not None and payload["subject_digest"] != subject_digest:
+                raise ValueError
+            if source_revision is not None or subject_digest is not None:
+                created = datetime.fromisoformat(
+                    str(payload["created_at"]).replace("Z", "+00:00")
+                )
+                selected_now = now or datetime.now(UTC)
+                if created.tzinfo is None or created > selected_now + timedelta(minutes=5):
+                    raise ValueError
+                if selected_now - created.astimezone(UTC) > max_age:
+                    raise ValueError
     except (KeyError, OSError, TypeError, ValueError, json.JSONDecodeError) as error:
         raise RuntimeError("model evaluation artifact validation failed") from error
     return cast(dict[str, Any], payload)
@@ -465,18 +514,38 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--live", action="store_true")
     parser.add_argument("--model", default="gpt-5-mini")
     parser.add_argument("--trials", type=int, default=30)
+    parser.add_argument("--source-revision")
+    parser.add_argument("--subject-digest")
+    parser.add_argument("--subject", type=Path)
     args = parser.parse_args(argv)
+    subject_digest = args.subject_digest
+    if args.subject is not None:
+        from capabilityhub.release_certification import load_release_subject
+
+        if not args.source_revision:
+            artifact = skipped_artifact("openai", args.model, "source_revision_required")
+            write_artifact(artifact, args.artifact)
+            return 0
+        subject = load_release_subject(args.subject, source_revision=args.source_revision)
+        subject_digest = str(subject["subject_digest"])
     if args.live:
         key = os.environ.get("OPENAI_API_KEY")
         if not key:
             artifact = skipped_artifact("openai", args.model, "missing_openai_api_key")
+        elif not args.source_revision or not subject_digest:
+            artifact = skipped_artifact("openai", args.model, "release_binding_required")
         else:
             try:
                 adapter: ModelAdapter = OpenAIResponsesAdapter(args.model, api_key=key)
             except ModuleNotFoundError:
                 artifact = skipped_artifact("openai", args.model, "openai_sdk_unavailable")
             else:
-                artifact = run_evaluation(adapter, config=EvalConfig(trials=args.trials))
+                artifact = run_evaluation(
+                    adapter,
+                    config=EvalConfig(trials=args.trials),
+                    source_revision=args.source_revision or "unknown",
+                    subject_digest=subject_digest or "unknown",
+                )
     else:
         artifact = run_evaluation(
             OfflineFixtureAdapter(), config=EvalConfig(trials=args.trials)

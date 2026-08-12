@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import zipfile
 from datetime import UTC, datetime, timedelta
+from pathlib import Path
 
 import pytest
 
@@ -8,14 +11,17 @@ from capabilityhub.metering import canonical_json
 from capabilityhub.release_certification import (
     REQUIRED_EVIDENCE,
     ReleaseCertificationError,
+    build_release_subject,
     certify_release,
     evidence_document,
+    load_release_subject,
     main,
     verify_certification,
+    verify_release_subject_artifacts,
 )
 
 NOW = datetime(2026, 8, 12, 6, tzinfo=UTC)
-REVISION = "release-revision"
+REVISION = "b" * 40
 DIGEST = "a" * 64
 SIGNING_KEY = b"release-certification-test-signing-key-material"
 
@@ -43,7 +49,13 @@ def _metrics(name: str) -> dict[str, object]:
     }[name]
 
 
-def _evidence(tmp_path, *, changes=None, created_at=NOW - timedelta(minutes=5)):
+def _evidence(
+    tmp_path,
+    *,
+    changes=None,
+    created_at=NOW - timedelta(minutes=5),
+    subject_digest=DIGEST,
+):
     tmp_path.mkdir(parents=True, exist_ok=True)
     paths = []
     changes = changes or {}
@@ -52,7 +64,7 @@ def _evidence(tmp_path, *, changes=None, created_at=NOW - timedelta(minutes=5)):
         document = evidence_document(
             name,
             source_revision=overrides.get("source_revision", REVISION),
-            subject_digest=overrides.get("subject_digest", DIGEST),
+            subject_digest=overrides.get("subject_digest", subject_digest),
             metrics=overrides.get("metrics", _metrics(name)),
             created_at=overrides.get("created_at", created_at),
             status=overrides.get("status", "passed"),
@@ -62,6 +74,23 @@ def _evidence(tmp_path, *, changes=None, created_at=NOW - timedelta(minutes=5)):
         path.write_text(canonical_json(document), encoding="utf-8")
         paths.append(path)
     return paths
+
+
+def _subject(tmp_path):
+    source = tmp_path / "source.tar"
+    wheel = tmp_path / "capabilityhub.whl"
+    source.write_bytes(b"source-archive")
+    with zipfile.ZipFile(wheel, "w") as archive:
+        archive.writestr("capabilityhub/__init__.py", b'__version__ = "test"\n')
+    document = build_release_subject(
+        source,
+        wheel,
+        source_revision=REVISION,
+        sbom_path=tmp_path / "sbom.json",
+    )
+    path = tmp_path / "subject.json"
+    path.write_text(canonical_json(document), encoding="utf-8")
+    return path, document
 
 
 def test_complete_fresh_evidence_generates_deterministic_signed_manifest(tmp_path) -> None:
@@ -92,6 +121,30 @@ def test_complete_fresh_evidence_generates_deterministic_signed_manifest(tmp_pat
     with pytest.raises(ReleaseCertificationError) as invalid:
         verify_certification(tampered, first.signature, signing_key=SIGNING_KEY)
     assert invalid.value.code == "release_signature_invalid"
+
+
+def test_build_once_subject_binds_source_wheel_and_generated_sbom(tmp_path) -> None:
+    path, document = _subject(tmp_path)
+    loaded = load_release_subject(path, source_revision=REVISION)
+
+    assert loaded == document
+    assert set(loaded["artifacts"]) == {"source", "wheel", "sbom"}
+    sbom = json.loads((tmp_path / "sbom.json").read_text(encoding="utf-8"))
+    assert sbom["schema"] == "capabilityhub.release-sbom.v1"
+    assert sbom["members"][0]["path"] == "capabilityhub/__init__.py"
+    verify_release_subject_artifacts(loaded, tmp_path)
+
+    (tmp_path / "capabilityhub.whl").write_bytes(b"replaced")
+    with pytest.raises(ReleaseCertificationError) as replaced:
+        verify_release_subject_artifacts(loaded, tmp_path)
+    assert replaced.value.code == "release_subject_artifact_mismatch"
+
+    tampered = json.loads(path.read_text(encoding="utf-8"))
+    tampered["artifacts"]["wheel"]["size"] += 1
+    path.write_text(json.dumps(tampered), encoding="utf-8")
+    with pytest.raises(ReleaseCertificationError) as failed:
+        load_release_subject(path, source_revision=REVISION)
+    assert failed.value.code == "release_subject_digest_mismatch"
 
 
 @pytest.mark.parametrize(
@@ -171,15 +224,22 @@ def test_cli_refuses_to_certify_without_signing_key_or_live_evidence(
 ) -> None:
     root = tmp_path / "evidence"
     root.mkdir()
-    _evidence(root, changes={"model_live": {"status": "skipped", "skipped": 30}})
+    subject_path, subject = _subject(tmp_path)
+    _evidence(
+        root,
+        changes={"model_live": {"status": "skipped", "skipped": 30}},
+        subject_digest=subject["subject_digest"],
+    )
     arguments = [
         "certify",
         "--evidence-root",
         str(root),
         "--source-revision",
         REVISION,
-        "--subject-digest",
-        DIGEST,
+        "--subject",
+        str(subject_path),
+        "--subject-artifact-root",
+        str(tmp_path),
         "--key-id",
         "release-key",
         "--manifest",
@@ -198,3 +258,21 @@ def test_cli_refuses_to_certify_without_signing_key_or_live_evidence(
     assert skipped_live.value.code == "release_evidence_not_passed"
     assert not (tmp_path / "manifest.json").exists()
     assert not (tmp_path / "signature.json").exists()
+
+
+def test_release_workflow_uses_build_once_subject_and_program_measured_gates() -> None:
+    workflow = Path(".github/workflows/release-certification.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert "build-subject:" in workflow
+    assert "git archive --format=tar" in workflow
+    assert "release_certification subject" in workflow
+    assert "release_certification gate --type" in workflow
+    assert " release_certification record " not in workflow
+    assert "--metric" not in workflow
+    assert "tests/test_linux_sandbox.py" in workflow
+    assert "gate --type sandbox_linux" in workflow
+    assert "CAPABILITYHUB_REQUIRE_LINUX_SANDBOX" in workflow
+    assert "model_eval --live --trials 30 --source-revision" in workflow
+    assert "--subject release-build/release-subject.json" in workflow

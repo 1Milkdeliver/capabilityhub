@@ -21,7 +21,9 @@ from benchmarks.harness import FixtureCatalog, load_fixtures
 
 class _BatchAdapter(CodexCLIAdapter):
     def __init__(self) -> None:
-        super().__init__("never-run")
+        super().__init__(
+            "never-run", source_revision="a" * 40, subject_digest="c" * 64
+        )
         self.calls: list[tuple[str, int]] = []
 
     def evaluate_batch(
@@ -144,10 +146,22 @@ def test_release_validator_requires_complete_real_usage(tmp_path: Path) -> None:
         run_live_evaluation(_BatchAdapter(), bootstrap_samples=100, seed=7),
         destination,
     )
-    assert validate_live_artifact(destination)["release_ready"] is True
+    assert validate_live_artifact(
+        destination, source_revision="a" * 40, subject_digest="c" * 64
+    )[
+        "release_ready"
+    ] is True
 
     value = json.loads(destination.read_text(encoding="utf-8"))
     value["total_usage"]["lazy"]["tool_calls"] = 1
     destination.write_text(json.dumps(value), encoding="utf-8")
     with pytest.raises(ValueError, match="provider usage"):
         validate_live_artifact(destination)
+
+    value["total_usage"]["lazy"]["tool_calls"] = 0
+    destination.write_text(json.dumps(value), encoding="utf-8")
+    with pytest.raises(ValueError, match="source revision"):
+        validate_live_artifact(destination, source_revision="b" * 40)
+
+    with pytest.raises(ValueError, match="subject digest"):
+        validate_live_artifact(destination, subject_digest="d" * 64)

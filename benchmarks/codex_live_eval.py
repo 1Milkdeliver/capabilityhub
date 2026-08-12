@@ -19,6 +19,7 @@ import tempfile
 import time
 from collections.abc import Mapping, Sequence
 from dataclasses import asdict, dataclass, replace
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, cast
 
@@ -75,6 +76,9 @@ class ConfidenceInterval:
 @dataclass(frozen=True, slots=True)
 class LiveEvaluationArtifact:
     schema: str
+    source_revision: str
+    subject_digest: str
+    created_at: str
     status: str
     provider: str
     model: str
@@ -106,11 +110,15 @@ class CodexCLIAdapter:
         *,
         model: str | None = None,
         reasoning_effort: str | None = None,
+        source_revision: str = "unknown",
+        subject_digest: str = "unknown",
         timeout_seconds: int = 180,
     ) -> None:
         self.executable = executable
         self.model = model
         self.reasoning_effort = reasoning_effort
+        self.source_revision = source_revision
+        self.subject_digest = subject_digest
         self.timeout_seconds = timeout_seconds
         self._version: str | None = None
 
@@ -253,6 +261,9 @@ def run_live_evaluation(
     first = batches[(0, "eager")]
     return LiveEvaluationArtifact(
         SCHEMA,
+        adapter.source_revision,
+        adapter.subject_digest,
+        datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "complete",
         adapter.provider,
         first.model,
@@ -292,6 +303,9 @@ def skipped_artifact(reason: str) -> LiveEvaluationArtifact:
     zero = ConfidenceInterval(0.0, 0.0, 0.0)
     return LiveEvaluationArtifact(
         SCHEMA,
+        "unknown",
+        "unknown",
+        datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "skipped",
         "codex-cli",
         "unknown",
@@ -321,7 +335,14 @@ def write_artifact(artifact: LiveEvaluationArtifact, path: Path) -> None:
     )
 
 
-def validate_live_artifact(path: str | Path) -> Mapping[str, Any]:
+def validate_live_artifact(
+    path: str | Path,
+    *,
+    source_revision: str | None = None,
+    subject_digest: str | None = None,
+    now: datetime | None = None,
+    max_age: timedelta = timedelta(hours=24),
+) -> Mapping[str, Any]:
     """Fail closed unless an artifact contains real, complete provider evidence."""
 
     try:
@@ -348,6 +369,32 @@ def validate_live_artifact(path: str | Path) -> Mapping[str, Any]:
         raise ValueError("live evaluation model is missing")
     if artifact.get("reasoning_effort") not in {"low", "medium", "high"}:
         raise ValueError("live evaluation reasoning effort is invalid")
+    revision = artifact.get("source_revision")
+    if (
+        not isinstance(revision, str)
+        or len(revision) != 40
+        or any(character not in "0123456789abcdef" for character in revision)
+        or (source_revision is not None and revision != source_revision)
+    ):
+        raise ValueError("live evaluation source revision is invalid")
+    measured_subject = artifact.get("subject_digest")
+    if (
+        not isinstance(measured_subject, str)
+        or len(measured_subject) != 64
+        or any(character not in "0123456789abcdef" for character in measured_subject)
+        or (subject_digest is not None and measured_subject != subject_digest)
+    ):
+        raise ValueError("live evaluation subject digest is invalid")
+    created_at = artifact.get("created_at")
+    try:
+        created = datetime.fromisoformat(str(created_at).replace("Z", "+00:00"))
+    except ValueError as error:
+        raise ValueError("live evaluation timestamp is invalid") from error
+    selected_now = now or datetime.now(UTC)
+    if created.tzinfo is None or created > selected_now + timedelta(minutes=5):
+        raise ValueError("live evaluation timestamp is invalid")
+    if selected_now - created.astimezone(UTC) > max_age:
+        raise ValueError("live evaluation artifact is stale")
     observations = artifact.get("observations")
     totals = artifact.get("total_usage")
     if not isinstance(observations, list) or len(observations) != ROUNDS * TASKS_PER_CALL:
@@ -613,12 +660,19 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--codex", default="codex")
     parser.add_argument("--model")
     parser.add_argument("--reasoning-effort", choices=("low", "medium", "high"))
+    parser.add_argument("--source-revision")
+    parser.add_argument("--subject-digest")
     args = parser.parse_args(argv)
     if not args.live:
         artifact = skipped_artifact("live_flag_required")
     elif os.environ.get("CI"):
         artifact = skipped_artifact("live_evaluation_disabled_in_ci")
-    elif not args.model or not args.reasoning_effort:
+    elif (
+        not args.model
+        or not args.reasoning_effort
+        or not args.source_revision
+        or not args.subject_digest
+    ):
         artifact = skipped_artifact("explicit_model_and_effort_required")
     else:
         artifact = run_live_evaluation(
@@ -626,6 +680,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 args.codex,
                 model=args.model,
                 reasoning_effort=args.reasoning_effort,
+                source_revision=args.source_revision,
+                subject_digest=args.subject_digest,
             )
         )
     write_artifact(artifact, args.artifact)

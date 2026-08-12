@@ -91,20 +91,27 @@ def apply_linux_sandbox(
     """Apply irreversible restrictions to the calling worker and descendants."""
 
     capabilities = probe_linux_sandbox()
-    if filesystem_root is not None:
-        if not capabilities.filesystem:
-            raise LinuxSandboxApplyError("landlock_unavailable")
-        try:
-            _apply_landlock(Path(filesystem_root), cast(int, capabilities.landlock_abi))
-        except (OSError, RuntimeError, ValueError) as error:
-            raise LinuxSandboxApplyError("landlock_apply_failed") from error
+    # libseccomp may inspect kernel state while constructing/loading its filter.
+    # Install it before Landlock removes access outside the allow-root. Both
+    # restrictions are still active before any provider code executes.
     if deny_network:
         if not capabilities.network:
             raise LinuxSandboxApplyError("seccomp_unavailable")
         try:
             _apply_seccomp_network_deny()
+        except LinuxSandboxApplyError:
+            raise
         except (OSError, RuntimeError, ValueError) as error:
             raise LinuxSandboxApplyError("seccomp_apply_failed") from error
+    if filesystem_root is not None:
+        if not capabilities.filesystem:
+            raise LinuxSandboxApplyError("landlock_unavailable")
+        try:
+            _apply_landlock(Path(filesystem_root), cast(int, capabilities.landlock_abi))
+        except LinuxSandboxApplyError:
+            raise
+        except (OSError, RuntimeError, ValueError) as error:
+            raise LinuxSandboxApplyError("landlock_apply_failed") from error
 
 
 def _landlock_abi() -> int | None:
@@ -124,9 +131,12 @@ def _handled_access(abi: int) -> int:
 
 
 def _apply_landlock(root: Path, abi: int) -> None:
-    selected = root.resolve(strict=True)
+    try:
+        selected = root.resolve(strict=True)
+    except OSError as error:
+        raise LinuxSandboxApplyError("landlock_root_invalid") from error
     if not selected.is_dir() or not selected.is_absolute():
-        raise RuntimeError("sandbox root must be an existing absolute directory")
+        raise LinuxSandboxApplyError("landlock_root_invalid")
     libc = ctypes.CDLL(None, use_errno=True)
     handled = _handled_access(abi)
     ruleset_attr = _RulesetAttr(handled)
@@ -137,15 +147,21 @@ def _apply_landlock(root: Path, abi: int) -> None:
         0,
     )
     if ruleset_fd < 0:
-        raise OSError(ctypes.get_errno(), "landlock ruleset creation failed")
+        raise LinuxSandboxApplyError("landlock_ruleset_failed")
     try:
-        _add_path_rule(libc, ruleset_fd, selected, handled)
+        try:
+            _add_path_rule(libc, ruleset_fd, selected, handled)
+        except OSError as error:
+            raise LinuxSandboxApplyError("landlock_root_rule_failed") from error
         for system_path in _system_read_roots():
-            _add_path_rule(libc, ruleset_fd, system_path, _READ_EXECUTE_ACCESS)
+            try:
+                _add_path_rule(libc, ruleset_fd, system_path, _READ_EXECUTE_ACCESS)
+            except OSError as error:
+                raise LinuxSandboxApplyError("landlock_system_rule_failed") from error
         if libc.prctl(_PR_SET_NO_NEW_PRIVS, 1, 0, 0, 0) != 0:
-            raise OSError(ctypes.get_errno(), "no_new_privs failed")
+            raise LinuxSandboxApplyError("landlock_no_new_privs_failed")
         if libc.syscall(_LANDLOCK_RESTRICT_SELF, ruleset_fd, 0) != 0:
-            raise OSError(ctypes.get_errno(), "landlock restrict_self failed")
+            raise LinuxSandboxApplyError("landlock_restrict_failed")
     finally:
         os.close(ruleset_fd)
 
@@ -209,7 +225,7 @@ def _apply_seccomp_network_deny() -> None:
     library.seccomp_release.argtypes = (ctypes.c_void_p,)
     context = library.seccomp_init(_SCMP_ACT_ALLOW)
     if not context:
-        raise RuntimeError("seccomp filter creation failed")
+        raise LinuxSandboxApplyError("seccomp_context_failed")
     try:
         deny = _SCMP_ACT_ERRNO | errno.EPERM
         for name in _NETWORK_SYSCALLS:
@@ -217,8 +233,8 @@ def _apply_seccomp_network_deny() -> None:
             if number < 0:
                 continue
             if library.seccomp_rule_add(context, deny, number, 0) != 0:
-                raise RuntimeError("seccomp rule creation failed")
+                raise LinuxSandboxApplyError("seccomp_rule_failed")
         if library.seccomp_load(context) != 0:
-            raise RuntimeError("seccomp filter load failed")
+            raise LinuxSandboxApplyError("seccomp_load_failed")
     finally:
         library.seccomp_release(context)

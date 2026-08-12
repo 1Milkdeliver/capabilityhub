@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from capabilityhub.errors import CapabilityHubError
 from capabilityhub.linux_sandbox import probe_linux_sandbox
 from capabilityhub.models import CapabilityIdentity, ExecutionRequest, ExecutionResult
 from capabilityhub.providers.base import ProviderContext
@@ -116,12 +117,15 @@ def test_linux_landlock_and_seccomp_confine_provider_and_descendant(tmp_path: Pa
         )
     )
 
-    result = supervisor.execute(
-        _LinuxMaliciousProvider(str(allowed), str(outside)),
-        IDENTITY,
-        REQUEST,
-        CONTEXT,
-    )
+    try:
+        result = supervisor.execute(
+            _LinuxMaliciousProvider(str(allowed), str(outside)),
+            IDENTITY,
+            REQUEST,
+            CONTEXT,
+        )
+    except CapabilityHubError as error:
+        pytest.fail(f"Linux sandbox stage failed safely: {error.code}")
 
     assert result.output == {
         "allowed": True,

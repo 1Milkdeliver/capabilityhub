@@ -9,12 +9,25 @@ from typing import TypeVar
 
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
-from capabilityhub.models import ExecutionRequest, ExecutionResult, LoadedCapability, SearchCard
+from capabilityhub.models import (
+    ExecutionRequest,
+    ExecutionResult,
+    LoadedCapability,
+    ReasoningTier,
+    SearchCard,
+    SideEffect,
+)
 from capabilityhub.observability import (
     InMemoryObservability,
     ProviderCategory,
     SpanHandle,
     TraceContext,
+)
+from capabilityhub.orchestration import (
+    AppliedReasoningRouter,
+    ReasoningConstraints,
+    ReasoningEndpoint,
+    ReasoningWorkload,
 )
 from capabilityhub.protocol import (
     AdapterKind,
@@ -29,6 +42,8 @@ ContextProvider = Callable[[], ServiceContext]
 BudgetProvider = Callable[[str], BudgetLedger]
 InventoryProvider = Callable[[], dict[str, JsonValue] | None]
 CancelCallback = Callable[[str], bool]
+ReasoningWorkloadProvider = Callable[[str, Mapping[str, JsonValue]], ReasoningWorkload]
+ReasoningConstraintsProvider = Callable[[RequestEnvelope], ReasoningConstraints]
 
 _SEARCH = "capability.search"
 _LOAD = "capability.load"
@@ -51,6 +66,9 @@ class CapabilityHubServiceAdapter:
         inventory_provider: InventoryProvider | None = None,
         cancel_callback: CancelCallback | None = None,
         observability: InMemoryObservability | None = None,
+        reasoning_router: AppliedReasoningRouter | None = None,
+        reasoning_workload_provider: ReasoningWorkloadProvider | None = None,
+        reasoning_constraints_provider: ReasoningConstraintsProvider | None = None,
     ) -> None:
         self.kind = kind
         self.handshake = protocol_handshake(cancellation=cancel_callback is not None)
@@ -60,6 +78,16 @@ class CapabilityHubServiceAdapter:
         self._inventory_provider = inventory_provider
         self._cancel_callback = cancel_callback
         self._observability = observability
+        self._reasoning = reasoning_router or AppliedReasoningRouter(
+            budget_provider=budget_provider,
+            endpoints=tuple(
+                ReasoningEndpoint(f"local-{tier.value}", tier) for tier in ReasoningTier
+            ),
+        )
+        self._reasoning_workload_provider = (
+            reasoning_workload_provider or _default_reasoning_workload
+        )
+        self._reasoning_constraints_provider = reasoning_constraints_provider
 
     def dispatch(self, request: RequestEnvelope) -> JsonValue:
         """Validate an exact meta-tool payload and return JSON-domain data."""
@@ -111,6 +139,11 @@ class CapabilityHubServiceAdapter:
             raise _input("cancellation_unsupported", "This adapter does not support cancellation.")
         return _provided(lambda: callback(correlation_id))
 
+    def reasoning_state(self, task_id: str) -> dict[str, JsonValue] | None:
+        """Return the last privacy-safe tier application for a task."""
+
+        return self._reasoning.state(task_id)
+
     def _search(self, request: RequestEnvelope) -> JsonValue:
         payload = _payload(
             request.payload,
@@ -124,22 +157,30 @@ class CapabilityHubServiceAdapter:
             },
         )
         task_id = _text(payload["task_id"], maximum=256)
+        self._apply_reasoning(request, task_id, payload)
         include_inventory = _boolean(payload.get("include_inventory", False))
         inventory = None
         if include_inventory and self._inventory_provider is not None:
             inventory = _provided(self._inventory_provider)
             if inventory is not None:
                 inventory = _json_object(inventory)
-        response = self._service.search(
-            _query(payload["query"]),
-            task_id=task_id,
-            context=self._context(),
-            budget=self._budget(task_id),
-            kinds=_optional_strings(payload.get("kinds")),
-            limit=_positive_integer(payload.get("limit", 8)),
-            max_output_tokens=_positive_integer(payload.get("max_output_tokens", 900)),
-            include_cards=_boolean(payload.get("include_cards", True)),
-            inventory=inventory,
+        try:
+            response = self._service.search(
+                _query(payload["query"]),
+                task_id=task_id,
+                context=self._context(),
+                budget=self._budget(task_id),
+                kinds=_optional_strings(payload.get("kinds")),
+                limit=_positive_integer(payload.get("limit", 8)),
+                max_output_tokens=_positive_integer(payload.get("max_output_tokens", 900)),
+                include_cards=_boolean(payload.get("include_cards", True)),
+                inventory=inventory,
+            )
+        except Exception as error:
+            self._record_reasoning_failure(task_id, request.operation, error)
+            raise
+        self._reasoning.record_result(
+            task_id=task_id, operation=request.operation, error_code=None
         )
         return _search_json(response)
 
@@ -150,14 +191,22 @@ class CapabilityHubServiceAdapter:
             optional={"section_names", "operation_names", "max_output_tokens"},
         )
         task_id = _text(payload["task_id"], maximum=256)
-        loaded = self._service.load(
-            _text(payload["capability_ref"]),
-            task_id=task_id,
-            context=self._context(),
-            budget=self._budget(task_id),
-            section_names=_optional_strings(payload.get("section_names")),
-            operation_names=_optional_strings(payload.get("operation_names")),
-            max_output_tokens=_positive_integer(payload.get("max_output_tokens", 2_000)),
+        self._apply_reasoning(request, task_id, payload)
+        try:
+            loaded = self._service.load(
+                _text(payload["capability_ref"]),
+                task_id=task_id,
+                context=self._context(),
+                budget=self._budget(task_id),
+                section_names=_optional_strings(payload.get("section_names")),
+                operation_names=_optional_strings(payload.get("operation_names")),
+                max_output_tokens=_positive_integer(payload.get("max_output_tokens", 2_000)),
+            )
+        except Exception as error:
+            self._record_reasoning_failure(task_id, request.operation, error)
+            raise
+        self._reasoning.record_result(
+            task_id=task_id, operation=request.operation, error_code=None
         )
         return _loaded_json(loaded)
 
@@ -168,21 +217,66 @@ class CapabilityHubServiceAdapter:
             optional={"approval_ref", "idempotency_key", "max_output_tokens"},
         )
         task_id = _text(payload["task_id"], maximum=256)
+        self._apply_reasoning(request, task_id, payload)
         max_output = payload.get("max_output_tokens")
-        result = self._service.execute(
-            ExecutionRequest(
-                execution_ref=_text(payload["execution_ref"]),
-                operation=_text(payload["operation"], maximum=256),
-                arguments=_json_object(payload["arguments"]),
-                task_id=task_id,
-                approval_ref=_optional_text(payload.get("approval_ref")),
-                idempotency_key=_optional_text(payload.get("idempotency_key")),
-            ),
-            context=self._context(),
-            budget=self._budget(task_id),
-            max_output_tokens=(None if max_output is None else _positive_integer(max_output)),
+        try:
+            result = self._service.execute(
+                ExecutionRequest(
+                    execution_ref=_text(payload["execution_ref"]),
+                    operation=_text(payload["operation"], maximum=256),
+                    arguments=_json_object(payload["arguments"]),
+                    task_id=task_id,
+                    approval_ref=_optional_text(payload.get("approval_ref")),
+                    idempotency_key=_optional_text(payload.get("idempotency_key")),
+                ),
+                context=self._context(),
+                budget=self._budget(task_id),
+                max_output_tokens=(None if max_output is None else _positive_integer(max_output)),
+            )
+        except Exception as error:
+            self._record_reasoning_failure(task_id, request.operation, error)
+            raise
+        self._reasoning.record_result(
+            task_id=task_id, operation=request.operation, error_code=None
         )
         return _execution_json(result)
+
+    def _apply_reasoning(
+        self,
+        request: RequestEnvelope,
+        task_id: str,
+        payload: Mapping[str, JsonValue],
+    ) -> None:
+        workload = _provided(
+            lambda: self._reasoning_workload_provider(request.operation, payload)
+        )
+        if not isinstance(workload, ReasoningWorkload):
+            raise _internal_provider_error()
+        constraints_provider = self._reasoning_constraints_provider
+        constraints = (
+            ReasoningConstraints()
+            if constraints_provider is None
+            else _provided(lambda: constraints_provider(request))
+        )
+        if not isinstance(constraints, ReasoningConstraints):
+            raise _internal_provider_error()
+        _provided(
+            lambda: self._reasoning.decide(
+                task_id=task_id,
+                operation=request.operation,
+                workload=workload,
+                constraints=constraints,
+            )
+        )
+
+    def _record_reasoning_failure(
+        self, task_id: str, operation: str, error: Exception
+    ) -> None:
+        self._reasoning.record_result(
+            task_id=task_id,
+            operation=operation,
+            error_code=_safe_error_code(error),
+        )
 
     def _context(self) -> ServiceContext:
         context = _provided(self._context_provider)
@@ -414,6 +508,13 @@ def _result_counters(operation: str, result: JsonValue) -> tuple[int, int]:
     if isinstance(payload_bytes, int) and not isinstance(payload_bytes, bool):
         selected_bytes = max(0, payload_bytes)
     return selected_tokens, selected_bytes
+
+
+def _default_reasoning_workload(
+    operation: str, _payload: Mapping[str, JsonValue]
+) -> ReasoningWorkload:
+    risk = SideEffect.READ if operation == _EXECUTE else SideEffect.NONE
+    return ReasoningWorkload(risk=risk)
 
 
 def _invalid_payload() -> CapabilityHubError:

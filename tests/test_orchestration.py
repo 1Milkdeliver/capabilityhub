@@ -5,8 +5,15 @@ from concurrent.futures import ThreadPoolExecutor
 import pytest
 
 from capabilityhub.budget import BudgetLedger
+from capabilityhub.errors import CapabilityHubError
 from capabilityhub.models import ReasoningTier, SideEffect
-from capabilityhub.orchestration import ReasoningOrchestrator
+from capabilityhub.orchestration import (
+    AppliedReasoningRouter,
+    ReasoningConstraints,
+    ReasoningEndpoint,
+    ReasoningOrchestrator,
+    ReasoningWorkload,
+)
 from capabilityhub.reasoning import NoEligibleReasoningTier, ReasoningRouter
 from capabilityhub.reasoning_store import SQLiteReasoningStore
 
@@ -187,3 +194,93 @@ def test_sqlite_attempt_update_is_atomic_across_orchestrators(tmp_path) -> None:
     state = SQLiteReasoningStore(path).read("concurrent")
     assert state.recommendation_count == 20
     assert tuple(state.attempt_counts.values()) == (20,)
+
+
+def test_applied_router_enforces_dependency_floor_and_endpoint_boundaries() -> None:
+    budget = BudgetLedger("task", {"reasoning_tokens": 2_000})
+    applied = AppliedReasoningRouter(
+        budget_provider=lambda _task: budget,
+        endpoints=(
+            ReasoningEndpoint("low-fast", ReasoningTier.LOW, 1, 10),
+            ReasoningEndpoint("medium-slow", ReasoningTier.MEDIUM, 3, 30),
+            ReasoningEndpoint("medium-fast", ReasoningTier.MEDIUM, 2, 20),
+            ReasoningEndpoint("high", ReasoningTier.HIGH, 9, 90),
+        ),
+    )
+
+    decision = applied.decide(
+        task_id="dependencies",
+        operation="capability.execute",
+        workload=ReasoningWorkload(dependency_count=3),
+        constraints=ReasoningConstraints(
+            maximum_tier=ReasoningTier.MEDIUM,
+            maximum_cost_units=2,
+            maximum_latency_ms=25,
+        ),
+    )
+
+    assert decision.tier is ReasoningTier.MEDIUM
+    assert decision.endpoint == "medium-fast"
+    assert "dependency_floor:medium" in decision.reason_codes
+    assert budget.snapshot().used["reasoning_tokens"] == 0
+
+
+def test_applied_router_fails_closed_when_risk_exceeds_explicit_ceiling() -> None:
+    applied = AppliedReasoningRouter(
+        budget_provider=lambda _task: BudgetLedger(
+            "task", {"reasoning_tokens": 10_000}
+        ),
+        endpoints=(
+            ReasoningEndpoint("low", ReasoningTier.LOW),
+            ReasoningEndpoint("medium", ReasoningTier.MEDIUM),
+            ReasoningEndpoint("high", ReasoningTier.HIGH),
+        ),
+    )
+
+    with pytest.raises(NoEligibleReasoningTier):
+        applied.decide(
+            task_id="irreversible",
+            operation="capability.execute",
+            workload=ReasoningWorkload(risk=SideEffect.IRREVERSIBLE),
+            constraints=ReasoningConstraints(maximum_tier=ReasoningTier.MEDIUM),
+        )
+
+
+def test_applied_router_escalates_once_then_stops_equivalent_failure_loop() -> None:
+    applied = AppliedReasoningRouter(
+        budget_provider=lambda _task: BudgetLedger(
+            "task", {"reasoning_tokens": 10_000}
+        ),
+        endpoints=tuple(
+            ReasoningEndpoint(tier.value, tier) for tier in ReasoningTier
+        ),
+    )
+    first = applied.decide(
+        task_id="retry",
+        operation="capability.execute",
+        workload=ReasoningWorkload(),
+    )
+    assert first.tier is ReasoningTier.LOW
+    applied.record_result(
+        task_id="retry",
+        operation="capability.execute",
+        error_code="typed_failure",
+    )
+    escalated = applied.decide(
+        task_id="retry",
+        operation="capability.execute",
+        workload=ReasoningWorkload(),
+    )
+    assert escalated.tier is ReasoningTier.MEDIUM
+    applied.record_result(
+        task_id="retry",
+        operation="capability.execute",
+        error_code="typed_failure",
+    )
+    with pytest.raises(CapabilityHubError) as caught:
+        applied.decide(
+            task_id="retry",
+            operation="capability.execute",
+            workload=ReasoningWorkload(),
+        )
+    assert caught.value.code == "reasoning_no_progress"

@@ -13,7 +13,15 @@ from capabilityhub.models import (
     CapabilityManifest,
     OperationSpec,
     OperationType,
+    ReasoningTier,
     SectionDescriptor,
+    SideEffect,
+)
+from capabilityhub.orchestration import (
+    AppliedReasoningRouter,
+    ReasoningConstraints,
+    ReasoningEndpoint,
+    ReasoningWorkload,
 )
 from capabilityhub.protocol import AdapterKind, RequestEnvelope, parse_request
 from capabilityhub.providers.static import StaticFixture, StaticProvider
@@ -279,3 +287,147 @@ def test_cancellation_is_explicitly_unsupported_or_delegated() -> None:
     )
     assert delegated.cancel("correlation-2") is True
     assert cancelled == ["correlation-2"]
+
+
+def test_shared_adapter_applies_task_tier_without_spending_reasoning_budget() -> None:
+    base = _setup()
+    budget = BudgetLedger(
+        "reasoning-task",
+        {
+            "bytes": 50_000,
+            "loads": 10,
+            "executions": 10,
+            "portable_tokens": 10_000,
+            "reasoning_tokens": 2_000,
+        },
+    )
+    router = AppliedReasoningRouter(
+        budget_provider=lambda _task_id: budget,
+        endpoints=(
+            ReasoningEndpoint("low", ReasoningTier.LOW),
+            ReasoningEndpoint("medium", ReasoningTier.MEDIUM),
+            ReasoningEndpoint("high", ReasoningTier.HIGH),
+        ),
+    )
+    adapter = CapabilityHubServiceAdapter(
+        base._service,
+        kind=AdapterKind.LIBRARY,
+        context_provider=lambda: ServiceContext("tenant", "principal", "session"),
+        budget_provider=lambda _task_id: budget,
+        reasoning_router=router,
+        reasoning_workload_provider=lambda _operation, _payload: ReasoningWorkload(
+            dependency_count=3
+        ),
+        reasoning_constraints_provider=lambda _request: ReasoningConstraints(
+            maximum_tier=ReasoningTier.MEDIUM
+        ),
+    )
+
+    result = adapter.dispatch(
+        _request(
+            adapter,
+            "capability.search",
+            {"query": "records", "task_id": "reasoning-task"},
+        )
+    )
+
+    assert isinstance(result, dict)
+    assert adapter.reasoning_state("reasoning-task") == {
+        "application": {
+            "applied": True,
+            "error_code": None,
+            "outcome": "success",
+        },
+        "budget_remaining": 2_000,
+        "endpoint": "medium",
+        "estimated_tokens": 1_024,
+        "operation": "capability.search",
+        "reason_codes": [
+            "policy_floor:medium",
+            "cheapest_eligible",
+            "dependency_floor:medium",
+            "endpoint_eligible",
+        ],
+        "should_stop": False,
+        "tier": "medium",
+    }
+    assert budget.snapshot().used["reasoning_tokens"] == 0
+
+
+def test_shared_adapter_fails_before_service_when_tier_is_unaffordable() -> None:
+    base = _setup()
+    budget = BudgetLedger(
+        "budget-small",
+        {
+            "bytes": 50_000,
+            "loads": 10,
+            "executions": 10,
+            "portable_tokens": 10_000,
+            "reasoning_tokens": 500,
+        },
+    )
+    adapter = CapabilityHubServiceAdapter(
+        base._service,
+        kind=AdapterKind.LIBRARY,
+        context_provider=lambda: ServiceContext("tenant", "principal", "session"),
+        budget_provider=lambda _task_id: budget,
+        reasoning_workload_provider=lambda _operation, _payload: ReasoningWorkload(
+            risk=SideEffect.REVERSIBLE_WRITE
+        ),
+    )
+
+    with pytest.raises(CapabilityHubError) as caught:
+        adapter.dispatch(
+            _request(
+                adapter,
+                "capability.search",
+                {"query": "records", "task_id": "budget-small"},
+            )
+        )
+
+    assert caught.value.code == "no_eligible_reasoning_tier"
+    assert budget.snapshot().used["portable_tokens"] == 0
+
+
+def test_shared_adapter_escalates_after_typed_failure_then_stops_repeat() -> None:
+    adapter = _setup(AdapterKind.CLI)
+    payload = {"capability_ref": "invalid", "task_id": "failed-task"}
+
+    with pytest.raises(CapabilityHubError):
+        adapter.dispatch(_request(adapter, "capability.load", payload))
+    with pytest.raises(CapabilityHubError):
+        adapter.dispatch(_request(adapter, "capability.load", payload))
+    state = adapter.reasoning_state("failed-task")
+    assert state is not None
+    assert state["tier"] == "medium"
+    assert "escalated:previous_typed_failure" in state["reason_codes"]
+
+    with pytest.raises(CapabilityHubError) as stopped:
+        adapter.dispatch(_request(adapter, "capability.load", payload))
+    assert stopped.value.code == "reasoning_no_progress"
+
+
+def test_reasoning_dependency_failure_is_redacted_by_shared_adapter() -> None:
+    base = _setup()
+
+    def fail_budget(_task_id: str) -> BudgetLedger:
+        raise RuntimeError("SECRET reasoning backend credential")
+
+    adapter = CapabilityHubServiceAdapter(
+        base._service,
+        kind=AdapterKind.LIBRARY,
+        context_provider=lambda: ServiceContext("tenant", "principal", "session"),
+        budget_provider=fail_budget,
+    )
+
+    with pytest.raises(CapabilityHubError) as caught:
+        adapter.dispatch(
+            _request(
+                adapter,
+                "capability.search",
+                {"query": "records", "task_id": "failed-budget"},
+            )
+        )
+
+    assert caught.value.code == "adapter_provider_failed"
+    assert "SECRET" not in str(caught.value)

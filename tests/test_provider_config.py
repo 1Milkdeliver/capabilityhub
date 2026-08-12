@@ -1,12 +1,15 @@
 from __future__ import annotations
 
 import json
+import os
 import sys
 from collections.abc import Iterator
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from threading import Thread
+from time import monotonic
 from typing import ClassVar
 
 import pytest
@@ -106,6 +109,76 @@ def test_project_driver_is_discovered_and_executed(tmp_path: Path) -> None:
     assert result["output"] == {"ok": True}
 
 
+def test_local_execute_runs_configured_cli_in_spawned_worker(tmp_path: Path) -> None:
+    document = _manifest(sys.executable)
+    config = document["spec"]["driver"]["config"]  # type: ignore[index]
+    config["operations"]["run"]["argv"] = [  # type: ignore[index]
+        "-c",
+        "import json, os; print(json.dumps({'pid': os.getpid()}))",
+    ]
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    (root / "cli.json").write_text(json.dumps(document), encoding="utf-8")
+    monitor = LocalCatalogMonitor(project=tmp_path, home=tmp_path / "home")
+    revision = "project/configured-cli@1.0.0#sha256:" + ("a" * 64)
+
+    result = local_execute(revision, "run", {}, monitor=monitor)
+
+    assert result["output"]["pid"] != os.getpid()  # type: ignore[index]
+
+
+def test_concurrent_local_execute_calls_use_independent_workers(tmp_path: Path) -> None:
+    document = _manifest(sys.executable)
+    config = document["spec"]["driver"]["config"]  # type: ignore[index]
+    config["operations"]["run"]["argv"] = [  # type: ignore[index]
+        "-c",
+        "import json, os, time; time.sleep(.2); print(json.dumps({'pid': os.getpid()}))",
+    ]
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    (root / "cli.json").write_text(json.dumps(document), encoding="utf-8")
+    monitor = LocalCatalogMonitor(
+        project=tmp_path,
+        home=tmp_path / "home",
+        refresh_interval_seconds=60,
+    )
+    monitor.snapshot(force=True)
+    revision = "project/configured-cli@1.0.0#sha256:" + ("a" * 64)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(
+            pool.map(
+                lambda _index: local_execute(revision, "run", {}, monitor=monitor),
+                range(2),
+            )
+        )
+
+    pids = {result["output"]["pid"] for result in results}  # type: ignore[index]
+    assert len(pids) == 2
+    assert os.getpid() not in pids
+
+
+def test_local_execute_hard_deadline_terminates_worker(tmp_path: Path) -> None:
+    document = _manifest(sys.executable)
+    config = document["spec"]["driver"]["config"]  # type: ignore[index]
+    config["operations"]["run"]["argv"] = [  # type: ignore[index]
+        "-c",
+        "import time; time.sleep(5)",
+    ]
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    (root / "cli.json").write_text(json.dumps(document), encoding="utf-8")
+    monitor = LocalCatalogMonitor(project=tmp_path, home=tmp_path / "home")
+    revision = "project/configured-cli@1.0.0#sha256:" + ("a" * 64)
+    started = monotonic()
+
+    with pytest.raises(CapabilityHubError) as caught:
+        local_execute(revision, "run", {}, monitor=monitor, deadline_ms=100)
+
+    assert caught.value.code == "provider_worker_timeout"
+    assert monotonic() - started < 2
+
+
 def test_invalid_driver_is_counted_but_never_wired(tmp_path: Path) -> None:
     root = tmp_path / ".capabilityhub" / "manifests"
     root.mkdir(parents=True)
@@ -117,7 +190,29 @@ def test_invalid_driver_is_counted_but_never_wired(tmp_path: Path) -> None:
     assert generation.providers == ()
 
 
-def test_configured_http_alias_is_brokered_only_during_runtime_call(
+def test_cli_environment_alias_fails_closed_without_resolving_secret(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    secret = "CHILD-ENV-CANARY-83"
+    monkeypatch.setenv("PRIVATE_CHILD_TOKEN", secret)
+    document = _manifest(sys.executable)
+    config = document["spec"]["driver"]["config"]  # type: ignore[index]
+    config["environmentFrom"] = {"TOKEN": "PRIVATE_CHILD_TOKEN"}  # type: ignore[index]
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    (root / "cli.json").write_text(json.dumps(document), encoding="utf-8")
+
+    generation = LocalCatalogMonitor(
+        project=tmp_path,
+        home=tmp_path / "home",
+    ).snapshot(force=True)
+
+    assert generation.inventory["invalid_count"] == 1
+    assert generation.providers == ()
+    assert secret not in repr(generation.inventory)
+
+
+def test_configured_http_alias_fails_closed_at_process_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     secret = "RUNTIME-BROKER-CANARY-31"
@@ -160,11 +255,12 @@ def test_configured_http_alias_is_brokered_only_during_runtime_call(
         monitor = LocalCatalogMonitor(project=tmp_path, home=tmp_path / "home")
         revision = "project/configured-api@1.0.0#sha256:" + ("c" * 64)
 
-        result = local_execute(revision, "read", {}, monitor=monitor)
+        with pytest.raises(CapabilityHubError) as caught:
+            local_execute(revision, "read", {}, monitor=monitor)
 
-    assert result["output"] == {"ok": True}
-    assert _ConfiguredApiHandler.authorizations == [secret]
-    assert secret not in repr(result)
+    assert caught.value.code == "provider_worker_secret_boundary_unsupported"
+    assert _ConfiguredApiHandler.authorizations == []
+    assert secret not in repr(caught.value.as_dict())
 
 
 def test_configured_execution_consumes_one_durable_exact_approval(tmp_path: Path) -> None:

@@ -40,6 +40,7 @@ class ProcessProviderSupervisor:
     start_method: str = "spawn"
     termination_grace_seconds: float = 0.2
     max_message_bytes: int = 4_000_000
+    strict_local_providers: bool = False
 
     def __post_init__(self) -> None:
         if self.start_method not in multiprocessing.get_all_start_methods():
@@ -56,6 +57,14 @@ class ProcessProviderSupervisor:
         request: ExecutionRequest,
         context: ProviderContext,
     ) -> ExecutionResult:
+        if self.strict_local_providers:
+            restriction = _local_provider_restriction(provider)
+            if restriction is not None:
+                raise _error(
+                    restriction,
+                    ErrorCategory.POLICY,
+                    "The provider cannot safely cross the configured process boundary.",
+                )
         try:
             pickle.dumps((provider, identity, request, context))
         except (pickle.PickleError, TypeError, AttributeError) as error:
@@ -99,7 +108,7 @@ class ProcessProviderSupervisor:
                 )
             try:
                 raw = receiver.recv_bytes(self.max_message_bytes)
-            except (EOFError, OSError) as error:
+            except EOFError as error:
                 process.join(self.termination_grace_seconds)
                 code = (
                     "provider_worker_crashed"
@@ -111,6 +120,12 @@ class ProcessProviderSupervisor:
                     ErrorCategory.PROVIDER,
                     "The isolated provider worker ended without a valid result.",
                     retryable=True,
+                ) from error
+            except OSError as error:
+                raise _error(
+                    "provider_worker_result_too_large",
+                    ErrorCategory.BUDGET,
+                    "The isolated provider result exceeded the worker message limit.",
                 ) from error
             process.join(max(0.0, deadline - monotonic()))
             if process.is_alive():
@@ -263,6 +278,36 @@ def _stop(process: multiprocessing.Process, grace_seconds: float) -> None:
     if process.is_alive() and hasattr(process, "kill"):
         process.kill()
         process.join(grace_seconds)
+
+
+def _local_provider_restriction(provider: CapabilityProvider) -> str | None:
+    """Allow known local adapters only when their serialized state has no plaintext secret."""
+
+    from capabilityhub.providers.cli import CliProcessProvider
+    from capabilityhub.providers.http import EnvironmentHeaders, HttpApiProvider
+    from capabilityhub.providers.mcp import McpStdioProvider
+    from capabilityhub.providers.rag import LocalRagProvider
+    from capabilityhub.providers.static import StaticProvider
+
+    if isinstance(provider, HttpApiProvider):
+        for fixture in provider._fixtures:
+            headers = fixture.headers
+            if headers is None:
+                continue
+            if isinstance(headers, EnvironmentHeaders):
+                return "provider_worker_secret_boundary_unsupported"
+            return "provider_worker_header_supplier_unsupported"
+        return None
+    if isinstance(provider, (CliProcessProvider, McpStdioProvider)):
+        if any(
+            fixture.environment
+            for fixture in provider._fixtures
+        ):
+            return "provider_worker_plaintext_environment_denied"
+        return None
+    if isinstance(provider, (LocalRagProvider, StaticProvider)):
+        return None
+    return "provider_worker_type_unsupported"
 
 
 def _protocol_error() -> CapabilityHubError:

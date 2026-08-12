@@ -5,12 +5,13 @@ from __future__ import annotations
 import hashlib
 import json
 import re
-from collections.abc import Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping
 from dataclasses import dataclass
 from threading import RLock
 from types import MappingProxyType
 
 from .budget import BudgetLedger
+from .errors import CapabilityHubError, ErrorCategory
 from .models import JsonValue, ReasoningTier, SideEffect
 from .reasoning import ReasoningRouter
 from .reasoning_store import SQLiteReasoningStore, StoredReasoningState
@@ -37,6 +38,241 @@ class ReasoningRecommendation:
     escalations_used: int
     policy_revision: str
     should_stop: bool
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningEndpoint:
+    """A configured endpoint eligibility fact; no invocation is performed here."""
+
+    name: str
+    tier: ReasoningTier
+    cost_units: int | None = None
+    latency_ms: int | None = None
+
+    def __post_init__(self) -> None:
+        if not self.name or len(self.name) > 128:
+            raise ValueError("reasoning endpoint name is invalid")
+        for value, label in ((self.cost_units, "cost_units"), (self.latency_ms, "latency_ms")):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"reasoning endpoint {label} must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningConstraints:
+    """Caller and transport ceilings applied before deterministic tier routing."""
+
+    maximum_tier: ReasoningTier = ReasoningTier.HIGH
+    eligible_endpoints: frozenset[str] | None = None
+    maximum_cost_units: int | None = None
+    maximum_latency_ms: int | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.maximum_tier, ReasoningTier):
+            raise TypeError("maximum_tier must be a reasoning tier")
+        for value, label in (
+            (self.maximum_cost_units, "maximum_cost_units"),
+            (self.maximum_latency_ms, "maximum_latency_ms"),
+        ):
+            if value is not None and (
+                isinstance(value, bool) or not isinstance(value, int) or value < 0
+            ):
+                raise ValueError(f"{label} must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class ReasoningWorkload:
+    risk: SideEffect = SideEffect.NONE
+    dependency_count: int = 0
+
+    def __post_init__(self) -> None:
+        if (
+            isinstance(self.dependency_count, bool)
+            or not isinstance(self.dependency_count, int)
+            or self.dependency_count < 0
+        ):
+            raise ValueError("dependency_count must be non-negative")
+
+
+@dataclass(frozen=True, slots=True)
+class AppliedReasoningDecision:
+    task_id: str
+    operation: str
+    tier: ReasoningTier
+    endpoint: str
+    reason_codes: tuple[str, ...]
+    estimated_tokens: int
+    budget_remaining: int | None
+    should_stop: bool
+
+    def safe_summary(self) -> dict[str, JsonValue]:
+        return {
+            "budget_remaining": self.budget_remaining,
+            "endpoint": self.endpoint,
+            "estimated_tokens": self.estimated_tokens,
+            "operation": self.operation,
+            "reason_codes": list(self.reason_codes),
+            "should_stop": self.should_stop,
+            "tier": self.tier.value,
+        }
+
+
+BudgetProvider = Callable[[str], BudgetLedger]
+
+
+class AppliedReasoningRouter:
+    """Apply task-level tier advice as a real endpoint admission decision."""
+
+    def __init__(
+        self,
+        *,
+        budget_provider: BudgetProvider,
+        endpoints: Iterable[ReasoningEndpoint],
+        router: ReasoningRouter | None = None,
+    ) -> None:
+        selected = tuple(endpoints)
+        if not selected or len({endpoint.name for endpoint in selected}) != len(selected):
+            raise ValueError("reasoning endpoints must be non-empty and uniquely named")
+        self._budget_provider = budget_provider
+        self._endpoints = selected
+        self._router = router or ReasoningRouter(policy_revision="adapter-reasoning-v1")
+        self._failures: dict[str, tuple[str, str]] = {}
+        self._last: dict[str, AppliedReasoningDecision] = {}
+        self._outcomes: dict[str, str | None] = {}
+        self._lock = RLock()
+
+    def decide(
+        self,
+        *,
+        task_id: str,
+        operation: str,
+        workload: ReasoningWorkload,
+        constraints: ReasoningConstraints | None = None,
+    ) -> AppliedReasoningDecision:
+        constraints = constraints or ReasoningConstraints()
+        endpoints = self._eligible_endpoints(constraints)
+        tiers = tuple(dict.fromkeys(endpoint.tier for endpoint in endpoints))
+        minimum = (
+            ReasoningTier.MEDIUM
+            if workload.dependency_count >= 3
+            and workload.risk in {SideEffect.NONE, SideEffect.READ}
+            else ReasoningTier.LOW
+        )
+        with self._lock:
+            failure = self._failures.get(task_id)
+        orchestrator = ReasoningOrchestrator(
+            router=self._router,
+            budget=self._budget_provider(task_id),
+        )
+        recommendation = orchestrator.recommend(
+            task_id=task_id,
+            eligible_tiers=tiers,
+            risk=workload.risk,
+            policy_minimum=minimum,
+            escalation_reason=("previous_typed_failure" if failure is not None else None),
+            attempt_signature=(failure[0] if failure is not None else None),
+            evidence_signature=(failure[1] if failure is not None else None),
+        )
+        endpoint = min(
+            (item for item in endpoints if item.tier is recommendation.tier),
+            key=lambda item: (
+                item.cost_units is None,
+                item.cost_units or 0,
+                item.latency_ms is None,
+                item.latency_ms or 0,
+                item.name,
+            ),
+        )
+        reasons = list(recommendation.reason_codes)
+        if workload.dependency_count >= 3:
+            reasons.append("dependency_floor:medium")
+        reasons.append("endpoint_eligible")
+        decision = AppliedReasoningDecision(
+            task_id,
+            operation,
+            recommendation.tier,
+            endpoint.name,
+            tuple(dict.fromkeys(reasons)),
+            recommendation.estimated_tokens,
+            recommendation.budget_remaining,
+            recommendation.should_stop,
+        )
+        with self._lock:
+            self._last[task_id] = decision
+        if decision.should_stop:
+            raise CapabilityHubError(
+                code="reasoning_no_progress",
+                category=ErrorCategory.BUDGET,
+                safe_message="Equivalent failed attempts reached the reasoning stop condition.",
+            )
+        return decision
+
+    def record_result(
+        self,
+        *,
+        task_id: str,
+        operation: str,
+        error_code: str | None,
+    ) -> None:
+        with self._lock:
+            if error_code is None:
+                self._failures.pop(task_id, None)
+            else:
+                self._failures[task_id] = (operation, error_code)
+            self._outcomes[task_id] = error_code
+
+    def state(self, task_id: str) -> dict[str, JsonValue] | None:
+        with self._lock:
+            decision = self._last.get(task_id)
+            outcome_known = task_id in self._outcomes
+            error_code = self._outcomes.get(task_id)
+        if decision is None:
+            return None
+        summary = decision.safe_summary()
+        summary["application"] = {
+            "applied": outcome_known,
+            "error_code": error_code,
+            "outcome": (
+                "pending" if not outcome_known else "success" if error_code is None else "error"
+            ),
+        }
+        return summary
+
+    def _eligible_endpoints(
+        self, constraints: ReasoningConstraints
+    ) -> tuple[ReasoningEndpoint, ...]:
+        ceiling = _TIER_POSITION[constraints.maximum_tier]
+        selected = tuple(
+            endpoint
+            for endpoint in self._endpoints
+            if _TIER_POSITION[endpoint.tier] <= ceiling
+            and (
+                constraints.eligible_endpoints is None
+                or endpoint.name in constraints.eligible_endpoints
+            )
+            and (
+                constraints.maximum_cost_units is None
+                or (
+                    endpoint.cost_units is not None
+                    and endpoint.cost_units <= constraints.maximum_cost_units
+                )
+            )
+            and (
+                constraints.maximum_latency_ms is None
+                or (
+                    endpoint.latency_ms is not None
+                    and endpoint.latency_ms <= constraints.maximum_latency_ms
+                )
+            )
+        )
+        if not selected:
+            raise CapabilityHubError(
+                code="no_eligible_reasoning_endpoint",
+                category=ErrorCategory.BUDGET,
+                safe_message="No reasoning endpoint satisfies the caller constraints.",
+            )
+        return selected
 
 
 class ReasoningOrchestrator:

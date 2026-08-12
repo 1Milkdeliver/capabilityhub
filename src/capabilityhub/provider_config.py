@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 from collections.abc import Mapping
 from pathlib import Path
 
@@ -128,13 +127,11 @@ def _http_operations(config: Mapping[str, object]) -> dict[str, HttpInvocation]:
 
 def _environment(config: Mapping[str, object], *, field: str = "environmentFrom") -> dict[str, str]:
     names = _string_mapping(config, field, required=False)
-    result: dict[str, str] = {}
-    for target, source in names.items():
-        value = os.environ.get(source)
-        if value is None:
-            raise ValueError(f"required environment variable is unavailable: {source}")
-        result[target] = value
-    return result
+    if names:
+        raise ValueError(
+            "provider environment aliases require a secure child-process injection channel"
+        )
+    return {}
 
 
 def _absolute_file(config: Mapping[str, object], field: str) -> Path:

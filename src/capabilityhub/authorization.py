@@ -73,6 +73,12 @@ class ParameterAuthorizer:
             normalized[permission] = _normalize_constraint(permission, constraint)
         self._grants = normalized
 
+    @property
+    def granted_permissions(self) -> frozenset[str]:
+        """Return permission names only; constraints and sensitive values stay private."""
+
+        return frozenset(self._grants)
+
     def eligible(
         self,
         manifest: CapabilityManifest,

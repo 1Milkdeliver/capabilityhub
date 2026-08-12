@@ -18,6 +18,12 @@ from capabilityhub.models import (
     OperationType,
 )
 from capabilityhub.providers.base import ProviderContext
+from capabilityhub.providers.http import (
+    EnvironmentHeaders,
+    HttpApiFixture,
+    HttpApiProvider,
+    HttpInvocation,
+)
 from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
@@ -82,6 +88,19 @@ class _UnserializableProvider(_Provider):
         self.callback = lambda: None
 
 
+class _HugeProvider(_Provider):
+    def execute(self, identity, request, context):
+        del context
+        return ExecutionResult(
+            identity.revision,
+            request.operation,
+            {"content": "x" * 20_000},
+            self.name,
+            3,
+            "worker-audit",
+        )
+
+
 def _context(deadline_ms: int = 5_000) -> ProviderContext:
     return ProviderContext("tenant", "principal", "session", deadline_ms, 1_000)
 
@@ -137,6 +156,57 @@ def test_process_supervisor_rejects_unserializable_provider_safely() -> None:
 
     assert caught.value.code == "provider_worker_not_serializable"
     assert "lambda" not in str(caught.value.as_dict())
+
+
+def test_process_supervisor_rejects_oversized_result_without_decoding_it() -> None:
+    with pytest.raises(CapabilityHubError) as caught:
+        ProcessProviderSupervisor(max_message_bytes=1_024).execute(
+            _HugeProvider(), IDENTITY, REQUEST, _context()
+        )
+
+    assert caught.value.code == "provider_worker_result_too_large"
+    assert caught.value.category is ErrorCategory.BUDGET
+
+
+def test_strict_local_policy_rejects_unknown_provider_instead_of_fake_isolation() -> None:
+    with pytest.raises(CapabilityHubError) as caught:
+        ProcessProviderSupervisor(strict_local_providers=True).execute(
+            _Provider(), IDENTITY, REQUEST, _context()
+        )
+
+    assert caught.value.code == "provider_worker_type_unsupported"
+    assert caught.value.category is ErrorCategory.POLICY
+
+
+def test_strict_local_policy_rejects_brokered_http_before_worker_spawn() -> None:
+    manifest = CapabilityManifest(
+        identity=IDENTITY,
+        kind=CapabilityKind.API,
+        summary="Secret boundary fixture",
+        provider="http-api",
+        operations=(OperationSpec("run", OperationType.EXECUTE),),
+    )
+    provider = HttpApiProvider(
+        (
+            HttpApiFixture(
+                manifest,
+                "http://127.0.0.1:9",
+                {"run": HttpInvocation("GET", "/")},
+                headers=EnvironmentHeaders((("Authorization", "PRIVATE_ALIAS"),)),
+            ),
+        )
+    )
+
+    with pytest.raises(CapabilityHubError) as caught:
+        ProcessProviderSupervisor(strict_local_providers=True).execute(
+            provider,
+            IDENTITY,
+            REQUEST,
+            _context(),
+        )
+
+    assert caught.value.code == "provider_worker_secret_boundary_unsupported"
+    assert "PRIVATE_ALIAS" not in repr(caught.value.as_dict())
 
 
 def test_service_can_execute_static_provider_through_process_supervisor() -> None:

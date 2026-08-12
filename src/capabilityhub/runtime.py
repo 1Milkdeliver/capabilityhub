@@ -27,6 +27,7 @@ from capabilityhub.approval_store import (
     SqliteApprovalStore,
 )
 from capabilityhub.audit import AuditEvent, AuditSink, JsonlAuditSink, read_jsonl_audit
+from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
 from capabilityhub.compatibility import (
@@ -52,7 +53,7 @@ from capabilityhub.drained_service import (
     DrainedCapabilityHubService,
     SignedExecutionBindingResolver,
 )
-from capabilityhub.draining import DrainController, LifecycleState
+from capabilityhub.draining import DrainController, DrainOutcome, LifecycleState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.hierarchical_budget import (
     DurableHierarchicalBudgetProvider,
@@ -94,7 +95,7 @@ from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.residency import ResidentSection
 from capabilityhub.retention import AuditRetentionManager
-from capabilityhub.search import LexicalCapabilitySearch, SearchResponse
+from capabilityhub.search import SearchResponse
 from capabilityhub.secure_audit import SecureAuditLedger
 from capabilityhub.service import (
     CapabilityHubService,
@@ -137,6 +138,7 @@ DEFAULT_LOCAL_HTTP_AGGREGATE_BUDGETS = {
     counter: limit * 100 for counter, limit in DEFAULT_LOCAL_BUDGETS.items()
 }
 LOCAL_POLICY_REVISION = "local-v1"
+_LOCAL_STORE_INIT_LOCK = RLock()
 DEFAULT_CONTEXT_TOKENS = 16_000
 SECURE_AUDIT_KEY_ENV = "CAPABILITYHUB_AUDIT_KEY"
 LOCAL_LAST_GOOD_MAX_AGE_SECONDS = 300.0
@@ -320,6 +322,8 @@ def local_search(
     *,
     kinds: list[str] | None = None,
     limit: int = 8,
+    granted_permissions: list[str] | None = None,
+    parameter_authorizer: ParameterAuthorizer | None = None,
     project_root: str | Path | None = None,
     monitor: LocalCatalogMonitor | None = None,
 ) -> dict[str, JsonValue]:
@@ -328,13 +332,31 @@ def local_search(
     selected = _select_local_scope(project_root, monitor)
     snapshot = selected.snapshot()
     dependency = _local_dependency_decision(snapshot, DependencyOperation.SEARCH)
-    enforce_dependency_decision(dependency)
-    response = LexicalCapabilitySearch(
-        snapshot.registry,
-        ReferenceSigner(b"capabilityhub-local-cli-search"),
-    ).search(
+    signer = ReferenceSigner(b"capabilityhub-local-cli-search")
+    service = CapabilityHubService(
+        registry=snapshot.registry,
+        providers=snapshot.providers,
+        references=signer,
+        audit=_audit_sink(selected.project),
+        dependency_decider=lambda _operation: dependency,
+    )
+    if granted_permissions is None and parameter_authorizer is None:
+        granted_permissions = sorted(
+            {
+                permission
+                for revision in snapshot.registry.activations.values()
+                for permission in snapshot.registry.revision(revision).permissions
+            }
+        )
+    context = _local_context(
+        granted_permissions,
+        parameter_authorizer=parameter_authorizer,
+    )
+    response = service.search(
         query,
-        scope="local-cli",
+        task_id="local-cli",
+        context=context,
+        budget=BudgetLedger("local-search", {"bytes": 1_000_000, "portable_tokens": 900}),
         kinds=kinds,
         limit=limit,
         max_output_tokens=900,
@@ -875,6 +897,7 @@ def local_load(
     section_names: list[str] | None = None,
     operation_names: list[str] | None = None,
     granted_permissions: list[str] | None = None,
+    parameter_authorizer: ParameterAuthorizer | None = None,
     max_output_tokens: int = 2_000,
     project_root: str | Path | None = None,
     monitor: LocalCatalogMonitor | None = None,
@@ -898,7 +921,10 @@ def local_load(
         audit=audit,
         dependency_decider=lambda _operation: dependency,
     )
-    context = _local_context(granted_permissions)
+    context = _local_context(
+        granted_permissions,
+        parameter_authorizer=parameter_authorizer,
+    )
     budget = _persistent_budget(selected.project)
     load_ref = signer.issue(
         revision=revision,
@@ -1060,9 +1086,11 @@ def local_execute(
     arguments: dict[str, JsonValue],
     *,
     granted_permissions: list[str] | None = None,
+    parameter_authorizer: ParameterAuthorizer | None = None,
     approval_id: str | None = None,
     allow_irreversible: bool = False,
     idempotency_key: str | None = None,
+    deadline_ms: int = 30_000,
     max_output_tokens: int = 2_000,
     project_root: str | Path | None = None,
     monitor: LocalCatalogMonitor | None = None,
@@ -1075,9 +1103,11 @@ def local_execute(
         arguments,
         _CONFIGURED_PROVIDER,
         granted_permissions=granted_permissions,
+        parameter_authorizer=parameter_authorizer,
         approval_id=approval_id,
         allow_irreversible=allow_irreversible,
         idempotency_key=idempotency_key,
+        deadline_ms=deadline_ms,
         max_output_tokens=max_output_tokens,
         project_root=project_root,
         monitor=monitor,
@@ -1091,6 +1121,7 @@ def local_execute_static(
     fixture_output: JsonValue,
     *,
     granted_permissions: list[str] | None = None,
+    parameter_authorizer: ParameterAuthorizer | None = None,
     approved: bool = False,
     allow_irreversible: bool = False,
     idempotency_key: str | None = None,
@@ -1106,6 +1137,7 @@ def local_execute_static(
         arguments,
         fixture_output,
         granted_permissions=granted_permissions,
+        parameter_authorizer=parameter_authorizer,
         approved=approved,
         approval_id=None,
         allow_irreversible=allow_irreversible,
@@ -1123,10 +1155,12 @@ def _local_execute(
     fixture_output: JsonValue | object,
     *,
     granted_permissions: list[str] | None = None,
+    parameter_authorizer: ParameterAuthorizer | None = None,
     approved: bool = False,
     approval_id: str | None = None,
     allow_irreversible: bool = False,
     idempotency_key: str | None = None,
+    deadline_ms: int = 30_000,
     max_output_tokens: int = 2_000,
     project_root: str | Path | None = None,
     monitor: LocalCatalogMonitor | None = None,
@@ -1157,13 +1191,15 @@ def _local_execute(
         providers=providers,
         references=signer,
         audit=audit,
-        idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),
-        provider_supervisor=ProcessProviderSupervisor(),
+        idempotency_store=_local_idempotency_store(selected.project),
+        provider_supervisor=ProcessProviderSupervisor(strict_local_providers=True),
         dependency_decider=dependency_decider,
     )
     context = _local_context(
         granted_permissions,
+        parameter_authorizer=parameter_authorizer,
         allow_irreversible=allow_irreversible,
+        deadline_ms=deadline_ms,
     )
     budget = _persistent_budget(selected.project)
     load_ref = signer.issue(
@@ -1579,17 +1615,43 @@ class _RefreshingDrainedHttpService:
             self._timers.append(timer)
             timer.start()
 
-    @staticmethod
     def _advance_safely(
+        self,
         service: DrainedCapabilityHubService,
         coordinate: str,
         revision: str,
         deadline: float,
     ) -> None:
         try:
-            service.advance_drain(coordinate, revision, deadline=deadline)
+            remaining = deadline - monotonic()
+            if remaining > 0:
+                self._schedule_advance(service, coordinate, revision, deadline, remaining)
+                return
+            dispatch = service.advance_drain(coordinate, revision, deadline=deadline)
+            if dispatch.progress.outcome is DrainOutcome.WAITING:
+                self._schedule_advance(service, coordinate, revision, deadline, 0.01)
         except Exception:
             return
+
+    def _schedule_advance(
+        self,
+        service: DrainedCapabilityHubService,
+        coordinate: str,
+        revision: str,
+        deadline: float,
+        delay: float,
+    ) -> None:
+        with self._lock:
+            if self._closed:
+                return
+            timer = Timer(
+                max(delay, 0.001),
+                self._advance_safely,
+                args=(service, coordinate, revision, deadline),
+            )
+            timer.daemon = True
+            self._timers.append(timer)
+            timer.start()
 
 
 class _LifecycleLoopbackHttpControl(LoopbackHttpControl):
@@ -1794,13 +1856,24 @@ def _bootstrap_update_pointer(manager: StagedUpdateManager, coordinate: str) -> 
 def _local_context(
     granted_permissions: list[str] | None,
     *,
+    parameter_authorizer: ParameterAuthorizer | None = None,
     allow_irreversible: bool = False,
+    deadline_ms: int = 30_000,
 ) -> ServiceContext:
+    permissions = frozenset(granted_permissions or ())
+    if parameter_authorizer is not None:
+        permissions = (
+            parameter_authorizer.granted_permissions
+            if granted_permissions is None
+            else permissions.intersection(parameter_authorizer.granted_permissions)
+        )
     return ServiceContext(
         "local",
         "operator",
         "cli",
-        granted_permissions=frozenset(granted_permissions or ()),
+        deadline_ms=deadline_ms,
+        granted_permissions=permissions,
+        parameter_authorizer=parameter_authorizer,
         allow_irreversible=allow_irreversible,
     )
 
@@ -1931,6 +2004,12 @@ def _audit_events(project: Path, *, limit: int) -> tuple[AuditEvent, ...]:
 
 def _state_path(project: Path) -> Path:
     return project / ".capabilityhub" / "state.sqlite3"
+
+
+def _local_idempotency_store(project: Path) -> SqliteIdempotencyStore:
+    # SQLite WAL initialization takes a transient exclusive lock on first use.
+    with _LOCAL_STORE_INIT_LOCK:
+        return SqliteIdempotencyStore(_state_path(project))
 
 
 def _budget_hmac_key_path(project: Path) -> Path:

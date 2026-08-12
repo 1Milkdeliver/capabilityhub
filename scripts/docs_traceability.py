@@ -78,7 +78,7 @@ IMPLEMENTED_EVIDENCE = {
     ),
     "R18": (
         ("src/capabilityhub/approval_store.py", "class ApprovalIntent"),
-        ("tests/test_admin_entry_consistency.py", "exact_authenticated_principal"),
+        ("tests/test_admin_entry_consistency.py", "distinct_authenticated_approver"),
     ),
     "R19": (
         ("src/capabilityhub/supply_chain_bundle.py", "class SigstoreBundleVerifier"),

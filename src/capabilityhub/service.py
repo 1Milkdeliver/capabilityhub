@@ -519,7 +519,10 @@ class CapabilityHubService:
             reservation = budget.reserve({"executions": 1, "portable_tokens": limit})
             try:
                 replay, idempotency_slot = self._admit_idempotency(
-                    request, context, manifest.identity.revision
+                    request,
+                    context,
+                    manifest.identity.revision,
+                    operation.side_effect,
                 )
             except Exception:
                 reservation.cancel()
@@ -675,6 +678,7 @@ class CapabilityHubService:
         request: ExecutionRequest,
         context: ServiceContext,
         revision: str,
+        side_effect: SideEffect,
     ) -> tuple[ExecutionResult | None, IdempotencySlot | None]:
         key = request.idempotency_key
         if key is None:
@@ -692,12 +696,23 @@ class CapabilityHubService:
             request.operation,
             key,
         )
-        arguments_digest = _json_digest(dict(request.arguments))
+        arguments_digest = _json_digest(
+            {
+                "arguments": dict(request.arguments),
+                "side_effect": side_effect.value,
+            }
+        )
         existing: _IdempotencyRecord | IdempotencyRecord | None
         if self._idempotency_store is not None:
             existing = self._idempotency_store.reserve(slot, arguments_digest)
             if existing is None:
                 return None, slot
+            if existing.status == "in_progress":
+                existing = self._idempotency_store.wait(
+                    slot,
+                    arguments_digest,
+                    context.deadline_ms / 1_000,
+                )
         else:
             with self._shared.lock:
                 existing = self._shared.idempotency.get(slot)

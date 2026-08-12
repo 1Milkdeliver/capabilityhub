@@ -109,6 +109,13 @@ class MetricSnapshot:
     updated_at: float
 
 
+@dataclass(frozen=True, slots=True)
+class ObservabilityHealth:
+    status: str
+    failure_count: int
+    error_code: str | None = None
+
+
 @dataclass(slots=True)
 class _MetricAccumulator:
     count: int = 0
@@ -179,6 +186,8 @@ class InMemoryObservability:
         self._clock = clock
         self._wall_clock = wall_clock
         self._lock = RLock()
+        self._failure_count = 0
+        self._last_error: str | None = None
 
     @property
     def spans(self) -> tuple[SpanRecord, ...]:
@@ -218,6 +227,14 @@ class InMemoryObservability:
         lines = [json.dumps(envelope, sort_keys=True, separators=(",", ":"))]
         lines.extend(_metric_json(snapshot) for snapshot in self.metric_snapshots(limit=limit))
         return "\n".join(lines) + "\n"
+
+    def health(self) -> ObservabilityHealth:
+        with self._lock:
+            return ObservabilityHealth(
+                status="ok" if self._last_error is None else "degraded",
+                failure_count=self._failure_count,
+                error_code=self._last_error,
+            )
 
     def _finish(
         self,
@@ -279,9 +296,11 @@ class InMemoryObservability:
             if self._persistent_metrics is not None:
                 try:
                     self._persistent_metrics.increment(selected_key, record, updated_at=updated_at)
-                except CapabilityHubError:
-                    raise
                 except Exception as error:
+                    self._failure_count += 1
+                    self._last_error = "observability_persistence_failed"
+                    if isinstance(error, CapabilityHubError):
+                        raise
                     raise _observation_error("observability_persistence_failed") from error
         return record
 

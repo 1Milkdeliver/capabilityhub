@@ -15,7 +15,7 @@ from pathlib import Path
 from threading import RLock
 from typing import Any
 
-from capabilityhub.audit import AuditEvent
+from capabilityhub.audit import AuditEvent, AuditSink
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 
 AUDIT_SCHEMA = "capabilityhub.secure-audit"
@@ -29,7 +29,6 @@ _SAFE_METADATA = frozenset(
     {
         "operation",
         "operation_count",
-        "provider",
         "result_count",
         "section_count",
         "skill_load_only",
@@ -49,6 +48,88 @@ class ChainVerification:
     first_hash: str | None
     last_hash: str
     error_code: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class AuditHealth:
+    status: str
+    failure_count: int
+    error_code: str | None = None
+
+
+def load_or_create_signing_key(path: str | Path, *, size: int = 32) -> bytes:
+    """Load or atomically create a local owner-only audit key."""
+
+    if not 32 <= size <= 128:
+        raise ValueError("size must be between 32 and 128")
+    selected = Path(path).resolve()
+    selected.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        descriptor = os.open(
+            selected,
+            os.O_CREAT | os.O_EXCL | os.O_WRONLY | getattr(os, "O_BINARY", 0),
+            0o600,
+        )
+    except FileExistsError:
+        descriptor = -1
+    except OSError as error:
+        raise _audit_error(
+            "secure_audit_key_unavailable", "The secure audit key is unavailable."
+        ) from error
+    if descriptor >= 0:
+        key = os.urandom(size)
+        try:
+            if os.write(descriptor, key) != len(key):
+                raise OSError("short key write")
+            os.fsync(descriptor)
+        except OSError as error:
+            with suppress(OSError):
+                selected.unlink(missing_ok=True)
+            raise _audit_error(
+                "secure_audit_key_unavailable", "The secure audit key is unavailable."
+            ) from error
+        finally:
+            os.close(descriptor)
+    try:
+        key = selected.read_bytes()
+        os.chmod(selected, 0o600)
+    except OSError as error:
+        raise _audit_error(
+            "secure_audit_key_unavailable", "The secure audit key is unavailable."
+        ) from error
+    if len(key) < 32 or len(key) > 128:
+        raise _audit_error("secure_audit_key_invalid", "The secure audit key is invalid.")
+    return key
+
+
+class ResilientAuditSink:
+    """Keep audit failures observable without changing the business result."""
+
+    def __init__(self, sink: AuditSink | None, *, initial_error: str | None = None) -> None:
+        self._sink = sink
+        self._lock = RLock()
+        self._failures = int(initial_error is not None)
+        self._error = initial_error
+
+    def emit(self, event: AuditEvent) -> None:
+        try:
+            sink = self._sink
+            if sink is None:
+                raise RuntimeError("audit unavailable")
+            sink.emit(event)
+        except Exception as error:
+            code = error.code if isinstance(error, CapabilityHubError) else "secure_audit_failed"
+            with self._lock:
+                self._failures += 1
+                self._error = code
+
+    def health(self) -> AuditHealth:
+        with self._lock:
+            return AuditHealth(
+                status="ok" if self._error is None else "degraded",
+                failure_count=self._failures,
+                error_code=self._error,
+            )
 
 
 class SecureAuditLedger:
@@ -319,7 +400,7 @@ def _safe_event(event: AuditEvent) -> dict[str, Any]:
         elif isinstance(value, (bool, int)):
             metadata[name] = value
     return {
-        "capability_revision": event.capability_revision,
+        "capability_revision": _identity_digest(event.capability_revision),
         "event_id": event.event_id,
         "event_type": event.event_type,
         "metadata": metadata,
@@ -328,8 +409,14 @@ def _safe_event(event: AuditEvent) -> dict[str, Any]:
         "portable_tokens": event.portable_tokens,
         "reason_codes": list(event.reason_codes),
         "sequence": event.sequence,
-        "task_id": event.task_id,
+        "task_id": _identity_digest(event.task_id),
     }
+
+
+def _identity_digest(value: str | None) -> str | None:
+    if value is None:
+        return None
+    return hashlib.sha256(b"capabilityhub-audit-identity-v1\0" + value.encode()).hexdigest()
 
 
 def _safe_identifier(value: object, maximum: int) -> bool:

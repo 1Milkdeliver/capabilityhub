@@ -157,6 +157,44 @@ def test_real_service_roundtrip_uses_same_logic_for_every_adapter_kind(kind: Ada
     json.dumps(executed)
 
 
+def test_http_shared_adapter_propagates_idempotency_key_for_result_reuse() -> None:
+    adapter = _setup(AdapterKind.HTTP)
+    search = adapter.dispatch(
+        _request(
+            adapter,
+            "capability.search",
+            {"query": "records", "task_id": "task", "kinds": ["api"]},
+        )
+    )
+    assert isinstance(search, dict)
+    cards = search["cards"]
+    assert isinstance(cards, list)
+    loaded = adapter.dispatch(
+        _request(
+            adapter,
+            "capability.load",
+            {
+                "capability_ref": cards[0]["capability_ref"],
+                "task_id": "task",
+                "operation_names": ["find"],
+            },
+        )
+    )
+    assert isinstance(loaded, dict)
+    payload = {
+        "execution_ref": loaded["execution_ref"],
+        "operation": "find",
+        "arguments": {},
+        "task_id": "task",
+        "idempotency_key": "http-shared-key",
+    }
+
+    first = adapter.dispatch(_request(adapter, "capability.execute", payload))
+    replay = adapter.dispatch(_request(adapter, "capability.execute", payload))
+
+    assert replay == first
+
+
 @pytest.mark.parametrize(
     ("operation", "payload"),
     [

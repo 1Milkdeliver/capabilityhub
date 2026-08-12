@@ -7,7 +7,12 @@ import pytest
 
 from capabilityhub.audit import AuditEvent
 from capabilityhub.errors import CapabilityHubError
-from capabilityhub.secure_audit import SecureAuditLedger, verify_audit_chain
+from capabilityhub.secure_audit import (
+    ResilientAuditSink,
+    SecureAuditLedger,
+    load_or_create_signing_key,
+    verify_audit_chain,
+)
 
 KEY = b"secure-audit-test-key-32-bytes!"
 
@@ -41,6 +46,19 @@ def _tamper_line(path, index: int) -> None:
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def test_local_key_is_stable_and_resilient_sink_reports_safe_degradation(tmp_path) -> None:
+    path = tmp_path / "private" / "audit.key"
+    assert load_or_create_signing_key(path) == load_or_create_signing_key(path)
+    assert len(path.read_bytes()) == 32
+
+    sink = ResilientAuditSink(None, initial_error="secure_audit_unavailable")
+    sink.emit(_event(1))
+    health = sink.health()
+    assert health.status == "degraded"
+    assert health.failure_count == 2
+    assert health.error_code == "secure_audit_failed"
+
+
 def test_secure_audit_appends_verifiable_redacted_chain(tmp_path) -> None:
     ledger = SecureAuditLedger(tmp_path / "current", signing_key=KEY)
     ledger.emit(_event(1))
@@ -53,6 +71,8 @@ def test_secure_audit_appends_verifiable_redacted_chain(tmp_path) -> None:
     assert verification.record_count == 2
     assert verification.first_hash is not None
     assert verification.last_hash != verification.first_hash
+    assert "task-1" not in content
+    assert "test/tool" not in content
     assert "SECRET-" not in content
     assert '"operation":"run"' in content
 

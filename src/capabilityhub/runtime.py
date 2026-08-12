@@ -26,7 +26,7 @@ from capabilityhub.approval_store import (
     ApprovalStatus,
     SqliteApprovalStore,
 )
-from capabilityhub.audit import AuditEvent, AuditSink, JsonlAuditSink, read_jsonl_audit
+from capabilityhub.audit import AuditEvent, AuditSink
 from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
@@ -83,6 +83,7 @@ from capabilityhub.models import (
     ReasoningTier,
     SideEffect,
 )
+from capabilityhub.observability import InMemoryObservability, SqliteMetricStore
 from capabilityhub.openapi_import import OpenApiSelection, import_openapi_file
 from capabilityhub.orchestration import ReasoningOrchestrator
 from capabilityhub.protocol import AdapterKind
@@ -96,7 +97,11 @@ from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.residency import ResidentSection
 from capabilityhub.retention import AuditRetentionManager
 from capabilityhub.search import SearchResponse
-from capabilityhub.secure_audit import SecureAuditLedger
+from capabilityhub.secure_audit import (
+    ResilientAuditSink,
+    SecureAuditLedger,
+    load_or_create_signing_key,
+)
 from capabilityhub.service import (
     CapabilityHubService,
     ServiceContext,
@@ -402,6 +407,8 @@ def local_health(
     checks.append(
         {"check": "mcp_sdk", "status": "available" if util.find_spec("mcp") else "missing"}
     )
+    audit_health = _audit_health(project)
+    checks.append({"check": "secure_audit", "status": audit_health})
     home_dir = Path(home).resolve() if home is not None else Path.home()
     config = home_dir / ".codex" / "config.toml"
     config_status = "missing"
@@ -418,7 +425,11 @@ def local_health(
         version = metadata.version("capabilityhub")
     except metadata.PackageNotFoundError:
         version = "source"
-    overall = "ok" if project_ok and assets_ok and config_status != "invalid" else "degraded"
+    overall = (
+        "ok"
+        if project_ok and assets_ok and config_status != "invalid" and audit_health == "ok"
+        else "degraded"
+    )
     return {
         "catalog_loaded": False,
         "checks": checks,
@@ -573,11 +584,10 @@ def local_secure_audit(
     max_segments: int = 10,
     project_root: str | Path | None = None,
 ) -> dict[str, JsonValue]:
-    """Verify, rotate, list, or export the opt-in HMAC audit ledger."""
+    """Verify, rotate, list, or export the default HMAC audit ledger."""
 
     project = _catalog_project(project_root)
-    key = _secure_audit_key(required=True)
-    assert key is not None
+    key = _secure_audit_key(project)
     manager = AuditRetentionManager(
         _secure_audit_root(project),
         signing_key=key,
@@ -614,6 +624,34 @@ def local_secure_audit(
     raise ValueError("secure audit action must be verify, list, rotate, or export")
 
 
+def local_observability(
+    action: str = "list",
+    *,
+    destination: str | Path | None = None,
+    limit: int = 500,
+    project_root: str | Path | None = None,
+) -> dict[str, JsonValue]:
+    """Read or export privacy-minimized aggregate runtime metrics."""
+
+    store = SqliteMetricStore(_state_path(_catalog_project(project_root)))
+    if action == "list":
+        return {
+            "metrics": [
+                cast(dict[str, JsonValue], _jsonable(item))
+                for item in store.snapshots(limit=limit)
+            ],
+            "limit": limit,
+        }
+    if action == "export":
+        if destination is None:
+            raise ValueError("observability export requires a destination")
+        target = Path(destination).resolve()
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(store.export_jsonl(limit=limit), encoding="utf-8")
+        return {"exported": True, "destination": str(target)}
+    raise ValueError("observability action must be list or export")
+
+
 def local_loaded(
     project_root: str | Path | None = None,
     *,
@@ -624,8 +662,36 @@ def local_loaded(
 
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
-    events = _audit_events(selected.project, limit=500)
+    events = _restore_audit_revisions(
+        _audit_events(selected.project, limit=500), generation.registry.revisions
+    )
     return loaded_view(generation.registry, events, limit=limit)
+
+
+def _restore_audit_revisions(
+    events: tuple[AuditEvent, ...], revisions: Mapping[str, CapabilityManifest]
+) -> tuple[AuditEvent, ...]:
+    by_digest = {
+        hashlib.sha256(
+            b"capabilityhub-audit-identity-v1\0" + revision.encode()
+        ).hexdigest(): revision
+        for revision in revisions
+    }
+    return tuple(
+        AuditEvent(
+            event.event_id,
+            event.sequence,
+            event.task_id,
+            event.event_type,
+            by_digest.get(event.capability_revision or "", event.capability_revision),
+            event.outcome,
+            event.portable_tokens,
+            event.payload_bytes,
+            event.reason_codes,
+            event.metadata,
+        )
+        for event in events
+    )
 
 
 def local_providers(
@@ -1191,7 +1257,10 @@ def _local_execute(
         providers=providers,
         references=signer,
         audit=audit,
-        idempotency_store=_local_idempotency_store(selected.project),
+        idempotency_store=_local_idempotency_store(
+            selected.project,
+            persist_results=fixture_output is _CONFIGURED_PROVIDER,
+        ),
         provider_supervisor=ProcessProviderSupervisor(strict_local_providers=True),
         dependency_decider=dependency_decider,
     )
@@ -1408,7 +1477,7 @@ def local_dashboard(
             "reasoning": local_reasoning("dashboard", project_root=selected.project),
             "updates": local_updates(monitor=selected),
             "secure_audit": {
-                "configured": _secure_audit_key(required=False) is not None,
+                "configured": True,
                 "key_environment": SECURE_AUDIT_KEY_ENV,
             },
         }
@@ -1688,7 +1757,7 @@ def local_http_control(
         providers=generation.providers,
         references=references,
         audit=_audit_sink(selected.project),
-        idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),
+        idempotency_store=_local_idempotency_store(selected.project),
         provider_supervisor=None,
     )
     context = ServiceContext(
@@ -1727,6 +1796,7 @@ def local_http_control(
         context_provider=lambda: context,
         budget_provider=budget_provider,
         inventory_provider=lifecycle_service.inventory,
+        observability=_runtime_observability(selected.project),
     )
     control = _LifecycleLoopbackHttpControl(adapter, port=port, lifecycle=lifecycle_service)
     return control, control.start()
@@ -1943,16 +2013,10 @@ def _secure_audit_root(project: Path) -> Path:
     return project / ".capabilityhub" / "secure-audit"
 
 
-def _secure_audit_key(*, required: bool) -> bytes | None:
+def _secure_audit_key(project: Path) -> bytes:
     raw = os.environ.get(SECURE_AUDIT_KEY_ENV)
     if raw is None:
-        if not required:
-            return None
-        raise CapabilityHubError(
-            code="secure_audit_key_missing",
-            category=ErrorCategory.INPUT,
-            safe_message=f"Set {SECURE_AUDIT_KEY_ENV} to use secure audit controls.",
-        )
+        return load_or_create_signing_key(project / ".capabilityhub" / "audit-hmac.key")
     key = raw.encode("utf-8")
     if len(key) < 16:
         raise CapabilityHubError(
@@ -1964,18 +2028,29 @@ def _secure_audit_key(*, required: bool) -> bytes | None:
 
 
 def _audit_sink(project: Path) -> AuditSink:
-    key = _secure_audit_key(required=False)
-    if key is None:
-        return JsonlAuditSink(_audit_path(project))
-    return SecureAuditLedger(_secure_audit_root(project) / "current", signing_key=key)
+    try:
+        ledger = SecureAuditLedger(
+            _secure_audit_root(project) / "current", signing_key=_secure_audit_key(project)
+        )
+    except Exception as error:
+        code = error.code if isinstance(error, CapabilityHubError) else "secure_audit_unavailable"
+        return ResilientAuditSink(None, initial_error=code)
+    return ResilientAuditSink(ledger)
+
+
+def _audit_health(project: Path) -> str:
+    try:
+        verification = SecureAuditLedger(
+            _secure_audit_root(project) / "current", signing_key=_secure_audit_key(project)
+        ).verify()
+    except Exception:
+        return "degraded"
+    return "ok" if verification.valid else "degraded"
 
 
 def _audit_events(project: Path, *, limit: int) -> tuple[AuditEvent, ...]:
-    key = _secure_audit_key(required=False)
-    if key is None:
-        return read_jsonl_audit(_audit_path(project), limit=limit)
     _, records = SecureAuditLedger(
-        _secure_audit_root(project) / "current", signing_key=key
+        _secure_audit_root(project) / "current", signing_key=_secure_audit_key(project)
     ).verified_records()
     events: list[AuditEvent] = []
     for record in records[-limit:]:
@@ -2002,14 +2077,30 @@ def _audit_events(project: Path, *, limit: int) -> tuple[AuditEvent, ...]:
     return tuple(events)
 
 
+def _runtime_observability(project: Path) -> InMemoryObservability:
+    return InMemoryObservability(
+        allowed_error_codes=("other_error",),
+        span_limit=1_000,
+        metric_series_limit=2_000,
+        persistent_metrics=SqliteMetricStore(_state_path(project)),
+    )
+
+
 def _state_path(project: Path) -> Path:
     return project / ".capabilityhub" / "state.sqlite3"
 
 
-def _local_idempotency_store(project: Path) -> SqliteIdempotencyStore:
+def _local_idempotency_store(
+    project: Path, *, persist_results: bool = True
+) -> SqliteIdempotencyStore:
     # SQLite WAL initialization takes a transient exclusive lock on first use.
     with _LOCAL_STORE_INIT_LOCK:
-        return SqliteIdempotencyStore(_state_path(project))
+        return SqliteIdempotencyStore(
+            _state_path(project),
+            persist_results=persist_results,
+            result_ttl_seconds=300,
+            max_result_bytes=1_000_000,
+        )
 
 
 def _budget_hmac_key_path(project: Path) -> Path:

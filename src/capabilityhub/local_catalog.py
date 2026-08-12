@@ -18,6 +18,7 @@ from capabilityhub.models import (
     OperationSpec,
     OperationType,
 )
+from capabilityhub.projections import ProjectionPolicy, ProjectionResolution, resolve_projections
 from capabilityhub.provider_config import project_providers
 from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.skill import SkillProvider
@@ -41,6 +42,7 @@ class LocalCatalog:
     skipped_count: int = 0
     duplicate_count: int = 0
     conflict_count: int = 0
+    projection_resolution: ProjectionResolution | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +55,7 @@ def discover_local_catalog(
     *,
     home: Path | None = None,
     project: Path | None = None,
+    projection_policy: ProjectionPolicy | None = None,
 ) -> LocalCatalog:
     """Discover safe local metadata without executing capability code."""
 
@@ -110,6 +113,16 @@ def discover_local_catalog(
     quarantined = frozenset(
         coordinate for coordinate, state in states.items() if state == "quarantined"
     )
+    selected_policy = projection_policy or ProjectionPolicy("isolate")
+    projection_resolution = resolve_projections(manifests, selected_policy)
+    projection_excluded = projection_resolution.excluded_coordinates
+    if projection_excluded:
+        manifests = [
+            manifest
+            for manifest in manifests
+            if manifest.identity.coordinate not in projection_excluded
+        ]
+        inactive_coordinates = inactive_coordinates | projection_excluded
     return LocalCatalog(
         tuple(manifests),
         tuple(providers),
@@ -121,6 +134,7 @@ def discover_local_catalog(
         skipped_count=skipped_count,
         duplicate_count=duplicate_count,
         conflict_count=conflict_count,
+        projection_resolution=projection_resolution,
     )
 
 

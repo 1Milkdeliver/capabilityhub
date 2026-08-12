@@ -81,6 +81,32 @@ class ProjectionResolution:
     collisions: tuple[ProjectionCollision, ...]
     decisions: tuple[ProjectionDecision, ...]
 
+    @property
+    def excluded_coordinates(self) -> frozenset[str]:
+        return frozenset(
+            decision.claim.coordinate
+            for decision in self.decisions
+            if decision.action == "excluded"
+        )
+
+    @property
+    def digest(self) -> str:
+        """Return a deterministic digest of the final, already-redacted projection."""
+
+        document = [
+            [
+                decision.claim.claim_type,
+                decision.claim.resource_id,
+                decision.claim.coordinate,
+                decision.action,
+                decision.effective_resource_id,
+            ]
+            for decision in self.decisions
+        ]
+        return "sha256:" + hashlib.sha256(
+            json.dumps(document, separators=(",", ":"), ensure_ascii=True).encode()
+        ).hexdigest()
+
 
 def extract_projection_claims(manifest: CapabilityManifest) -> tuple[ProjectionClaim, ...]:
     """Extract normalized claims without interpreting or executing driver material."""

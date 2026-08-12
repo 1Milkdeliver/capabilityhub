@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from threading import Event, Lock
 
 import pytest
 
@@ -13,6 +15,7 @@ from capabilityhub.models import (
     CapabilityKind,
     CapabilityManifest,
     ExecutionRequest,
+    ExecutionResult,
     OperationSpec,
     OperationType,
 )
@@ -29,6 +32,18 @@ class _CountingProvider(StaticProvider):
     def execute(self, identity, request, context: ProviderContext):
         self.calls += 1
         return super().execute(identity, request, context)
+
+
+class _ConcurrentProvider(_CountingProvider):
+    calls = 0
+    _lock = Lock()
+    release = Event()
+
+    def execute(self, identity, request, context: ProviderContext):
+        with self._lock:
+            type(self).calls += 1
+        self.release.wait(timeout=2)
+        return StaticProvider.execute(self, identity, request, context)
 
 
 def _manifest() -> CapabilityManifest:
@@ -111,3 +126,76 @@ def test_restart_marks_abandoned_in_progress_record_uncertain(tmp_path) -> None:
 
     assert record is not None
     assert record.status == "uncertain"
+
+
+def test_concurrent_durable_requests_execute_provider_once_and_reuse_result(tmp_path) -> None:
+    _ConcurrentProvider.calls = 0
+    _ConcurrentProvider.release.clear()
+    provider = _ConcurrentProvider([StaticFixture(_manifest(), {"read": {"ok": True}})])
+    service = _service(tmp_path / "state.sqlite3", provider, persist_results=True)
+    context = ServiceContext("tenant", "principal", "session", deadline_ms=2_000)
+    setup_budget = BudgetLedger(
+        "task", {"bytes": 10_000, "executions": 2, "loads": 2, "portable_tokens": 2_000}
+    )
+    card = service.search(
+        "idempotent", task_id="task", context=context, budget=setup_budget
+    ).cards[0]
+    loaded = service.load(
+        card.capability_ref, task_id="task", context=context, budget=setup_budget
+    )
+    request = ExecutionRequest(
+        loaded.execution_ref,
+        "read",
+        {"nested": {"b": 2, "a": 1}},
+        "task",
+        idempotency_key="concurrent-key",
+    )
+
+    def invoke(_index: int):
+        budget = BudgetLedger(
+            "task",
+            {"bytes": 10_000, "executions": 1, "loads": 1, "portable_tokens": 2_000},
+        )
+        return service.execute(request, context=context, budget=budget)
+
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        futures = [pool.submit(invoke, index) for index in range(8)]
+        while _ConcurrentProvider.calls == 0:
+            pass
+        _ConcurrentProvider.release.set()
+        results = [future.result(timeout=3) for future in futures]
+
+    assert _ConcurrentProvider.calls == 1
+    assert all(result == results[0] for result in results)
+
+
+def test_persisted_result_has_ttl_and_size_bounds(tmp_path) -> None:
+    now = [100.0]
+    path = tmp_path / "state.sqlite3"
+    slot = ("scope", "task", "revision", "operation", "key")
+    result = ExecutionResult("revision", "operation", {"value": "x"}, "provider", 1, "audit")
+    store = SqliteIdempotencyStore(
+        path,
+        persist_results=True,
+        result_ttl_seconds=2,
+        max_result_bytes=1_024,
+        clock=lambda: now[0],
+    )
+    assert store.reserve(slot, "digest") is None
+    store.complete(slot, result)
+    assert store.reserve(slot, "digest").result == result  # type: ignore[union-attr]
+    now[0] = 102.0
+    assert store.reserve(slot, "digest") is None
+
+    large_slot = ("scope", "task", "revision", "operation", "large")
+    assert store.reserve(large_slot, "digest") is None
+    store.complete(
+        large_slot,
+        ExecutionResult(
+            "revision", "operation", {"value": "x" * 2_000}, "provider", 1, "audit"
+        ),
+    )
+    oversized = store.reserve(large_slot, "digest")
+    assert oversized is not None
+    assert oversized.status == "complete"
+    assert oversized.result is None

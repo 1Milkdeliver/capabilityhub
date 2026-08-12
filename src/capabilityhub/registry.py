@@ -6,12 +6,14 @@ imports, initializes, or executes provider code.
 
 from __future__ import annotations
 
+import hashlib
 import re
 from collections.abc import Iterable, Mapping
 from types import MappingProxyType
 
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.models import CapabilityKind, CapabilityManifest, DependencySpec
+from capabilityhub.projections import ProjectionPolicy, ProjectionResolution, resolve_projections
 
 _SEMVER_RE = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$")
 
@@ -19,12 +21,14 @@ _SEMVER_RE = re.compile(r"^(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:[-+].*)?$")
 class CapabilityRegistry:
     """Revision store with deterministic validation and activation pointers."""
 
-    def __init__(self) -> None:
+    def __init__(self, *, projection_policy: ProjectionPolicy | None = None) -> None:
         self._revisions: dict[str, CapabilityManifest] = {}
         self._by_coordinate: dict[str, list[str]] = {}
         self._active: dict[str, str] = {}
         self._by_kind: dict[CapabilityKind, set[str]] = {kind: set() for kind in CapabilityKind}
         self._frozen = False
+        self._projection_policy = projection_policy or ProjectionPolicy("isolate")
+        self._projection_resolution = resolve_projections((), self._projection_policy)
 
     def freeze(self) -> None:
         """Prevent further revision or activation mutation."""
@@ -38,6 +42,10 @@ class CapabilityRegistry:
     @property
     def activations(self) -> Mapping[str, str]:
         return MappingProxyType(dict(self._active))
+
+    @property
+    def projection_resolution(self) -> ProjectionResolution:
+        return self._projection_resolution
 
     def register(self, manifest: CapabilityManifest) -> CapabilityManifest:
         """Store one immutable revision. Dependency activation is a separate step."""
@@ -67,11 +75,17 @@ class CapabilityRegistry:
                 )
             staged[revision] = manifest
 
+        projection_resolution = resolve_projections(
+            self._selected_manifest_values(staged),
+            self._projection_policy,
+        )
+
         # Do not require dependencies at install time: installers may stage a graph
         # incrementally. The graph can be checked with validate_staged, while active
         # pointers always require a complete, conflict-free active closure.
         self._revisions = staged
         self._rebuild_indexes()
+        self._projection_resolution = projection_resolution
         return additions
 
     def revision(self, revision: str) -> CapabilityManifest:
@@ -109,8 +123,21 @@ class CapabilityRegistry:
             )
         candidate = dict(self._active)
         candidate[coordinate] = chosen_revision
+        resolution = self._projection_resolution
+        if coordinate in resolution.excluded_coordinates:
+            raise _conflict(
+                "projection_coordinate_excluded",
+                "Capability was excluded by the active projection policy.",
+                projection_digest=resolution.digest,
+            )
+        candidate = {
+            item_coordinate: item_revision
+            for item_coordinate, item_revision in candidate.items()
+            if item_coordinate not in resolution.excluded_coordinates
+        }
         self._validate_active(candidate)
         self._active = candidate
+        self._projection_resolution = resolution
         return manifest
 
     def deactivate(self, coordinate: str) -> None:
@@ -134,6 +161,7 @@ class CapabilityRegistry:
         selected = self._selected_revisions(revisions)
         self._validate_dependencies(selected)
         self._validate_conflicts(selected)
+        resolve_projections(selected.values(), self._projection_policy)
 
     def validate_active(self) -> None:
         """Validate current pointers, primarily useful for import/recovery checks."""
@@ -144,6 +172,15 @@ class CapabilityRegistry:
         selected = {coordinate: self.revision(revision) for coordinate, revision in active.items()}
         self._validate_dependencies(selected, require_active=True)
         self._validate_conflicts(selected)
+        self._resolve_active_projections(active)
+
+    def _resolve_active_projections(
+        self, active: Mapping[str, str]
+    ) -> ProjectionResolution:
+        return resolve_projections(
+            (self.revision(revision) for revision in active.values()),
+            self._projection_policy,
+        )
 
     def _selected_revisions(self, revisions: Iterable[str] | None) -> dict[str, CapabilityManifest]:
         source = tuple(self._revisions) if revisions is None else tuple(revisions)
@@ -155,6 +192,18 @@ class CapabilityRegistry:
             coordinate: max(items, key=_revision_order)
             for coordinate, items in sorted(candidates.items())
         }
+
+    @staticmethod
+    def _selected_manifest_values(
+        revisions: Mapping[str, CapabilityManifest],
+    ) -> tuple[CapabilityManifest, ...]:
+        candidates: dict[str, list[CapabilityManifest]] = {}
+        for manifest in revisions.values():
+            candidates.setdefault(manifest.identity.coordinate, []).append(manifest)
+        return tuple(
+            max(items, key=_revision_order)
+            for _coordinate, items in sorted(candidates.items())
+        )
 
     def _validate_dependencies(
         self, selected: Mapping[str, CapabilityManifest], *, require_active: bool = False
@@ -203,7 +252,10 @@ class CapabilityRegistry:
                         "capability_conflict",
                         "Active capabilities claim the same exclusive conflict value.",
                         conflict_type=conflict.conflict_type,
-                        value=conflict.value,
+                        value_digest=_safe_conflict_digest(
+                            conflict.conflict_type,
+                            conflict.value,
+                        ),
                         coordinates=(previous, coordinate),
                     )
                 claims[key] = coordinate
@@ -352,3 +404,8 @@ def _conflict(code: str, message: str, **details: object) -> CapabilityHubError:
     return CapabilityHubError(
         code=code, category=ErrorCategory.CONFLICT, safe_message=message, details=details
     )
+
+
+def _safe_conflict_digest(conflict_type: str, value: str) -> str:
+    material = f"capabilityhub-conflict-v1\0{conflict_type}\0{value}".encode()
+    return "sha256:" + hashlib.sha256(material).hexdigest()

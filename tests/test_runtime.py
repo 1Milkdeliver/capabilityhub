@@ -275,7 +275,7 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert payload["context"]["entries"] == []
     assert payload["reasoning"]["current_tier"] is None
     assert payload["updates"]["states"] == []
-    assert payload["secure_audit"]["configured"] is False
+    assert payload["secure_audit"]["configured"] is True
     assert searched["total_matches"] == 1
     assert changed["active"] is False
     assert refreshed["inventory"]["active_by_kind"]["skill"] == 1

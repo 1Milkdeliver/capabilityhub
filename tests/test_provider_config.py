@@ -127,6 +127,38 @@ def test_local_execute_runs_configured_cli_in_spawned_worker(tmp_path: Path) -> 
     assert result["output"]["pid"] != os.getpid()  # type: ignore[index]
 
 
+def test_local_execute_reuses_durable_result_without_second_cli_side_effect(
+    tmp_path: Path,
+) -> None:
+    counter = tmp_path / "provider-calls.txt"
+    document = _manifest(sys.executable)
+    config = document["spec"]["driver"]["config"]  # type: ignore[index]
+    config["operations"]["run"]["argv"] = [  # type: ignore[index]
+        "-c",
+        (
+            "import json, pathlib, sys; p=pathlib.Path(sys.argv[1]); "
+            "p.write_text((p.read_text() if p.exists() else '')+'x'); "
+            "print(json.dumps({'ok': True}))"
+        ),
+        str(counter),
+    ]
+    root = tmp_path / ".capabilityhub" / "manifests"
+    root.mkdir(parents=True)
+    (root / "cli.json").write_text(json.dumps(document), encoding="utf-8")
+    monitor = LocalCatalogMonitor(project=tmp_path, home=tmp_path / "home")
+    revision = "project/configured-cli@1.0.0#sha256:" + ("a" * 64)
+
+    first = local_execute(
+        revision, "run", {}, monitor=monitor, idempotency_key="durable-local-key"
+    )
+    replay = local_execute(
+        revision, "run", {}, monitor=monitor, idempotency_key="durable-local-key"
+    )
+
+    assert replay["output"] == first["output"] == {"ok": True}
+    assert counter.read_text(encoding="utf-8") == "x"
+
+
 def test_concurrent_local_execute_calls_use_independent_workers(tmp_path: Path) -> None:
     document = _manifest(sys.executable)
     config = document["spec"]["driver"]["config"]  # type: ignore[index]

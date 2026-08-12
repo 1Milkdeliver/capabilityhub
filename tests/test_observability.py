@@ -242,6 +242,8 @@ def test_corrupt_persistence_and_sink_failures_are_stably_redacted(tmp_path) -> 
         ).finish()
     assert failed.value.code == "observability_persistence_failed"
     assert "SECRET-SINK-FAILURE" not in str(failed.value.as_dict())
+    assert broken.health().status == "degraded"
+    assert broken.health().failure_count == 1
 
 
 def test_span_finish_is_one_shot_and_label_allowlists_are_validated() -> None:

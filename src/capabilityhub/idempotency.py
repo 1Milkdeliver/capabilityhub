@@ -5,9 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import sqlite3
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from time import time
+from time import monotonic, sleep, time
 from typing import Protocol, TypeAlias, cast
 
 from capabilityhub.metering import canonical_json
@@ -30,6 +31,10 @@ class IdempotencyStore(Protocol):
 
     def uncertain(self, slot: IdempotencySlot) -> None: ...
 
+    def wait(
+        self, slot: IdempotencySlot, arguments_digest: str, timeout_seconds: float
+    ) -> IdempotencyRecord: ...
+
 
 class SqliteIdempotencyStore:
     """Multi-process SQLite store; provider output persistence is opt-in."""
@@ -40,9 +45,23 @@ class SqliteIdempotencyStore:
         *,
         persist_results: bool = False,
         recover_abandoned: bool = False,
+        result_ttl_seconds: int = 300,
+        max_result_bytes: int = 1_000_000,
+        clock: Callable[[], float] = time,
+        monotonic_clock: Callable[[], float] = monotonic,
+        sleeper: Callable[[float], None] = sleep,
     ) -> None:
+        if not 1 <= result_ttl_seconds <= 86_400:
+            raise ValueError("result_ttl_seconds must be from 1 to 86400")
+        if not 1_024 <= max_result_bytes <= 4_000_000:
+            raise ValueError("max_result_bytes must be from 1024 to 4000000")
         self._path = path.resolve()
         self._persist_results = persist_results
+        self._result_ttl_seconds = result_ttl_seconds
+        self._max_result_bytes = max_result_bytes
+        self._clock = clock
+        self._monotonic = monotonic_clock
+        self._sleep = sleeper
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
             connection.execute(
@@ -62,7 +81,7 @@ class SqliteIdempotencyStore:
                 connection.execute(
                     "UPDATE idempotency_records SET status = 'uncertain', updated_at = ? "
                     "WHERE status = 'in_progress'",
-                    (time(),),
+                    (self._clock(),),
                 )
 
     @property
@@ -74,27 +93,38 @@ class SqliteIdempotencyStore:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             row = connection.execute(
-                "SELECT arguments_digest, status, result_json "
+                "SELECT arguments_digest, status, result_json, updated_at "
                 "FROM idempotency_records WHERE slot_digest = ?",
                 (key,),
             ).fetchone()
+            if (
+                row is not None
+                and row[1] == "complete"
+                and self._clock() - float(row[3]) >= self._result_ttl_seconds
+            ):
+                connection.execute(
+                    "DELETE FROM idempotency_records WHERE slot_digest = ?", (key,)
+                )
+                row = None
             if row is None:
                 connection.execute(
                     "INSERT INTO idempotency_records "
                     "(slot_digest, arguments_digest, status, result_json, updated_at) "
                     "VALUES (?, ?, 'in_progress', NULL, ?)",
-                    (key, arguments_digest, time()),
+                    (key, arguments_digest, self._clock()),
                 )
                 return None
             return IdempotencyRecord(row[0], row[1], _decode_result(row[2]))
 
     def complete(self, slot: IdempotencySlot, result: ExecutionResult) -> None:
         encoded = _encode_result(result) if self._persist_results else None
+        if encoded is not None and len(encoded.encode("utf-8")) > self._max_result_bytes:
+            encoded = None
         with self._connect() as connection:
             connection.execute(
                 "UPDATE idempotency_records SET status = 'complete', result_json = ?, "
                 "updated_at = ? WHERE slot_digest = ? AND status = 'in_progress'",
-                (encoded, time(), _slot_digest(slot)),
+                (encoded, self._clock(), _slot_digest(slot)),
             )
 
     def uncertain(self, slot: IdempotencySlot) -> None:
@@ -102,8 +132,29 @@ class SqliteIdempotencyStore:
             connection.execute(
                 "UPDATE idempotency_records SET status = 'uncertain', updated_at = ? "
                 "WHERE slot_digest = ? AND status = 'in_progress'",
-                (time(), _slot_digest(slot)),
+                (self._clock(), _slot_digest(slot)),
             )
+
+    def wait(
+        self, slot: IdempotencySlot, arguments_digest: str, timeout_seconds: float
+    ) -> IdempotencyRecord:
+        deadline = self._monotonic() + max(0.0, timeout_seconds)
+        while True:
+            with self._connect() as connection:
+                row = connection.execute(
+                    "SELECT arguments_digest, status, result_json "
+                    "FROM idempotency_records WHERE slot_digest = ?",
+                    (_slot_digest(slot),),
+                ).fetchone()
+            if row is None or row[0] != arguments_digest:
+                return IdempotencyRecord("", "conflict")
+            record = IdempotencyRecord(row[0], row[1], _decode_result(row[2]))
+            if record.status != "in_progress":
+                return record
+            remaining = deadline - self._monotonic()
+            if remaining <= 0:
+                return record
+            self._sleep(min(0.01, remaining))
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self._path, timeout=5)

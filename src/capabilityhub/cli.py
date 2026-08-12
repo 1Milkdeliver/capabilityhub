@@ -165,6 +165,14 @@ def build_parser() -> argparse.ArgumentParser:
     secure_audit.add_argument("--max-segments", type=_positive_int, default=10)
     _project_argument(secure_audit)
     _pretty_argument(secure_audit)
+    observability = commands.add_parser(
+        "observability", help="list or export privacy-minimized aggregate metrics"
+    )
+    observability.add_argument("action", nargs="?", choices=("list", "export"), default="list")
+    observability.add_argument("--destination")
+    observability.add_argument("--limit", type=_positive_int, default=500)
+    _project_argument(observability)
+    _pretty_argument(observability)
     load = commands.add_parser("load", help="load selected sections from an active revision")
     load.add_argument("revision")
     load.add_argument("--section", action="append")
@@ -467,6 +475,21 @@ def _main(argv: Sequence[str] | None = None) -> int:
                 source=args.source,
                 destination=args.destination,
                 max_segments=args.max_segments,
+                project_root=args.project_root,
+            ),
+            pretty=args.pretty,
+        )
+        return 0
+    if args.command == "observability":
+        if args.action == "export" and args.destination is None:
+            raise _usage("observability export requires --destination")
+        if args.action != "export" and args.destination is not None:
+            raise _usage("observability list does not accept --destination")
+        _print_json(
+            runtime.local_observability(
+                args.action,
+                destination=args.destination,
+                limit=args.limit,
                 project_root=args.project_root,
             ),
             pretty=args.pretty,

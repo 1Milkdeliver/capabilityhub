@@ -19,13 +19,19 @@ from mcp.server import MCPServer
 from mcp.server.mcpserver import Context
 from mcp_types import CallToolResult, TextContent
 
-from capabilityhub.audit import JsonlAuditSink
+from capabilityhub.audit import AuditSink
 from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.metering import canonical_json
+from capabilityhub.observability import InMemoryObservability, SqliteMetricStore
 from capabilityhub.protocol import AdapterKind, JsonValue, in_process_request
 from capabilityhub.references import ReferenceSigner
+from capabilityhub.secure_audit import (
+    ResilientAuditSink,
+    SecureAuditLedger,
+    load_or_create_signing_key,
+)
 from capabilityhub.service import CapabilityHubService, ServiceContext
 from capabilityhub.service_adapter import (
     BudgetProvider,
@@ -41,6 +47,7 @@ MCP_CORRELATION_META_KEY = "capabilityhub/correlation_id"
 class _MCPRuntimeState:
     service: CapabilityHubService
     inventory: dict[str, JsonValue] | None = None
+    observability: InMemoryObservability | None = None
 
 
 RuntimeStateProvider = Callable[[], _MCPRuntimeState]
@@ -214,7 +221,13 @@ class _LocalRuntime:
             refresh_interval_seconds=refresh_interval_seconds,
         )
         self._references = ReferenceSigner(secrets.token_bytes(32))
-        self._audit = JsonlAuditSink(self._monitor.project / ".capabilityhub" / "audit.jsonl")
+        self._audit = _local_audit_sink(self._monitor.project)
+        self._observability = InMemoryObservability(
+            allowed_error_codes=("other_error",),
+            persistent_metrics=SqliteMetricStore(
+                self._monitor.project / ".capabilityhub" / "state.sqlite3"
+            ),
+        )
         self._lock = RLock()
         self._state: _MCPRuntimeState | None = None
 
@@ -234,16 +247,36 @@ class _LocalRuntime:
                     references=self._references,
                     audit=self._audit,
                 )
-                self._state = _MCPRuntimeState(service, generation.inventory_json())
+                self._state = _MCPRuntimeState(
+                    service, generation.inventory_json(), self._observability
+                )
             elif next_generation != current_generation:
                 service = self._state.service.fork_catalog(
                     registry=generation.registry,
                     providers=generation.providers,
                 )
-                self._state = _MCPRuntimeState(service, generation.inventory_json())
+                self._state = _MCPRuntimeState(
+                    service, generation.inventory_json(), self._observability
+                )
             elif generation.inventory != self._state.inventory:
-                return _MCPRuntimeState(self._state.service, generation.inventory_json())
+                return _MCPRuntimeState(
+                    self._state.service, generation.inventory_json(), self._observability
+                )
             return self._state
+
+
+def _local_audit_sink(project: Path) -> AuditSink:
+    try:
+        key = load_or_create_signing_key(project / ".capabilityhub" / "audit-hmac.key")
+        return ResilientAuditSink(
+            SecureAuditLedger(
+                project / ".capabilityhub" / "secure-audit" / "current",
+                signing_key=key,
+            )
+        )
+    except Exception as error:
+        code = error.code if isinstance(error, CapabilityHubError) else "secure_audit_unavailable"
+        return ResilientAuditSink(None, initial_error=code)
 
 
 def create_empty_mcp_server(
@@ -309,6 +342,7 @@ def _dispatch_mcp(
         context_provider=context_provider,
         budget_provider=budget_provider,
         inventory_provider=lambda: state.inventory,
+        observability=state.observability,
     )
     request_id, correlation_id = _mcp_identifiers(context)
     result = adapter.dispatch(

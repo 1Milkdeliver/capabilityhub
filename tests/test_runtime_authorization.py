@@ -221,5 +221,9 @@ def test_raw_secret_and_alias_never_leak_to_error_or_audit(tmp_path) -> None:
         "secret_alias_not_allowed",
     )
     assert canary not in str(denied.value.as_dict())
-    audit = monitor.project / ".capabilityhub" / "audit.jsonl"
-    assert canary not in audit.read_text(encoding="utf-8")
+    audit_root = monitor.project / ".capabilityhub" / "secure-audit"
+    audit_bytes = b"".join(
+        path.read_bytes() for path in audit_root.rglob("*") if path.is_file()
+    )
+    assert canary.encode() not in audit_bytes
+    assert b"blocked-alias" not in audit_bytes

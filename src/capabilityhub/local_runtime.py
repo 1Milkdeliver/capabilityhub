@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
-from time import monotonic
+from time import monotonic, time
 
+from capabilityhub.degraded import Dependency, DependencyObservation, DependencyStatus
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_catalog import discover_local_catalog, local_catalog_fingerprint
 from capabilityhub.models import CapabilityKind, JsonValue
@@ -23,6 +25,8 @@ class LocalCatalogGeneration:
     registry: CapabilityRegistry
     providers: tuple[CapabilityProvider, ...]
     inventory: dict[str, JsonValue]
+    observed_at: float
+    observation_ttl_seconds: float
 
     def inventory_json(self) -> dict[str, JsonValue]:
         """Return an isolated JSON copy safe for callers to mutate."""
@@ -72,6 +76,14 @@ class LocalCatalogMonitor:
                     refreshed = self._build_snapshot()
                     self._snapshot = refreshed
                     self._fingerprint = fingerprint
+                else:
+                    self._snapshot = LocalCatalogGeneration(
+                        self._snapshot.registry,
+                        self._snapshot.providers,
+                        self._snapshot.inventory,
+                        time(),
+                        self._snapshot.observation_ttl_seconds,
+                    )
             except Exception:
                 self._next_check = monotonic() + self._refresh_interval_seconds
                 if self._snapshot is None:
@@ -83,6 +95,8 @@ class LocalCatalogMonitor:
                     self._snapshot.registry,
                     self._snapshot.providers,
                     inventory,
+                    self._snapshot.observed_at,
+                    self._snapshot.observation_ttl_seconds,
                 )
             self._next_check = monotonic() + self._refresh_interval_seconds
             return self._snapshot
@@ -200,4 +214,58 @@ class LocalCatalogMonitor:
             registry,
             (*catalog.skill_providers, *catalog.configured_providers),
             inventory,
+            time(),
+            max(1.0, self._refresh_interval_seconds * 2),
         )
+
+
+def local_dependency_observations(
+    generation: LocalCatalogGeneration,
+    *,
+    policy_available: bool,
+    provider_name: str | None = None,
+    providers: Iterable[CapabilityProvider] | None = None,
+    observed_at: float | None = None,
+) -> tuple[DependencyObservation, ...]:
+    """Build location-free dependency evidence from one real local generation."""
+
+    now = time() if observed_at is None else observed_at
+    catalog_status = (
+        DependencyStatus.STALE
+        if generation.inventory.get("status") == "stale"
+        else DependencyStatus.AVAILABLE
+    )
+    provider_status = DependencyStatus.UNKNOWN
+    if provider_name is not None:
+        available_providers = generation.providers if providers is None else tuple(providers)
+        provider_status = (
+            DependencyStatus.AVAILABLE
+            if any(provider.name == provider_name for provider in available_providers)
+            else DependencyStatus.UNAVAILABLE
+        )
+    return (
+        DependencyObservation(
+            Dependency.REGISTRY,
+            catalog_status,
+            generation.observed_at,
+            generation.observation_ttl_seconds,
+        ),
+        DependencyObservation(
+            Dependency.INDEX,
+            catalog_status,
+            generation.observed_at,
+            generation.observation_ttl_seconds,
+        ),
+        DependencyObservation(
+            Dependency.POLICY,
+            DependencyStatus.AVAILABLE if policy_available else DependencyStatus.UNKNOWN,
+            now,
+            generation.observation_ttl_seconds,
+        ),
+        DependencyObservation(
+            Dependency.PROVIDER,
+            provider_status,
+            now,
+            generation.observation_ttl_seconds,
+        ),
+    )

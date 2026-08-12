@@ -5,8 +5,9 @@ from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 
+from capabilityhub.degraded import Dependency, DependencyStatus
 from capabilityhub.errors import CapabilityHubError
-from capabilityhub.local_runtime import LocalCatalogMonitor
+from capabilityhub.local_runtime import LocalCatalogMonitor, local_dependency_observations
 
 
 def test_monitor_refreshes_only_when_local_inputs_change(tmp_path) -> None:
@@ -58,6 +59,32 @@ def test_monitor_keeps_last_complete_generation_when_refresh_fails(tmp_path, mon
     assert stale.inventory["status"] == "stale"
     assert stale.inventory["last_refresh_error_code"] == "catalog_refresh_failed"
     assert "SECRET-CANARY" not in str(stale.inventory)
+    observations = local_dependency_observations(
+        stale,
+        policy_available=True,
+        observed_at=stale.observed_at,
+    )
+    by_dependency = {item.dependency: item for item in observations}
+    assert by_dependency[Dependency.REGISTRY].status is DependencyStatus.STALE
+    assert by_dependency[Dependency.INDEX].status is DependencyStatus.STALE
+    assert by_dependency[Dependency.POLICY].status is DependencyStatus.AVAILABLE
+    assert by_dependency[Dependency.PROVIDER].status is DependencyStatus.UNKNOWN
+
+
+def test_dependency_observations_use_actual_provider_inventory(tmp_path) -> None:
+    generation = LocalCatalogMonitor(home=tmp_path / "home", project=tmp_path).snapshot()
+
+    observations = local_dependency_observations(
+        generation,
+        policy_available=False,
+        provider_name="missing-provider",
+        observed_at=generation.observed_at,
+    )
+    by_dependency = {item.dependency: item for item in observations}
+
+    assert by_dependency[Dependency.REGISTRY].status is DependencyStatus.AVAILABLE
+    assert by_dependency[Dependency.POLICY].status is DependencyStatus.UNKNOWN
+    assert by_dependency[Dependency.PROVIDER].status is DependencyStatus.UNAVAILABLE
 
 
 def test_generation_inventory_copy_and_registry_are_read_only(tmp_path) -> None:

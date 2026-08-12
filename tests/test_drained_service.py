@@ -312,3 +312,61 @@ def test_duplicate_active_pin_factory_is_rejected_without_sharing_lifecycle_pin(
         assert fixture.drain.snapshot(IDENTITY.coordinate, IDENTITY.revision).in_flight == 1
         fixture.provider.finish.set()
         running.result(timeout=2)
+
+
+def test_durable_revision_pin_spans_provider_execution_and_is_released() -> None:
+    fixture = _fixture()
+    durable: dict[str, str] = {}
+    wrapper = DrainedCapabilityHubService(
+        fixture.service,
+        drain=fixture.drain,
+        resolver=fixture.resolver,
+        pin_id_factory=lambda _request, _binding: "durable-pin",
+        pin_revision=lambda _coordinate, pin_id: durable.setdefault(
+            pin_id, IDENTITY.revision
+        ),
+        release_revision=lambda pin_id: durable.pop(pin_id, None) is not None,
+    )
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        running = pool.submit(
+            wrapper.execute,
+            ExecutionRequest(fixture.loaded_ref, "run", {}, "task"),
+            context=CONTEXT,
+            budget=fixture.budget,
+        )
+        assert fixture.provider.started.wait(2)
+        assert durable == {"durable-pin": IDENTITY.revision}
+        fixture.provider.finish.set()
+        running.result(timeout=2)
+
+    assert durable == {}
+
+
+def test_durable_pointer_change_rejects_admission_and_cleans_temporary_pin() -> None:
+    fixture = _fixture()
+    durable: set[str] = set()
+
+    def pin_new_revision(_coordinate: str, pin_id: str) -> str:
+        durable.add(pin_id)
+        return "test/blocking@2#sha256:new"
+
+    wrapper = DrainedCapabilityHubService(
+        fixture.service,
+        drain=fixture.drain,
+        resolver=fixture.resolver,
+        pin_id_factory=lambda _request, _binding: "raced-pin",
+        pin_revision=pin_new_revision,
+        release_revision=lambda pin_id: not durable.remove(pin_id),
+    )
+
+    with pytest.raises(CapabilityHubError) as caught:
+        wrapper.execute(
+            ExecutionRequest(fixture.loaded_ref, "run", {}, "task"),
+            context=CONTEXT,
+            budget=fixture.budget,
+        )
+
+    assert caught.value.code == "lifecycle_not_accepting"
+    assert durable == set()
+    assert fixture.provider.calls == 0

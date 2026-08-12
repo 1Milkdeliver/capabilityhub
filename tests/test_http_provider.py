@@ -22,9 +22,15 @@ from capabilityhub.models import (
     OperationType,
 )
 from capabilityhub.providers.base import ProviderContext
-from capabilityhub.providers.http import HttpApiFixture, HttpApiProvider, HttpInvocation
+from capabilityhub.providers.http import (
+    EnvironmentHeaders,
+    HttpApiFixture,
+    HttpApiProvider,
+    HttpInvocation,
+)
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
+from capabilityhub.secret_broker import ScopedSecretBroker, SecretBrokerError, SecretScope
 from capabilityhub.service import CapabilityHubService, ServiceContext
 
 
@@ -45,7 +51,9 @@ class _Handler(BaseHTTPRequestHandler):
             self.send_header("Location", "/should-not-follow")
             self.end_headers()
             return
-        payload = json.dumps(type(self).requests[-1]).encode()
+        payload = json.dumps(
+            {"ok": True} if parsed.path == "/safe" else type(self).requests[-1]
+        ).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(payload)))
@@ -137,6 +145,153 @@ def test_http_provider_rejects_redirects_instead_of_following_them() -> None:
     assert raised.value.code == "http_response_error"
     assert raised.value.details == {"status": 302}
     assert [item["path"] for item in _Handler.requests] == ["/redirect"]
+
+
+def test_environment_header_uses_scoped_broker_and_blocks_echo_canary(
+    monkeypatch,
+) -> None:
+    secret = "BROKER-CANARY-9f31"
+    monkeypatch.setenv("CAPABILITYHUB_TEST_TOKEN", secret)
+    with _server() as base_url:
+        manifest = _manifest()
+        safe = HttpApiProvider(
+            [
+                HttpApiFixture(
+                    manifest,
+                    base_url,
+                    {"find": HttpInvocation("GET", "/safe")},
+                    headers=EnvironmentHeaders(
+                        (("Authorization", "CAPABILITYHUB_TEST_TOKEN"),)
+                    ),
+                )
+            ]
+        )
+        result = safe.execute(
+            manifest.identity,
+            ExecutionRequest("unused", "find", {}, "task"),
+            _context(),
+        )
+        assert result.output == {"ok": True}
+        assert _Handler.requests[-1]["authorization"] == secret
+
+        echo = HttpApiProvider(
+            [
+                HttpApiFixture(
+                    manifest,
+                    base_url,
+                    {"find": HttpInvocation("GET", "/echo")},
+                    headers=EnvironmentHeaders(
+                        (("Authorization", "CAPABILITYHUB_TEST_TOKEN"),)
+                    ),
+                )
+            ]
+        )
+        with pytest.raises(CapabilityHubError) as raised:
+            echo.execute(
+                manifest.identity,
+                ExecutionRequest("unused", "find", {}, "task"),
+                _context(),
+            )
+
+    assert raised.value.code == "http_secret_canary_detected"
+    assert secret not in repr(raised.value.as_dict())
+
+
+def test_brokered_header_binds_scope_and_spends_one_use() -> None:
+    scopes: list[SecretScope] = []
+    replay_codes: list[str] = []
+
+    class InspectingBroker(ScopedSecretBroker):
+        def issue(self, alias, *, scope, ttl_seconds, max_uses=1, now=None):
+            scopes.append(scope)
+            return super().issue(
+                alias,
+                scope=scope,
+                ttl_seconds=ttl_seconds,
+                max_uses=max_uses,
+                now=now,
+            )
+
+        def consume(self, handle, *, scope, now=None):
+            receipt = super().consume(handle, scope=scope, now=now)
+            try:
+                super().consume(handle, scope=scope, now=now)
+            except SecretBrokerError as error:
+                replay_codes.append(error.code)
+            return receipt
+
+    with _server() as base_url:
+        manifest = _manifest()
+        provider = HttpApiProvider(
+            [
+                HttpApiFixture(
+                    manifest,
+                    base_url,
+                    {"find": HttpInvocation("GET", "/safe")},
+                    headers=EnvironmentHeaders(
+                        (("Authorization", "TOKEN_ALIAS"),),
+                        broker_factory=lambda consumers: InspectingBroker(
+                            consumers,
+                            environment=lambda _alias: "private",
+                        ),
+                    ),
+                )
+            ]
+        )
+        provider.execute(
+            manifest.identity,
+            ExecutionRequest("unused", "find", {}, "task-bound"),
+            _context(),
+        )
+
+    assert replay_codes == ["secret_handle_consumed"]
+    assert scopes == [
+        SecretScope(
+            tenant="tenant",
+            principal="principal",
+            session="session",
+            task="task-bound",
+            provider="http-api",
+            operation="find",
+            policy_revision="local-header-alias-v1",
+        )
+    ]
+
+
+def test_brokered_header_expiry_is_sanitized() -> None:
+    ticks = iter((100, 105))
+
+    def expiring(consumers):
+        return ScopedSecretBroker(
+            consumers,
+            environment=lambda _alias: "private",
+            clock=lambda: next(ticks),
+        )
+
+    with _server() as base_url:
+        manifest = _manifest()
+        provider = HttpApiProvider(
+            [
+                HttpApiFixture(
+                    manifest,
+                    base_url,
+                    {"find": HttpInvocation("GET", "/safe")},
+                    headers=EnvironmentHeaders(
+                        (("Authorization", "PRIVATE_ALIAS"),),
+                        broker_factory=expiring,
+                    ),
+                )
+            ]
+        )
+        with pytest.raises(SecretBrokerError) as expired:
+            provider.execute(
+                manifest.identity,
+                ExecutionRequest("unused", "find", {}, "task"),
+                _context(),
+            )
+
+    assert expired.value.code == "secret_handle_expired"
+    assert "PRIVATE_ALIAS" not in repr(expired.value.as_dict())
 
 
 def test_http_provider_enforces_response_budget_before_json_parsing() -> None:

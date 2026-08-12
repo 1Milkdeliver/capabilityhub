@@ -9,7 +9,7 @@ from typing import Protocol
 from uuid import uuid4
 
 from capabilityhub.budget import BudgetLedger
-from capabilityhub.draining import DrainController, DrainProgress
+from capabilityhub.draining import DrainController, DrainProgress, LifecycleSnapshot
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.models import (
     CapabilityKind,
@@ -51,6 +51,8 @@ class ExecutionBindingResolver(Protocol):
 CancellableResolver = Callable[[CapabilityManifest, OperationSpec], bool]
 PinIdFactory = Callable[[ExecutionRequest, ExecutionBinding], str]
 CancelCallback = Callable[[str], bool]
+RevisionPinCallback = Callable[[str, str], str]
+RevisionReleaseCallback = Callable[[str], bool]
 
 
 class SignedExecutionBindingResolver:
@@ -116,12 +118,18 @@ class DrainedCapabilityHubService:
         resolver: ExecutionBindingResolver,
         cancel: CancelCallback | None = None,
         pin_id_factory: PinIdFactory | None = None,
+        pin_revision: RevisionPinCallback | None = None,
+        release_revision: RevisionReleaseCallback | None = None,
     ) -> None:
+        if (pin_revision is None) is not (release_revision is None):
+            raise ValueError("revision pin and release callbacks must be supplied together")
         self._service = service
         self._drain = drain
         self._resolver = resolver
         self._cancel = cancel
         self._pin_id_factory = pin_id_factory or _random_pin_id
+        self._pin_revision = pin_revision
+        self._release_revision = release_revision
         self._active_pin_ids: set[str] = set()
         self._pin_lock = RLock()
 
@@ -192,7 +200,24 @@ class DrainedCapabilityHubService:
             if pin_id in self._active_pin_ids:
                 raise _wrapper_error("execution_pin_conflict")
             self._active_pin_ids.add(pin_id)
+        revision_pinned = False
         try:
+            if self._pin_revision is not None:
+                try:
+                    pinned_revision = self._pin_revision(binding.coordinate, pin_id)
+                except CapabilityHubError:
+                    raise
+                except Exception as error:
+                    raise _wrapper_error("execution_revision_pin_failed") from error
+                revision_pinned = True
+                if pinned_revision != binding.revision:
+                    raise CapabilityHubError(
+                        code="lifecycle_not_accepting",
+                        category=ErrorCategory.CONFLICT,
+                        safe_message=(
+                            "The capability revision is not accepting new executions."
+                        ),
+                    )
             pin = self._drain.admit(
                 binding.coordinate,
                 binding.revision,
@@ -209,8 +234,36 @@ class DrainedCapabilityHubService:
             finally:
                 self._drain.release(pin.pin_id)
         finally:
+            release_error: CapabilityHubError | None = None
+            if revision_pinned and self._release_revision is not None:
+                try:
+                    released = self._release_revision(pin_id)
+                except Exception as error:
+                    release_error = _wrapper_error("execution_revision_release_failed")
+                    release_error.__cause__ = error
+                else:
+                    if not released:
+                        release_error = _wrapper_error("execution_revision_release_failed")
             with self._pin_lock:
                 self._active_pin_ids.discard(pin_id)
+            if release_error is not None:
+                raise release_error
+
+    def begin_drain(
+        self,
+        coordinate: str,
+        revision: str,
+        *,
+        reason: str = "lifecycle_update",
+    ) -> LifecycleSnapshot:
+        """Stop new admission for one revision while existing pins finish."""
+
+        return self._drain.begin_drain(coordinate, revision, reason=reason)
+
+    def lifecycle_snapshot(self, coordinate: str, revision: str) -> LifecycleSnapshot:
+        """Return safe lifecycle state for runtime retirement coordination."""
+
+        return self._drain.snapshot(coordinate, revision)
 
     def advance_drain(
         self,
@@ -257,6 +310,8 @@ def _wrapper_error(code: str) -> CapabilityHubError:
         ),
         "execution_pin_creation_failed": "The execution admission pin could not be created.",
         "execution_pin_conflict": "The execution admission pin is already active.",
+        "execution_revision_pin_failed": "The active revision could not be pinned safely.",
+        "execution_revision_release_failed": "The active revision pin could not be released.",
     }
     return CapabilityHubError(
         code=code,

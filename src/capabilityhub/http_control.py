@@ -76,7 +76,6 @@ class LoopbackHttpControl:
         self._thread: Thread | None = None
         self._token_digest: bytes | None = None
         self._lifecycle_lock = RLock()
-        self._dispatch_lock = RLock()
 
     def start(self) -> HttpControlAccess:
         """Start once and return the bearer token only to the host caller."""
@@ -158,8 +157,7 @@ class LoopbackHttpControl:
                 category=ErrorCategory.INPUT,
                 safe_message="HTTP control supports terminal requests only.",
             )
-        with self._dispatch_lock:
-            output = self.adapter.dispatch(request)
+        output = self.adapter.dispatch(request)
         return success_response(request, output)
 
 

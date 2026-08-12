@@ -13,6 +13,8 @@ from jsonschema.exceptions import SchemaError, ValidationError
 from capabilityhub.audit import AuditEvent, AuditSink
 from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetReservation
+from capabilityhub.degraded import DecisionOutcome, DegradedDecision
+from capabilityhub.degraded import Operation as DependencyOperation
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.idempotency import IdempotencyRecord, IdempotencySlot, IdempotencyStore
 from capabilityhub.metering import canonical_json, measure_text
@@ -110,6 +112,7 @@ class CapabilityHubService:
         provider_supervisor: ProviderSupervisor | None = None,
         provider_executor: ResilientProviderExecutor[ExecutionResult] | None = None,
         retry_certainty_classifier: Callable[[CapabilityHubError], FailureCertainty] | None = None,
+        dependency_decider: Callable[[DependencyOperation], DegradedDecision] | None = None,
         _shared_state: _SharedServiceState | None = None,
     ) -> None:
         if execution_ref_ttl_seconds <= 0:
@@ -134,6 +137,7 @@ class CapabilityHubService:
         self._provider_supervisor = provider_supervisor
         self._provider_executor = provider_executor
         self._retry_certainty_classifier = retry_certainty_classifier
+        self._dependency_decider = dependency_decider
         self._shared = _shared_state or _SharedServiceState({}, {}, 0, RLock())
 
     def fork_catalog(
@@ -156,6 +160,7 @@ class CapabilityHubService:
             provider_supervisor=self._provider_supervisor,
             provider_executor=self._provider_executor,
             retry_certainty_classifier=self._retry_certainty_classifier,
+            dependency_decider=self._dependency_decider,
             _shared_state=self._shared,
         )
 
@@ -173,6 +178,7 @@ class CapabilityHubService:
         inventory: dict[str, JsonValue] | None = None,
     ) -> SearchResponse:
         try:
+            self._guard_dependencies(DependencyOperation.SEARCH)
             response = self._search_engine.search(
                 query,
                 scope=context.reference_scope,
@@ -217,6 +223,7 @@ class CapabilityHubService:
     ) -> LoadedCapability:
         manifest: CapabilityManifest | None = None
         try:
+            self._guard_dependencies(DependencyOperation.LOAD)
             _positive_budget(max_output_tokens)
             claims = self._references.verify(
                 capability_ref,
@@ -422,6 +429,7 @@ class CapabilityHubService:
         reservation: BudgetReservation | None = None
         idempotency_slot: tuple[str, str, str, str, str] | None = None
         try:
+            self._guard_dependencies(DependencyOperation.EXECUTE)
             _positive_budget(limit)
             claims = self._references.verify(
                 request.execution_ref,
@@ -581,6 +589,7 @@ class CapabilityHubService:
                 reason_codes=(error.code,),
             )
             raise
+
         except Exception as error:
             if reservation is not None and reservation.active:
                 reservation.reconcile({"executions": 1})
@@ -606,6 +615,11 @@ class CapabilityHubService:
             metadata={"operation": result.operation, "provider": result.provider},
         )
         return result
+
+    def _guard_dependencies(self, operation: DependencyOperation) -> None:
+        if self._dependency_decider is None:
+            return
+        enforce_dependency_decision(self._dependency_decider(operation))
 
     def _active_manifest(self, revision: str) -> CapabilityManifest:
         try:
@@ -1012,6 +1026,19 @@ def _resolve_rehydration_target(
             "The rehydration handle does not identify one current omission target.",
         )
     return matches[0]
+
+
+def enforce_dependency_decision(decision: DegradedDecision) -> None:
+    """Fail closed with one stable, location-free dependency error contract."""
+
+    if decision.outcome is not DecisionOutcome.DENY:
+        return
+    raise CapabilityHubError(
+        code=f"dependency_{decision.operation.value}_denied",
+        category=ErrorCategory.DEPENDENCY,
+        safe_message="Required local capability dependencies are not available.",
+        details={"reason_codes": decision.reasons},
+    )
 
 
 def _positive_budget(value: int) -> None:

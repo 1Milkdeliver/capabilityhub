@@ -6,12 +6,14 @@ import hashlib
 import json
 import os
 import tomllib
-from collections.abc import Callable, Mapping
-from dataclasses import fields, is_dataclass
+from collections.abc import Callable, Iterable, Mapping
+from dataclasses import dataclass, fields, is_dataclass
 from enum import Enum
 from importlib import import_module, metadata, util
 from pathlib import Path
 from secrets import token_bytes
+from threading import RLock, Timer
+from time import monotonic
 from typing import cast
 
 from capabilityhub.activation_lock import (
@@ -25,7 +27,7 @@ from capabilityhub.approval_store import (
     SqliteApprovalStore,
 )
 from capabilityhub.audit import AuditEvent, AuditSink, JsonlAuditSink, read_jsonl_audit
-from capabilityhub.budget import BudgetSnapshot
+from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
 from capabilityhub.compatibility import (
     FeatureHandshake,
@@ -38,6 +40,19 @@ from capabilityhub.connections import (
     configured_mcp_targets,
 )
 from capabilityhub.context_state import LocalContextState
+from capabilityhub.degraded import (
+    DegradedDecision,
+    DegradedModePolicy,
+    Dependency,
+    DependencyStatus,
+    SafeFallback,
+)
+from capabilityhub.degraded import Operation as DependencyOperation
+from capabilityhub.drained_service import (
+    DrainedCapabilityHubService,
+    SignedExecutionBindingResolver,
+)
+from capabilityhub.draining import DrainController, LifecycleState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.hierarchical_budget import (
     DurableHierarchicalBudgetProvider,
@@ -48,7 +63,11 @@ from capabilityhub.http_control import HttpControlAccess, LoopbackHttpControl
 from capabilityhub.idempotency import SqliteIdempotencyStore
 from capabilityhub.insights import loaded_view, providers_view, routing_view
 from capabilityhub.lifecycle import StagedUpdateManager
-from capabilityhub.local_runtime import LocalCatalogMonitor
+from capabilityhub.local_runtime import (
+    LocalCatalogGeneration,
+    LocalCatalogMonitor,
+    local_dependency_observations,
+)
 from capabilityhub.manifest import load_manifest
 from capabilityhub.manifest_export import manifest_to_document
 from capabilityhub.migration import migrate_manifest
@@ -56,23 +75,32 @@ from capabilityhub.models import (
     CapabilityKind,
     CapabilityManifest,
     ExecutionRequest,
+    ExecutionResult,
     JsonValue,
+    LoadedCapability,
+    OperationSpec,
     ReasoningTier,
     SideEffect,
 )
 from capabilityhub.openapi_import import OpenApiSelection, import_openapi_file
 from capabilityhub.orchestration import ReasoningOrchestrator
 from capabilityhub.protocol import AdapterKind
+from capabilityhub.providers.base import CapabilityProvider
 from capabilityhub.providers.skill import SkillProvider
 from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.reasoning import ReasoningRouter
 from capabilityhub.reasoning_store import SQLiteReasoningStore
 from capabilityhub.references import ReferenceSigner
+from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.residency import ResidentSection
 from capabilityhub.retention import AuditRetentionManager
-from capabilityhub.search import LexicalCapabilitySearch
+from capabilityhub.search import LexicalCapabilitySearch, SearchResponse
 from capabilityhub.secure_audit import SecureAuditLedger
-from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.service import (
+    CapabilityHubService,
+    ServiceContext,
+    enforce_dependency_decision,
+)
 from capabilityhub.service_adapter import CapabilityHubServiceAdapter
 from capabilityhub.state import (
     PreferenceScope,
@@ -111,6 +139,7 @@ DEFAULT_LOCAL_HTTP_AGGREGATE_BUDGETS = {
 LOCAL_POLICY_REVISION = "local-v1"
 DEFAULT_CONTEXT_TOKENS = 16_000
 SECURE_AUDIT_KEY_ENV = "CAPABILITYHUB_AUDIT_KEY"
+LOCAL_LAST_GOOD_MAX_AGE_SECONDS = 300.0
 
 
 def validate(paths: list[str | Path]) -> int:
@@ -298,6 +327,8 @@ def local_search(
 
     selected = _select_local_scope(project_root, monitor)
     snapshot = selected.snapshot()
+    dependency = _local_dependency_decision(snapshot, DependencyOperation.SEARCH)
+    enforce_dependency_decision(dependency)
     response = LexicalCapabilitySearch(
         snapshot.registry,
         ReferenceSigner(b"capabilityhub-local-cli-search"),
@@ -323,6 +354,7 @@ def local_search(
     ]
     counts: dict[str, JsonValue] = dict(response.kind_counts)
     return {
+        "dependency": _dependency_decision_json(dependency),
         "kind_counts": counts,
         "payload_bytes": response.payload_bytes,
         "portable_tokens": response.portable_tokens,
@@ -694,6 +726,13 @@ def local_set_lifecycle(
             category=ErrorCategory.REFERENCE,
             safe_message="Capability coordinate is not present in the local catalog.",
         )
+    manifest = before.registry.revisions_for(coordinate)[-1]
+    dependency = _local_dependency_decision(
+        before,
+        DependencyOperation.LIFECYCLE,
+        provider_name=manifest.provider,
+    )
+    enforce_dependency_decision(dependency)
     path = set_lifecycle(
         coordinate,
         state,
@@ -705,6 +744,7 @@ def local_set_lifecycle(
     return {
         "active": coordinate in after.registry.activations,
         "coordinate": coordinate,
+        "dependency": _dependency_decision_json(dependency),
         "generation": after.inventory.get("generation"),
         "path": str(path),
         "scope": scope,
@@ -843,6 +883,12 @@ def local_load(
 
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
+    manifest = generation.registry.revision(revision)
+    dependency = _local_dependency_decision(
+        generation,
+        DependencyOperation.LOAD,
+        provider_name=manifest.provider,
+    )
     signer = ReferenceSigner(token_bytes(32))
     audit = _audit_sink(selected.project)
     service = CapabilityHubService(
@@ -850,6 +896,7 @@ def local_load(
         providers=generation.providers,
         references=signer,
         audit=audit,
+        dependency_decider=lambda _operation: dependency,
     )
     context = _local_context(granted_permissions)
     budget = _persistent_budget(selected.project)
@@ -891,6 +938,7 @@ def local_load(
     resident = context_state.snapshot()
     return {
         "budget": _budget_json(budget.snapshot()),
+        "dependency": _dependency_decision_json(dependency),
         "execution_ref": None,
         "execution_requires_same_process_session": bool(loaded.execution_ref),
         "omitted_sections": list(loaded.omitted_sections),
@@ -1095,6 +1143,13 @@ def _local_execute(
             name=manifest.provider,
         )
         providers = (provider,)
+    def dependency_decider(selected_operation: DependencyOperation) -> DegradedDecision:
+        return _local_dependency_decision(
+            generation,
+            selected_operation,
+            provider_name=manifest.provider,
+            providers=providers,
+        )
     signer = ReferenceSigner(token_bytes(32))
     audit = _audit_sink(selected.project)
     service = CapabilityHubService(
@@ -1104,6 +1159,7 @@ def _local_execute(
         audit=audit,
         idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),
         provider_supervisor=ProcessProviderSupervisor(),
+        dependency_decider=dependency_decider,
     )
     context = _local_context(
         granted_permissions,
@@ -1170,6 +1226,9 @@ def _local_execute(
         "audit_id": result.audit_id,
         "budget": _budget_json(budget.snapshot()),
         "capability_revision": result.capability_revision,
+        "dependency": _dependency_decision_json(
+            dependency_decider(DependencyOperation.EXECUTE)
+        ),
         "operation": result.operation,
         "output": result.output,
         "portable_tokens": result.portable_tokens,
@@ -1349,6 +1408,200 @@ def local_dashboard(
     )
 
 
+@dataclass(frozen=True, slots=True)
+class _HttpServiceGeneration:
+    service: DrainedCapabilityHubService
+    activations: dict[str, str]
+
+
+class _RefreshingDrainedHttpService:
+    """Route requests through immutable catalog generations with safe draining."""
+
+    def __init__(
+        self,
+        base: CapabilityHubService,
+        *,
+        monitor: LocalCatalogMonitor,
+        references: ReferenceSigner,
+        update_store: SQLiteUpdateStore,
+        cancellable: Callable[[CapabilityManifest, OperationSpec], bool],
+        cancel: Callable[[str], bool] | None,
+        drain_timeout_seconds: float,
+    ) -> None:
+        if drain_timeout_seconds < 0:
+            raise ValueError("drain_timeout_seconds must be non-negative")
+        self._base = base
+        self._monitor = monitor
+        self._references = references
+        self._update_store = update_store
+        self._cancellable = cancellable
+        self._cancel = cancel
+        self._drain_timeout_seconds = drain_timeout_seconds
+        self._lock = RLock()
+        self._timers: list[Timer] = []
+        self._closed = False
+        snapshot = monitor.snapshot(force=True)
+        for coordinate, revision in snapshot.registry.activations.items():
+            update_store.bootstrap_active(coordinate, revision)
+        self._current = self._make_generation(base, snapshot.registry)
+
+    def search(
+        self,
+        query: str,
+        *,
+        task_id: str,
+        context: ServiceContext,
+        budget: BudgetLedger,
+        kinds: Iterable[CapabilityKind | str] | None = None,
+        limit: int = 8,
+        max_output_tokens: int = 900,
+        include_cards: bool = True,
+        inventory: dict[str, JsonValue] | None = None,
+    ) -> SearchResponse:
+        return self._service().search(
+            query,
+            task_id=task_id,
+            context=context,
+            budget=budget,
+            kinds=kinds,
+            limit=limit,
+            max_output_tokens=max_output_tokens,
+            include_cards=include_cards,
+            inventory=inventory,
+        )
+
+    def load(
+        self,
+        capability_ref: str,
+        *,
+        task_id: str,
+        context: ServiceContext,
+        budget: BudgetLedger,
+        section_names: Iterable[str] | None = None,
+        operation_names: Iterable[str] | None = None,
+        max_output_tokens: int = 2_000,
+    ) -> LoadedCapability:
+        return self._service().load(
+            capability_ref,
+            task_id=task_id,
+            context=context,
+            budget=budget,
+            section_names=section_names,
+            operation_names=operation_names,
+            max_output_tokens=max_output_tokens,
+        )
+
+    def execute(
+        self,
+        request: ExecutionRequest,
+        *,
+        context: ServiceContext,
+        budget: BudgetLedger,
+        max_output_tokens: int | None = None,
+    ) -> ExecutionResult:
+        return self._service().execute(
+            request,
+            context=context,
+            budget=budget,
+            max_output_tokens=max_output_tokens,
+        )
+
+    def inventory(self) -> dict[str, JsonValue]:
+        with self._lock:
+            return self._monitor.snapshot(force=True).inventory_json()
+
+    def close(self) -> None:
+        with self._lock:
+            self._closed = True
+            timers, self._timers = self._timers, []
+        for timer in timers:
+            timer.cancel()
+
+    def _service(self) -> DrainedCapabilityHubService:
+        with self._lock:
+            if self._closed:
+                raise RuntimeError("HTTP service lifecycle is closed")
+            snapshot = self._monitor.snapshot(force=True)
+            activations = dict(snapshot.registry.activations)
+            if activations != self._current.activations:
+                next_service = self._base.fork_catalog(
+                    registry=snapshot.registry,
+                    providers=snapshot.providers,
+                )
+                previous = self._current
+                self._current = self._make_generation(next_service, snapshot.registry)
+                self._drain_changed(previous, activations)
+            return self._current.service
+
+    def _make_generation(
+        self,
+        service: CapabilityHubService,
+        registry: CapabilityRegistry,
+    ) -> _HttpServiceGeneration:
+        drain = DrainController()
+        activations = dict(registry.activations)
+        for coordinate, revision in activations.items():
+            drain.register(coordinate, revision)
+        wrapped = DrainedCapabilityHubService(
+            service,
+            drain=drain,
+            resolver=SignedExecutionBindingResolver(
+                references=self._references,
+                registry=registry,
+                cancellable=self._cancellable,
+            ),
+            cancel=self._cancel,
+            pin_revision=lambda coordinate, pin_id: self._update_store.pin_active(
+                coordinate, pin_id
+            ).revision,
+            release_revision=self._update_store.release_pin,
+        )
+        return _HttpServiceGeneration(wrapped, activations)
+
+    def _drain_changed(
+        self,
+        previous: _HttpServiceGeneration,
+        active: Mapping[str, str],
+    ) -> None:
+        for coordinate, revision in previous.activations.items():
+            if active.get(coordinate) == revision:
+                continue
+            snapshot = previous.service.begin_drain(coordinate, revision)
+            if snapshot.state is LifecycleState.RETIRED:
+                continue
+            deadline = monotonic() + self._drain_timeout_seconds
+            timer = Timer(
+                self._drain_timeout_seconds,
+                self._advance_safely,
+                args=(previous.service, coordinate, revision, deadline),
+            )
+            timer.daemon = True
+            self._timers.append(timer)
+            timer.start()
+
+    @staticmethod
+    def _advance_safely(
+        service: DrainedCapabilityHubService,
+        coordinate: str,
+        revision: str,
+        deadline: float,
+    ) -> None:
+        try:
+            service.advance_drain(coordinate, revision, deadline=deadline)
+        except Exception:
+            return
+
+
+class _LifecycleLoopbackHttpControl(LoopbackHttpControl):
+    def __init__(self, *args: object, lifecycle: _RefreshingDrainedHttpService, **kwargs: object):
+        self._lifecycle = lifecycle
+        super().__init__(*args, **kwargs)  # type: ignore[arg-type]
+
+    def close(self) -> None:
+        super().close()
+        self._lifecycle.close()
+
+
 def local_http_control(
     project_root: str | Path | None = None,
     *,
@@ -1359,18 +1612,22 @@ def local_http_control(
     session_id: str = "http",
     task_budget_limits: Mapping[str, int] | None = None,
     monitor: LocalCatalogMonitor | None = None,
+    drain_timeout_seconds: float = 30.0,
+    execution_cancellable: Callable[[CapabilityManifest, OperationSpec], bool] | None = None,
+    cancel_execution: Callable[[str], bool] | None = None,
 ) -> tuple[LoopbackHttpControl, HttpControlAccess]:
     """Start loopback HTTP with durable tenant/principal/session/task budgets."""
 
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
+    references = ReferenceSigner(token_bytes(32))
     service = CapabilityHubService(
         registry=generation.registry,
         providers=generation.providers,
-        references=ReferenceSigner(token_bytes(32)),
+        references=references,
         audit=_audit_sink(selected.project),
         idempotency_store=SqliteIdempotencyStore(_state_path(selected.project)),
-        provider_supervisor=ProcessProviderSupervisor(),
+        provider_supervisor=None,
     )
     context = ServiceContext(
         tenant_id,
@@ -1393,14 +1650,23 @@ def local_http_control(
         aggregate_limits=DEFAULT_LOCAL_HTTP_AGGREGATE_BUDGETS,
         task_limits=selected_task_limits,
     )
-    adapter = CapabilityHubServiceAdapter(
+    lifecycle_service = _RefreshingDrainedHttpService(
         service,
+        monitor=selected,
+        references=references,
+        update_store=SQLiteUpdateStore(_state_path(selected.project)),
+        cancellable=execution_cancellable or (lambda _manifest, _operation: False),
+        cancel=cancel_execution,
+        drain_timeout_seconds=drain_timeout_seconds,
+    )
+    adapter = CapabilityHubServiceAdapter(
+        cast(CapabilityHubService, lifecycle_service),
         kind=AdapterKind.HTTP,
         context_provider=lambda: context,
         budget_provider=budget_provider,
-        inventory_provider=generation.inventory_json,
+        inventory_provider=lifecycle_service.inventory,
     )
-    control = LoopbackHttpControl(adapter, port=port)
+    control = _LifecycleLoopbackHttpControl(adapter, port=port, lifecycle=lifecycle_service)
     return control, control.start()
 
 
@@ -1416,6 +1682,66 @@ def mcp_serve(project_root: str | Path | None = None) -> object:
     typed_serve = cast(Callable[..., object], serve)
     project = _project(project_root) if project_root is not None else None
     return typed_serve(project=project)
+
+
+def _local_dependency_decision(
+    generation: LocalCatalogGeneration,
+    operation: DependencyOperation,
+    *,
+    provider_name: str | None = None,
+    providers: tuple[CapabilityProvider, ...] | None = None,
+) -> DegradedDecision:
+    fallbacks: tuple[SafeFallback, ...] = ()
+    if operation is DependencyOperation.SEARCH:
+        fallbacks = tuple(
+            SafeFallback(
+                operation,
+                dependency,
+                "last_good_catalog",
+                statuses=(DependencyStatus.STALE,),
+                max_age_seconds=LOCAL_LAST_GOOD_MAX_AGE_SECONDS,
+            )
+            for dependency in (Dependency.REGISTRY, Dependency.INDEX)
+        )
+    elif operation is DependencyOperation.LOAD:
+        fallbacks = (
+            SafeFallback(
+                operation,
+                Dependency.REGISTRY,
+                "last_good_catalog",
+                statuses=(DependencyStatus.STALE,),
+                max_age_seconds=LOCAL_LAST_GOOD_MAX_AGE_SECONDS,
+            ),
+            SafeFallback(
+                operation,
+                Dependency.PROVIDER,
+                "manifest_only_load",
+                statuses=(DependencyStatus.UNAVAILABLE, DependencyStatus.UNKNOWN),
+            ),
+        )
+    observations = local_dependency_observations(
+        generation,
+        policy_available=True,
+        provider_name=provider_name,
+        providers=providers,
+    )
+    return DegradedModePolicy().decide(
+        operation,
+        observations,
+        safe_fallbacks=fallbacks,
+    )
+
+
+def _dependency_decision_json(decision: DegradedDecision) -> dict[str, JsonValue]:
+    return {
+        "fallbacks_used": list(decision.fallbacks_used),
+        "operation": decision.operation.value,
+        "outcome": decision.outcome.value,
+        "reasons": list(decision.reasons),
+        "statuses": {
+            item.dependency.value: item.effective_status.value for item in decision.dependencies
+        },
+    }
 
 
 def _project(value: str | Path | None) -> Path:

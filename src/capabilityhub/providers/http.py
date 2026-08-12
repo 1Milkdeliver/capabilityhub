@@ -23,9 +23,16 @@ from capabilityhub.models import (
     JsonValue,
 )
 from capabilityhub.providers.base import ProviderContext
+from capabilityhub.secret_broker import (
+    ScopedSecretBroker,
+    SecretConsumer,
+    SecretConsumerContext,
+    SecretScope,
+)
 
 _PATH_PARAMETER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 _METHODS = frozenset(("GET", "POST", "PUT", "PATCH", "DELETE"))
+BrokerFactory = Callable[[Mapping[str, SecretConsumer]], ScopedSecretBroker]
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,11 +73,14 @@ class HttpApiFixture:
 
 @dataclass(frozen=True, slots=True)
 class EnvironmentHeaders:
-    """Serializable header resolver that carries names, never secret values."""
+    """Resolve header aliases through a one-use scoped broker at invocation time."""
 
     sources: tuple[tuple[str, str], ...]
+    broker_factory: BrokerFactory | None = field(default=None, repr=False, compare=False)
 
     def __call__(self) -> Mapping[str, str]:
+        """Legacy direct resolution for callers outside provider execution."""
+
         headers: dict[str, str] = {}
         for header, environment_name in self.sources:
             value = os.environ.get(environment_name)
@@ -81,6 +91,44 @@ class EnvironmentHeaders:
                     "A required HTTP header environment variable is unavailable.",
                 )
             headers[header] = value
+        return headers
+
+    def resolve(
+        self,
+        *,
+        provider: str,
+        request: ExecutionRequest,
+        context: ProviderContext,
+    ) -> Mapping[str, str]:
+        """Keep plaintext inside a request-local trusted consumer only."""
+
+        headers: dict[str, str] = {}
+        for header, alias in self.sources:
+            def consume(
+                value: str,
+                _secret_context: SecretConsumerContext,
+                *,
+                target: str = header,
+            ) -> None:
+                headers[target] = value
+
+            consumers = {provider: consume}
+            broker = (
+                self.broker_factory(consumers)
+                if self.broker_factory is not None
+                else ScopedSecretBroker(consumers)
+            )
+            scope = SecretScope(
+                tenant=context.tenant_id,
+                principal=context.principal_id,
+                session=context.session_id,
+                task=request.task_id,
+                provider=provider,
+                operation=request.operation,
+                policy_revision="local-header-alias-v1",
+            )
+            handle = broker.issue(alias, scope=scope, ttl_seconds=5, max_uses=1)
+            broker.consume(handle, scope=scope)
         return headers
 
 
@@ -148,8 +196,20 @@ class HttpApiProvider:
             )
         url = _url(fixture.base_url, invocation, request.arguments)
         headers = {"Accept": "application/json", "User-Agent": "CapabilityHub/0.1"}
+        secret_canaries: tuple[str, ...] = ()
         if fixture.headers is not None:
-            headers.update(_safe_headers(fixture.headers()))
+            supplied = (
+                fixture.headers.resolve(
+                    provider=self.name,
+                    request=request,
+                    context=context,
+                )
+                if isinstance(fixture.headers, EnvironmentHeaders)
+                else fixture.headers()
+            )
+            if isinstance(fixture.headers, EnvironmentHeaders):
+                secret_canaries = tuple(supplied.values())
+            headers.update(_safe_headers(supplied))
         data: bytes | None = None
         if invocation.body:
             data = canonical_json(
@@ -188,6 +248,12 @@ class HttpApiProvider:
                 "http_output_budget_exceeded",
                 ErrorCategory.BUDGET,
                 "The HTTP response exceeded the hard output budget.",
+            )
+        if any(value and value.encode() in raw for value in secret_canaries):
+            raise _error(
+                "http_secret_canary_detected",
+                ErrorCategory.POLICY,
+                "The HTTP response contained protected credential material.",
             )
         try:
             output = cast(JsonValue, json.loads(raw.decode("utf-8")))

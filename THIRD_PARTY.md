@@ -16,7 +16,7 @@ Use upstream software through documented protocols, a separately installed execu
 | [Datalayer agent-skills](https://github.com/datalayer/agent-skills) | Optional Python adapter extra / format reference | BSD-3-Clause | Retain copyright, conditions, disclaimer; do not use contributor names for endorsement | No core dependency; optional adapter needs exact package notice |
 | [AWS Labs CLI Agent Orchestrator](https://github.com/awslabs/cli-agent-orchestrator) | Optional separately deployed orchestration target | Apache-2.0 | Preserve license and notices; state material changes; include any `NOTICE` file if supplied | Do not bundle or reimplement its runtime |
 
-## Shipped Python dependencies added by CapabilityHub
+## Shipped Python dependencies added by CapSift
 
 | Package | Purpose | License | Source |
 |---|---|---|---|

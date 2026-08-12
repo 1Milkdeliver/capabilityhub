@@ -1,6 +1,6 @@
 # Linux provider sandbox
 
-CapabilityHub can enforce a production worker boundary on Linux using two mature
+CapSift can enforce a production worker boundary on Linux using two mature
 kernel interfaces:
 
 - Landlock restricts the worker and descendants to read/write access under one

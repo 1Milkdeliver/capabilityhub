@@ -1,14 +1,14 @@
 {
-  "name": "personal",
+  "name": "capsift",
   "interface": {
-    "displayName": "Personal"
+    "displayName": "CapSift"
   },
   "plugins": [
     {
-      "name": "capabilityhub",
+      "name": "capsift",
       "source": {
         "source": "local",
-        "path": "./plugins/capabilityhub"
+        "path": "./plugins/capsift"
       },
       "policy": {
         "installation": "AVAILABLE",

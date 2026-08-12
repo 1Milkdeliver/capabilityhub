@@ -132,14 +132,14 @@ def _read(path: Path) -> dict[str, Any]:
         return {"schema_version": 1}
     except OSError as error:
         raise _state_error(
-            "config_read_failed", "CapabilityHub config could not be read."
+            "config_read_failed", "CapSift config could not be read."
         ) from error
     try:
         payload = json.loads(raw)
     except json.JSONDecodeError as error:
-        raise _state_error("config_invalid", "CapabilityHub config is not valid JSON.") from error
+        raise _state_error("config_invalid", "CapSift config is not valid JSON.") from error
     if not isinstance(payload, dict):
-        raise _state_error("config_invalid", "CapabilityHub config must be a JSON object.")
+        raise _state_error("config_invalid", "CapSift config must be a JSON object.")
     return payload
 
 
@@ -161,7 +161,7 @@ def _write(path: Path, payload: Mapping[str, object]) -> None:
             with suppress(OSError):
                 temporary.unlink(missing_ok=True)
         raise _state_error(
-            "config_write_failed", "CapabilityHub config could not be saved."
+            "config_write_failed", "CapSift config could not be saved."
         ) from error
 
 

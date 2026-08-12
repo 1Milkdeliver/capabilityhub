@@ -1,6 +1,6 @@
 # Code of Conduct
 
-We want CapabilityHub collaboration to be respectful, practical, and safe for people with different backgrounds and levels of experience.
+We want CapSift collaboration to be respectful, practical, and safe for people with different backgrounds and levels of experience.
 
 ## Expected behavior
 

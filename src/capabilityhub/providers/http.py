@@ -202,7 +202,7 @@ class HttpApiProvider:
                 "The requested HTTP operation is not allowlisted.",
             )
         url = _url(fixture.base_url, invocation, request.arguments)
-        headers = {"Accept": "application/json", "User-Agent": "CapabilityHub/0.1"}
+        headers = {"Accept": "application/json", "User-Agent": "CapSift/0.1"}
         secret_canaries: tuple[str, ...] = ()
         if fixture.headers is not None:
             supplied = (

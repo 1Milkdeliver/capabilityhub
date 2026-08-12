@@ -1,7 +1,7 @@
 {
   "locale": "en",
   "root": {
-    "title": "CapabilityHub",
+    "title": "CapSift",
     "groups": [
       {
         "title": "Everyday",
@@ -111,6 +111,6 @@
   },
   "navigation": {
     "/helpme back": "(Back: return to the previous menu)",
-    "/helpme home": "(Home: return to the CapabilityHub main menu)"
+    "/helpme home": "(Home: return to the CapSift main menu)"
   }
 }

@@ -28,7 +28,7 @@ def run_offline_wheel_smoke() -> dict[str, object]:
     with tempfile.TemporaryDirectory() as directory:
         root = Path(directory)
         (root / "guide.txt").write_text(
-            "CapabilityHub offline wheel retrieval evidence", encoding="utf-8"
+            "CapSift offline wheel retrieval evidence", encoding="utf-8"
         )
         api = _manifest("api", CapabilityKind.API, "run", OperationType.EXECUTE)
         rag = _manifest("rag", CapabilityKind.RAG, "retrieve", OperationType.RETRIEVE)

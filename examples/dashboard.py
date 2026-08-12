@@ -1,4 +1,4 @@
-"""Run a local, read-only CapabilityHub dashboard with a deliberately safe snapshot."""
+"""Run a local, read-only CapSift dashboard with a deliberately safe snapshot."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
-# Contributing to CapabilityHub
+# Contributing to CapSift
 
-Thanks for helping improve CapabilityHub. Small, well-scoped changes with tests are especially useful for preserving the certified compatibility and security boundaries.
+Thanks for helping improve CapSift. Small, well-scoped changes with tests are especially useful for preserving the certified compatibility and security boundaries.
 
 ## Local setup
 

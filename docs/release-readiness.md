@@ -2,13 +2,13 @@
 
 ## Current decision
 
-CapabilityHub `0.1.0` is a certification candidate for the self-hosted reference scope. The
+CapSift `0.2.0` is a certification candidate for the self-hosted reference scope. The
 authoritative [completion matrix](completion-matrix.md) is 36/36 Implemented. A release is
 certified only after GitHub Release Certification reruns and signs fresh, same-revision evidence;
 missing, stale, skipped, partial, mixed-revision, or failed evidence is rejected.
 
 This is a production claim for the documented self-hosted profile, not a claim that
-CapabilityHub is a hosted multi-region service, a universal Sigstore implementation,
+CapSift is a hosted multi-region service, a universal Sigstore implementation,
 or a replacement for an external identity provider, vault, gateway, or vector database.
 
 ## Required certification evidence
@@ -39,7 +39,7 @@ or a replacement for an external identity provider, vault, gateway, or vector da
   unavailable filesystem/network confinement.
 - Platform key stores, certificate issuance, OS patching, backup, external identity
   lifecycle, and distributed coordination remain operator responsibilities.
-- `SKILL.md` is loadable instruction content. CapabilityHub intentionally does not run
+- `SKILL.md` is loadable instruction content. CapSift intentionally does not run
   arbitrary discovered Skill scripts.
 
 ## Reproduce the release gates

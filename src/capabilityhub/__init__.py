@@ -1,3 +1,6 @@
-"""CapabilityHub public package."""
+"""CapSift implementation package.
 
-__version__ = "0.1.0"
+The ``capabilityhub`` import path is retained for backward compatibility.
+"""
+
+__version__ = "0.2.0"

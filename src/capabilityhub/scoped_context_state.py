@@ -25,7 +25,7 @@ _Result = TypeVar("_Result")
 class ScopedContextState:
     """Track disclosed-section metadata within exactly one opaque tenant scope.
 
-    This controls CapabilityHub's residency bookkeeping only. It cannot remove text
+    This controls CapSift's residency bookkeeping only. It cannot remove text
     already retained by a model client or another external conversation system.
     """
 

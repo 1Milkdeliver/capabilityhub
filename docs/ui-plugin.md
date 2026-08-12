@@ -18,28 +18,30 @@ credentials, provider output, raw task identifiers, and absolute audit paths.
 
 The repository-local Codex plugin provides two minimal menu skills. They can be
 installed as an always-available help entry without loading the catalog into each chat.
-Its `.mcp.json` declares the portable `capabilityhub mcp-serve` console command instead
-of embedding one developer's absolute executable path. Install the Python package with
-its MCP extra before installing the plugin:
+Its `.mcp.json` starts the dependency-free Node stdio runtime bundled in the plugin, so
+the menu does not depend on a global `capsift` executable or a separate MCP
+registration. Install the Python package only when the full CLI, Dashboard, configured
+Providers, or remote reference service is required:
 
 ```bash
 python -m pip install '.[mcp]'
 ```
 
-The plugin supplies the `capabilityhub-local` stdio server automatically, so no separate
-`codex mcp add` step is needed. If the console command is not on the Codex process PATH,
-the menu skills remain usable but live runtime calls report unavailable. Open a new Codex
-task after install or update. The local server builds a read-only catalog
-generation from approved Skill roots, enabled plugin Skill roots, configured MCP names,
-the installed CapabilityHub CLI, and project `.capabilityhub/manifests`; it never
-executes discovered code or reports
-credential/connection values. A missing runtime therefore cannot break every Codex
-task, while connected tasks can query actual inventory totals. Search checks a compact
-filesystem fingerprint and publishes a new atomic generation only after inputs change.
-A 250 ms window coalesces burst requests, so same-task Skill and manifest updates remain
-visible without a restart or repeated scans. The local Dashboard
-uses the same monitor and polls its safe status endpoint every three seconds. Inventory responses
+The plugin supplies the `capsift-local` stdio server automatically, so no separate
+`codex mcp add` step is needed. Open a new Codex task after install or update. The bundled
+server reports only the packaged menu Skills and its own MCP surface; it does not pretend
+to be the host's full five-kind catalog. The optional Python runtime builds the complete
+read-only catalog generation from approved Skill roots, enabled plugin Skill roots,
+configured MCP names, the installed CapSift CLI, and project manifests. It never
+executes discovered code or reports credential/connection values. Its search checks a
+compact filesystem fingerprint and publishes a new atomic generation only after inputs
+change. A 250 ms window coalesces burst requests, so same-task Skill and manifest updates
+remain visible without a restart or repeated scans. The local Dashboard uses that same
+monitor and polls its safe status endpoint every three seconds. Inventory responses
 identify fresh, partial, or stale state and expose only safe diagnostic codes/counts.
+
+For beginner-focused installation and daily workflows, see the
+[Simplified Chinese user guide](user-guide-zh-CN.md).
 
 The plugin exposes `helpme` and `myskills`, so the Codex app can present `/helpme` and
 `/myskills`. It does not override built-in `/help`, `/skills`, `/status`, or `/mcp`

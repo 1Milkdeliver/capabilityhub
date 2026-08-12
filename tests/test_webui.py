@@ -34,7 +34,7 @@ def test_dashboard_is_local_read_only_and_serves_snapshot() -> None:
             assert response.status == 200
             assert b'"reasoning_tier":"low"' in response.read()
         with urlopen(f"{dashboard.url}/", timeout=2) as response:
-            assert b"CapabilityHub" in response.read()
+            assert b"CapSift" in response.read()
         request = Request(f"{dashboard.url}/api/status", method="POST")
         with pytest.raises(HTTPError) as error:
             urlopen(request, timeout=2)
@@ -128,7 +128,7 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
             data=b'{"coordinate":"demo/tool","state":"disabled"}',
             headers={
                 "Content-Type": "application/json",
-                "X-CapabilityHub-CSRF": token,
+                "X-CapSift-CSRF": token,
             },
             method="POST",
         )
@@ -139,7 +139,7 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
             data=b'{"locale":"zh-CN"}',
             headers={
                 "Content-Type": "application/json",
-                "X-CapabilityHub-CSRF": token,
+                "X-CapSift-CSRF": token,
             },
             method="POST",
         )
@@ -148,7 +148,7 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
         approval = Request(
             f"{dashboard.url}/api/approval",
             data=b'{"approval_id":"apr_one","decision":"approve"}',
-            headers={"Content-Type": "application/json", "X-CapabilityHub-CSRF": token},
+            headers={"Content-Type": "application/json", "X-CapSift-CSRF": token},
             method="POST",
         )
         with urlopen(approval, timeout=2) as response:
@@ -156,7 +156,7 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
         context = Request(
             f"{dashboard.url}/api/context",
             data=b'{"key":"demo::contract","action":"pin"}',
-            headers={"Content-Type": "application/json", "X-CapabilityHub-CSRF": token},
+            headers={"Content-Type": "application/json", "X-CapSift-CSRF": token},
             method="POST",
         )
         with urlopen(context, timeout=2) as response:

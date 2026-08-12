@@ -1,6 +1,6 @@
-# CapabilityHub benchmark suite
+# CapSift benchmark suite
 
-This directory defines the repeatable evidence for CapabilityHub's staged-disclosure claim. The suite compares a full eager catalog against the same catalog exposed through CapabilityHub's fixed meta-tools and lazy retrieval. It measures saved context without treating a token estimate as universal model billing.
+This directory defines the repeatable evidence for CapSift's staged-disclosure claim. The suite compares a full eager catalog against the same catalog exposed through CapSift's fixed meta-tools and lazy retrieval. It measures saved context without treating a token estimate as universal model billing.
 
 ## Current offline release gate
 

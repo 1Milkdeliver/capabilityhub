@@ -1,11 +1,11 @@
 {
   "mcpServers": {
-    "capabilityhub-local": {
-      "title": "CapabilityHub Local",
+    "capsift-local": {
+      "title": "CapSift Local",
       "description": "Local progressive inventory, search, load, and controlled execution.",
       "cwd": ".",
       "command": "node",
-      "args": ["./runtime/capabilityhub_mcp.cjs"]
+      "args": ["./runtime/capsift_mcp.cjs"]
     }
   }
 }

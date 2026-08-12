@@ -1,6 +1,6 @@
 # Security policy
 
-CapabilityHub mediates tools that may access files, networks, credentials, and external systems. Security reports should not be filed as public issues when they could expose a working exploit or secret.
+CapSift mediates tools that may access files, networks, credentials, and external systems. Security reports should not be filed as public issues when they could expose a working exploit or secret.
 
 ## Reporting
 

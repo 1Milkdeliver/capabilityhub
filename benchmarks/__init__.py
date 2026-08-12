@@ -1,1 +1,1 @@
-"""Packaged deterministic CapabilityHub benchmark fixtures and harness."""
+"""Packaged deterministic CapSift benchmark fixtures and harness."""

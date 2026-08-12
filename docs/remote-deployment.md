@@ -1,6 +1,6 @@
 # Optional remote TLS profile
 
-CapabilityHub remains loopback-only by default. Remote deployment is an explicit host
+CapSift remains loopback-only by default. Remote deployment is an explicit host
 integration using `RemoteTlsControl`; it starts separate data and administration TLS
 listeners and requires a client certificate signed by the configured CA.
 

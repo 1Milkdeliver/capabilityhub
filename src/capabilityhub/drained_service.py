@@ -1,4 +1,4 @@
-"""Lifecycle admission wrapper for the real CapabilityHub service."""
+"""Lifecycle admission wrapper for the real CapSift service."""
 
 from __future__ import annotations
 

@@ -1,11 +1,11 @@
-# CapabilityHub Architecture
+# CapSift Architecture
 
 Status: proposed reference architecture  
 Related discovery: `docs/requirements-discovery.md`
 
 ## 1. Purpose and design stance
 
-CapabilityHub is a policy-enforced, revision-aware gateway between AI clients and a potentially large catalog of Skills, MCP tools, CLI commands, HTTP APIs, and RAG sources. Its key optimization is **progressive disclosure**: models receive a tiny, stable meta-tool surface and load only the capability material needed for the current task.
+CapSift is a policy-enforced, revision-aware gateway between AI clients and a potentially large catalog of Skills, MCP tools, CLI commands, HTTP APIs, and RAG sources. Its key optimization is **progressive disclosure**: models receive a tiny, stable meta-tool surface and load only the capability material needed for the current task.
 
 The architecture optimizes end-to-end successful-task cost, not prompt size in isolation. It keeps four constraints visible in every decision:
 
@@ -27,7 +27,7 @@ flowchart LR
       SDK["SDK / embedded runtime"]
     end
 
-    subgraph Hub["CapabilityHub"]
+    subgraph Hub["CapSift"]
       Adapters["MCP · HTTP · CLI · library adapters"]
       DP["Data plane: search · load · execute"]
       CP["Control plane: registry · policy · lifecycle"]
@@ -562,7 +562,7 @@ Provider time is reported separately from hub overhead. Benchmarks disclose hard
 
 ### Efficiency and quality
 
-A versioned task corpus compares CapabilityHub to eagerly exposing all tools. Per scenario, report success, selection accuracy, visible tokens, peak context, tool calls, reasoning-tier usage, cost, latency, retries, and truncation. Release thresholds operate by task class and tail percentile, not aggregate mean alone.
+A versioned task corpus compares CapSift to eagerly exposing all tools. Per scenario, report success, selection accuracy, visible tokens, peak context, tool calls, reasoning-tier usage, cost, latency, retries, and truncation. Release thresholds operate by task class and tail percentile, not aggregate mean alone.
 
 ## 19. Suggested implementation sequence
 

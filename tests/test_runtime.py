@@ -257,7 +257,7 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
         mutation = Request(
             f"{server.url}/api/lifecycle",
             data=b'{"coordinate":"codex-user/demo","state":"disabled"}',
-            headers={"Content-Type": "application/json", "X-CapabilityHub-CSRF": csrf},
+            headers={"Content-Type": "application/json", "X-CapSift-CSRF": csrf},
             method="POST",
         )
         with urlopen(mutation, timeout=2) as response:

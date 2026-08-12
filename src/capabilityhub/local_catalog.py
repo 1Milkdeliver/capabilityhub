@@ -1,4 +1,4 @@
-"""Read-only discovery for the local CapabilityHub MCP runtime."""
+"""Read-only discovery for the local CapSift MCP runtime."""
 
 from __future__ import annotations
 
@@ -263,12 +263,15 @@ def _configured_mcp_manifests(
 
 
 def _capabilityhub_cli_manifest() -> CapabilityManifest:
-    """Describe the CLI shipped with the running CapabilityHub distribution."""
+    """Describe the CLI shipped with the running CapSift distribution."""
 
-    try:
-        version = importlib.metadata.version("capabilityhub")
-    except importlib.metadata.PackageNotFoundError:
-        version = "source"
+    version = "source"
+    for distribution in ("capsift", "capabilityhub"):
+        try:
+            version = importlib.metadata.version(distribution)
+            break
+        except importlib.metadata.PackageNotFoundError:
+            continue
     digest = hashlib.sha256(f"capabilityhub-cli\0{version}".encode()).hexdigest()
     return CapabilityManifest(
         identity=CapabilityIdentity(
@@ -278,7 +281,7 @@ def _capabilityhub_cli_manifest() -> CapabilityManifest:
             f"sha256:{digest}",
         ),
         kind=CapabilityKind.CLI,
-        summary="Installed CapabilityHub local command-line interface: capabilityhub",
+        summary="Installed CapSift local command-line interface: capsift",
         provider="capabilityhub-runtime",
         operations=(
             OperationSpec("validate", OperationType.EXPAND),

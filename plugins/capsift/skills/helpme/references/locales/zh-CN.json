@@ -1,7 +1,7 @@
 {
   "locale": "zh-CN",
   "root": {
-    "title": "CapabilityHub",
+    "title": "CapSift",
     "groups": [
       {
         "title": "常用功能",
@@ -111,6 +111,6 @@
   },
   "navigation": {
     "/helpme back": "（返回上一级：回到刚才的菜单）",
-    "/helpme home": "（返回主菜单：回到 CapabilityHub 主菜单）"
+    "/helpme home": "（返回主菜单：回到 CapSift 主菜单）"
   }
 }

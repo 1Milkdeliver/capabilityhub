@@ -1,17 +1,17 @@
 {
-  "name": "capabilityhub",
-  "version": "0.1.1+codex.20260812080110",
+  "name": "capsift",
+  "version": "0.2.0+codex.20260812091033",
   "license": "MIT",
   "description": "Local progressive capability help with a bundled read-only MCP runtime.",
   "author": {
     "name": "1Milkdeliver",
-    "url": "https://github.com/1Milkdeliver/capabilityhub"
+    "url": "https://github.com/1Milkdeliver/capsift"
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "CapabilityHub",
+    "displayName": "CapSift",
     "shortDescription": "Use /helpme or /myskills.",
-    "longDescription": "Provides localized progressive help and on-demand Skill discovery without preloading capability content. Its bundled MCP runtime does not execute Skill scripts.",
+    "longDescription": "Loads compact capability metadata only when needed. Provides localized help and on-demand Skill discovery without preloading Skill content; its bundled MCP runtime never executes Skill scripts.",
     "developerName": "1Milkdeliver",
     "category": "Productivity",
     "capabilities": [

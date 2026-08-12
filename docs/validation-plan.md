@@ -1,15 +1,15 @@
-# CapabilityHub validation plan
+# CapSift validation plan
 
 ## Claim under test
 
-CapabilityHub may claim a context/cost benefit only if it exposes substantially less capability material than an eager catalog **while preserving correct routing, safe execution, and control** for Skills, MCP, CLI, API, and RAG. This plan tests that claim reproducibly. It deliberately separates measured facts from provider- or model-specific estimates.
+CapSift may claim a context/cost benefit only if it exposes substantially less capability material than an eager catalog **while preserving correct routing, safe execution, and control** for Skills, MCP, CLI, API, and RAG. This plan tests that claim reproducibly. It deliberately separates measured facts from provider- or model-specific estimates.
 
 The primary comparison is between two configurations over identical manifests, tasks, provider availability, cache state, and model settings:
 
 | Configuration | Always supplied to the agent | On-demand material |
 |---|---|---|
 | Eager baseline | Every enabled capability's complete definition: schemas, instructions, examples, and RAG excerpts | None; all is preloaded |
-| Lazy CapabilityHub | A fixed meta-tool contract plus compact catalog metadata (ID, type, title, tags, short description, permission class, revision) | Search results, inspected definitions, and RAG excerpts, only after an auditable action |
+| Lazy CapSift | A fixed meta-tool contract plus compact catalog metadata (ID, type, title, tags, short description, permission class, revision) | Search results, inspected definitions, and RAG excerpts, only after an auditable action |
 
 The eager baseline must not be weakened: it contains the same enabled capabilities and current revisions as the lazy run. The lazy system must record every disclosed byte/token, decision, tool call, permission decision, cache hit, and execution result.
 

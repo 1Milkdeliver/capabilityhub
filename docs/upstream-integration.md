@@ -4,7 +4,7 @@ Status: research record, 2026-08-11. Repository documents, configuration, and in
 
 ## Decision
 
-CapabilityHub is a language-neutral control plane and MCP meta-server. It owns the normalized capability manifest, staged selection, task budgets, policy decision, audit correlation, and deterministic benchmark. It does **not** reimplement an MCP gateway, an MCP client, a container sandbox, an agent runtime, or a multi-agent terminal manager.
+CapSift is a language-neutral control plane and MCP meta-server. It owns the normalized capability manifest, staged selection, task budgets, policy decision, audit correlation, and deterministic benchmark. It does **not** reimplement an MCP gateway, an MCP client, a container sandbox, an agent runtime, or a multi-agent terminal manager.
 
 Integrate mature systems at process/protocol boundaries. Prefer a pinned released artifact, authenticated loopback or mutually authenticated HTTP endpoint, and an explicit adapter configuration. Never vendor an upstream source tree merely to obtain a feature.
 

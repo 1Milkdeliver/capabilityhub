@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Dependency-free MCP stdio runtime for the packaged CapabilityHub plugin."""
+"""Dependency-free MCP stdio runtime for the packaged CapSift plugin."""
 
 from __future__ import annotations
 
@@ -148,7 +148,7 @@ def main() -> int:
                     {
                         "protocolVersion": PROTOCOL,
                         "capabilities": {"tools": {"listChanged": False}},
-                        "serverInfo": {"name": "capabilityhub-plugin", "version": "0.1.1"},
+                        "serverInfo": {"name": "capsift-plugin", "version": "0.2.0"},
                     },
                 )
             elif method == "tools/list":

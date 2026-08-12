@@ -3,9 +3,9 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [project]
-name = "capabilityhub"
-version = "0.1.0"
-description = "A lazy capability control plane for AI agents"
+name = "capsift"
+version = "0.2.0"
+description = "Load only the capabilities an AI agent needs"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -35,14 +35,15 @@ dev = [
 ]
 
 [project.urls]
-Repository = "https://github.com/1Milkdeliver/capabilityhub"
-Issues = "https://github.com/1Milkdeliver/capabilityhub/issues"
+Repository = "https://github.com/1Milkdeliver/capsift"
+Issues = "https://github.com/1Milkdeliver/capsift/issues"
 
 [project.scripts]
+capsift = "capabilityhub.cli:main"
 capabilityhub = "capabilityhub.cli:main"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/capabilityhub", "benchmarks"]
+packages = ["src/capabilityhub", "src/capsift", "benchmarks"]
 
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"

@@ -19,14 +19,14 @@ jobs:
       - name: Build source and wheel once, then measure subject and SBOM
         run: |
           export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
-          git archive --format=tar --output=capabilityhub-source.tar "$GITHUB_SHA"
+          git archive --format=tar --output=capsift-source.tar "$GITHUB_SHA"
           python -m pip wheel --no-deps --wheel-dir dist .
-          python -m capabilityhub.release_certification subject --source capabilityhub-source.tar --wheel dist/*.whl --source-revision "$GITHUB_SHA" --sbom release-sbom.json --output release-subject.json
+          python -m capabilityhub.release_certification subject --source capsift-source.tar --wheel dist/*.whl --source-revision "$GITHUB_SHA" --sbom release-sbom.json --output release-subject.json
       - uses: actions/upload-artifact@v6
         with:
           name: release-subject-${{ github.run_id }}
           path: |
-            capabilityhub-source.tar
+            capsift-source.tar
             dist/*.whl
             release-sbom.json
             release-subject.json

@@ -111,7 +111,7 @@ def test_local_rag_skips_symlinks_that_escape_the_approved_root(tmp_path) -> Non
 
 
 def test_local_rag_runs_through_search_load_and_execute_admission(tmp_path) -> None:
-    (tmp_path / "guide.md").write_text("CapabilityHub staged retrieval", encoding="utf-8")
+    (tmp_path / "guide.md").write_text("CapSift staged retrieval", encoding="utf-8")
     manifest = _manifest()
     provider = LocalRagProvider([LocalRagFixture(manifest, tmp_path)])
     registry = CapabilityRegistry()

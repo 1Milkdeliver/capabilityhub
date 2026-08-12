@@ -1,4 +1,4 @@
-"""Parsing and validation for the CapabilityHub v1alpha1 JSON manifest."""
+"""Parsing and validation for the CapSift v1alpha1 JSON manifest."""
 
 from __future__ import annotations
 

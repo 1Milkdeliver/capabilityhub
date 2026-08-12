@@ -222,7 +222,7 @@ function renderSearch(results) {
 async function postJson(path, body) {
   const response = await fetch(path, {
     method: "POST",
-    headers: { "Content-Type": "application/json", "X-CapabilityHub-CSRF": csrfToken },
+    headers: { "Content-Type": "application/json", "X-CapSift-CSRF": csrfToken },
     body: JSON.stringify(body),
   });
   if (!response.ok) throw Error("action failed");

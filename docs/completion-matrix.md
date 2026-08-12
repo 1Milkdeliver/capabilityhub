@@ -85,7 +85,7 @@ These are narrow, reproducible evidence paths; they do not close a `Partial` row
 | R33 | `compatibility.py`, `migration.py` | `test_compatibility.py`, `test_migration.py` |
 | R34 | `cli.py`, `runtime.py` | `test_cli.py`, `test_wheel_smoke.py` |
 | R35 | `.github/workflows/ci.yml`, `.github/workflows/release-certification.yml`, `release_certification.py` | `test_release_gate.py`, `test_release_certification.py`, browser and Linux sandbox CI |
-| R36 | `webui.py`, `plugins/capabilityhub` | `test_webui.py`, `test_plugin_package.py` |
+| R36 | `webui.py`, `plugins/capsift` | `test_webui.py`, `test_plugin_package.py` |
 
 ## Completion rule
 

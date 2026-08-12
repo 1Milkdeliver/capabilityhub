@@ -2,7 +2,7 @@
 
 The module deliberately supports a small, explicit profile: Ed25519 certificate
 chains and RFC6962-style SHA-256 inclusion proofs.  All signature operations are
-delegated to ``cryptography``; this code only binds CapabilityHub fields and
+delegated to ``cryptography``; this code only binds CapSift fields and
 applies fail-closed policy.
 """
 

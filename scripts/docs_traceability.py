@@ -164,11 +164,11 @@ REQUIRED_RUNTIME_CLAIMS = {
         ("tests/test_http_control.py", "capability.execute"),
     ),
     "helpme menu": (
-        ("plugins/capabilityhub/skills/helpme/SKILL.md", "/helpme"),
+        ("plugins/capsift/skills/helpme/SKILL.md", "/helpme"),
         ("tests/test_plugin_package.py", "/helpme"),
     ),
     "myskills menu": (
-        ("plugins/capabilityhub/skills/myskills/SKILL.md", "/myskills"),
+        ("plugins/capsift/skills/myskills/SKILL.md", "/myskills"),
         ("tests/test_plugin_package.py", "/myskills"),
     ),
 }

@@ -25,7 +25,7 @@
   "navigation": {
     "/myskills back": "(Back: return to the My Skills menu)",
     "/helpme language": "(Language: change the menu language)",
-    "/helpme home": "(Home: return to the CapabilityHub main menu)"
+    "/helpme home": "(Home: return to the CapSift main menu)"
   },
   "footer": "Reply with a number, a Skill name, or simply say what you want to do.",
   "unknown": "I do not understand this Skill action: {topic}"

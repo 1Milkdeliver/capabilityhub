@@ -1,4 +1,4 @@
-"""Transport-neutral application service for CapabilityHub's three meta-tools."""
+"""Transport-neutral application service for CapSift's three meta-tools."""
 
 from __future__ import annotations
 

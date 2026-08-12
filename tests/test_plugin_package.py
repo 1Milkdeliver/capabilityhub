@@ -14,7 +14,7 @@ from mcp.client.stdio import stdio_client
 from capabilityhub.mcp_server import create_empty_mcp_server
 
 ROOT = Path(__file__).parents[1]
-PLUGIN = ROOT / "plugins" / "capabilityhub"
+PLUGIN = ROOT / "plugins" / "capsift"
 NODE = Path(
     shutil.which("node")
     or "C:/Users/Huawei/.cache/codex-runtimes/codex-primary-runtime/"
@@ -38,19 +38,31 @@ def test_helpme_is_the_plugin_entry_and_menu_is_progressive() -> None:
     assert "Do not discover or preload" in skill
 
 
+def test_repository_marketplace_has_a_unique_beginner_install_name() -> None:
+    marketplace = json.loads(
+        (ROOT / ".agents" / "plugins" / "marketplace.json").read_text(
+            encoding="utf-8"
+        )
+    )
+
+    assert marketplace["name"] == "capsift"
+    assert marketplace["interface"]["displayName"] == "CapSift"
+    assert marketplace["plugins"][0]["name"] == "capsift"
+
+
 def test_plugin_declares_portable_local_mcp_runtime() -> None:
     config = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))
 
     assert config == {
         "mcpServers": {
-            "capabilityhub-local": {
-                "args": ["./runtime/capabilityhub_mcp.cjs"],
+            "capsift-local": {
+                "args": ["./runtime/capsift_mcp.cjs"],
                 "command": "node",
                 "cwd": ".",
                 "description": (
                     "Local progressive inventory, search, load, and controlled execution."
                 ),
-                "title": "CapabilityHub Local",
+                "title": "CapSift Local",
             }
         }
     }
@@ -60,7 +72,7 @@ def test_bundled_mcp_runs_from_clean_path_and_serves_three_tools(tmp_path: Path)
     installed = tmp_path / "plugin"
     shutil.copytree(PLUGIN, installed)
     process = subprocess.Popen(
-        [str(NODE), str(installed / "runtime" / "capabilityhub_mcp.cjs")],
+        [str(NODE), str(installed / "runtime" / "capsift_mcp.cjs")],
         cwd=installed,
         env=_clean_path_environment(),
         stdin=subprocess.PIPE,
@@ -89,7 +101,7 @@ def test_bundled_mcp_runs_from_clean_path_and_serves_three_tools(tmp_path: Path)
         "initialize",
         {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {}},
     )
-    assert initialized["result"]["serverInfo"]["name"] == "capabilityhub-plugin"
+    assert initialized["result"]["serverInfo"]["name"] == "capsift-plugin"
     listed = request(2, "tools/list")
     assert [tool["name"] for tool in listed["result"]["tools"]] == [
         "capability.search",
@@ -142,7 +154,7 @@ def test_official_mcp_client_lists_and_calls_bundled_runtime_with_clean_path(
     shutil.copytree(PLUGIN, installed)
     parameters = StdioServerParameters(
         command=str(NODE),
-        args=[str(installed / "runtime" / "capabilityhub_mcp.cjs")],
+        args=[str(installed / "runtime" / "capsift_mcp.cjs")],
         cwd=installed,
         env=_clean_path_environment(),
     )
@@ -277,13 +289,13 @@ def test_myskills_catalogs_match_and_keep_professional_terms_visible() -> None:
 def test_fresh_install_and_upgrade_keep_plugin_actions_connected_to_mcp(tmp_path: Path) -> None:
     home = tmp_path / "home"
     project = tmp_path / "project"
-    cache = home / ".codex" / "plugins" / "cache" / "local" / "capabilityhub"
+    cache = home / ".codex" / "plugins" / "cache" / "local" / "capsift"
     config = home / ".codex" / "config.toml"
     project.mkdir(parents=True)
     config.parent.mkdir(parents=True)
     config.write_text(
-        '[plugins."capabilityhub@local"]\nenabled = true\n'
-        "[mcp_servers.capabilityhub-local]\ncommand = 'capabilityhub'\nargs = ['mcp-serve']\n",
+        '[plugins."capsift@local"]\nenabled = true\n'
+        "[mcp_servers.capsift-local]\ncommand = 'capsift'\nargs = ['mcp-serve']\n",
         encoding="utf-8",
     )
 

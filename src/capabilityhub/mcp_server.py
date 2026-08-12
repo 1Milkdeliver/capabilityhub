@@ -1,4 +1,4 @@
-"""Official MCP Python SDK v2 adapter for CapabilityHub's three meta-tools.
+"""Official MCP Python SDK v2 adapter for CapSift's three meta-tools.
 
 This module registers tools on :class:`mcp.server.MCPServer`; protocol framing,
 sessions, and every transport remain the SDK's responsibility.
@@ -58,7 +58,7 @@ def create_mcp_server(
     *,
     context_provider: ContextProvider,
     budget_provider: BudgetProvider,
-    name: str = "CapabilityHub",
+    name: str = "CapSift",
     state_provider: RuntimeStateProvider | None = None,
 ) -> MCPServer:
     """Create an SDK-owned server exposing exactly search, load, and execute."""
@@ -183,7 +183,7 @@ def serve(
     context_provider: ContextProvider | None = None,
     budget_provider: BudgetProvider | None = None,
     transport: Literal["stdio", "sse", "streamable-http"] = "stdio",
-    name: str = "CapabilityHub",
+    name: str = "CapSift",
     project: Path | None = None,
     **transport_options: Any,
 ) -> None:
@@ -281,7 +281,7 @@ def _local_audit_sink(project: Path) -> AuditSink:
 
 def create_empty_mcp_server(
     *,
-    name: str = "CapabilityHub",
+    name: str = "CapSift",
     home: Path | None = None,
     project: Path | None = None,
     refresh_interval_seconds: float = 0.25,
@@ -406,7 +406,7 @@ def _safe(call: Callable[[], _ResultT]) -> CallToolResult:
                 "category": ErrorCategory.INTERNAL.value,
                 "code": "mcp_adapter_internal_error",
                 "retryable": False,
-                "safe_message": "CapabilityHub could not complete the request.",
+                "safe_message": "CapSift could not complete the request.",
             }
         }
         return _tool_result(envelope, is_error=True)

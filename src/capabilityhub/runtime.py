@@ -493,10 +493,13 @@ def local_health(
         else:
             config_status = "ok"
     checks.append({"check": "codex_config", "status": config_status})
-    try:
-        version = metadata.version("capabilityhub")
-    except metadata.PackageNotFoundError:
-        version = "source"
+    version = "source"
+    for distribution in ("capsift", "capabilityhub"):
+        try:
+            version = metadata.version(distribution)
+            break
+        except metadata.PackageNotFoundError:
+            continue
     overall = (
         "ok"
         if project_ok and assets_ok and config_status != "invalid" and audit_health == "ok"

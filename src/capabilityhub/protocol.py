@@ -1,4 +1,4 @@
-"""Transport-neutral request and response contract for CapabilityHub clients.
+"""Transport-neutral request and response contract for CapSift clients.
 
 This module defines conformance primitives only.  It deliberately does not
 implement a CLI process, MCP server, or HTTP service.

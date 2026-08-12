@@ -138,7 +138,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
 
             page.goto(dashboard_url, wait_until="networkidle")
             page.get_by_text("Live snapshot updated.").wait_for()
-            assert page.get_by_role("heading", name="CapabilityHub", level=1).is_visible()
+            assert page.get_by_role("heading", name="CapSift", level=1).is_visible()
             assert page.get_by_role("heading", name="Search", level=2).is_visible()
             assert page.get_by_label("Task or name").is_visible()
             assert page.get_by_label("Capability kind").is_visible()

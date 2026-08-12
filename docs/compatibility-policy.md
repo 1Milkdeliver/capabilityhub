@@ -1,6 +1,6 @@
 # Compatibility policy
 
-CapabilityHub publishes transport compatibility separately from manifest migration.
+CapSift publishes transport compatibility separately from manifest migration.
 
 - `capabilityhub.io/v1alpha1` is the only currently supported transport API version. It was
   introduced on 2026-08-11.

@@ -265,7 +265,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self._write_json(payload)
 
     def _authorized(self) -> bool:
-        token = self.headers.get("X-CapabilityHub-CSRF", "")
+        token = self.headers.get("X-CapSift-CSRF", "")
         if not secrets.compare_digest(token, self._csrf_token):
             return False
         origin = self.headers.get("Origin")

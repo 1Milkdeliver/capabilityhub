@@ -2,7 +2,7 @@
 "use strict";
 
 // Dependency-free MCP stdio runtime bundled with the plugin. Codex supplies
-// the Node host used by first-party plugins; no global CapabilityHub install is
+// the Node host used by first-party plugins; no global CapSift install is
 // required.
 const crypto = require("node:crypto");
 const fs = require("node:fs");
@@ -118,7 +118,7 @@ input.on("line", (line) => {
       respond(request.id, {
         protocolVersion: PROTOCOL,
         capabilities: { tools: { listChanged: false } },
-        serverInfo: { name: "capabilityhub-plugin", version: "0.1.1" },
+        serverInfo: { name: "capsift-plugin", version: "0.2.0" },
       });
     } else if (request.method === "tools/list") {
       respond(request.id, { tools: tools() });

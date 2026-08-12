@@ -1,4 +1,4 @@
-# CapabilityHub Requirement Discovery
+# CapSift Requirement Discovery
 
 Status: proposed baseline  
 Audience: maintainers, integrators, client authors, security reviewers  
@@ -10,7 +10,7 @@ These rounds turn the product brief into falsifiable requirements. “Evidence�
 
 ### Round 1 — Primary actor
 
-- **Question:** Who directly operates CapabilityHub: the model, an application developer, or a platform administrator?
+- **Question:** Who directly operates CapSift: the model, an application developer, or a platform administrator?
 - **Why it matters:** Each actor needs a different surface, and mixing them would enlarge the model context and the security boundary.
 - **Evidence/assumption:** The brief asks to control model-facing capabilities and reduce reasoning cost; it also asks for permissions and observability. This implies at least a model/runtime actor and an administrative actor.
 - **Decision/answer:** Treat the model/runtime as the data-plane caller and developers/operators as control-plane callers. Humans may use the CLI for both, but authorization remains plane-specific.
@@ -24,7 +24,7 @@ These rounds turn the product brief into falsifiable requirements. “Evidence�
 - **Why it matters:** Minimizing visible schemas alone can increase search calls, latency, and reasoning, making the overall task more expensive.
 - **Evidence/assumption:** The brief names token, context, and reasoning cost, which are related but distinct. We assume task success and latency cannot be sacrificed indiscriminately.
 - **Decision/answer:** Optimize end-to-end successful-task cost, using model-visible tokens, context occupancy, reasoning tier usage, tool calls, latency, and success rate as a balanced scorecard.
-- **Resulting requirement:** CapabilityHub MUST measure per-task discovery/load/execute cost and MUST support policy constraints for success-rate and latency floors alongside budget ceilings.
+- **Resulting requirement:** CapSift MUST measure per-task discovery/load/execute cost and MUST support policy constraints for success-rate and latency floors alongside budget ceilings.
 - **Validation criterion:** A benchmark report compares the hub with an “all tools eagerly exposed” baseline and shows cost changes without breaching configured quality/latency guardrails.
 - **Risk if wrong:** The project reports impressive prompt shrinkage while real workloads become slower, less reliable, or more expensive.
 
@@ -76,7 +76,7 @@ These rounds turn the product brief into falsifiable requirements. “Evidence�
 - **Decision/answer:** Execute only immutable, revision-bound capability references issued by the hub, subject to policy; raw driver escape hatches are administrative and off by default.
 - **Resulting requirement:** Data-plane execution MUST reject unregistered commands, URLs, packages, and stale/tampered references before side effects.
 - **Validation criterion:** Attempts to invoke a raw shell command, altered revision, or unregistered endpoint fail with a structured pre-execution error.
-- **Risk if wrong:** CapabilityHub becomes a privilege-bypass mechanism.
+- **Risk if wrong:** CapSift becomes a privilege-bypass mechanism.
 
 ### Round 8 — Manifest as source of truth
 
@@ -346,7 +346,7 @@ These rounds turn the product brief into falsifiable requirements. “Evidence�
 - **Decision/answer:** Ship a local single-process control service with isolated workers, embedded metadata/search defaults, filesystem artifacts, and optional external adapters for scale.
 - **Resulting requirement:** Core discovery, governance, search, load, execute, audit, and RAG MUST run without a proprietary service; optional hosted integrations MUST be replaceable behind documented interfaces.
 - **Validation criterion:** A clean-machine quickstart runs an end-to-end example locally, offline after dependencies are obtained, and the license/contributor documentation covers all core components.
-- **Risk if wrong:** CapabilityHub is open-source in name but operationally dependent on a vendor.
+- **Risk if wrong:** CapSift is open-source in name but operationally dependent on a vendor.
 
 ### Round 35 — Validation strategy
 

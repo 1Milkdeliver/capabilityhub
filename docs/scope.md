@@ -4,7 +4,7 @@ This document converts the 35 discovery rounds into an implementable release bou
 
 ## What “control” means
 
-CapabilityHub controls a capability only when the client routes discovery and execution through the Hub. Control consists of:
+CapSift controls a capability only when the client routes discovery and execution through the Hub. Control consists of:
 
 1. normalized, revisioned metadata;
 2. visibility filtering and ranked discovery;
@@ -14,7 +14,7 @@ CapabilityHub controls a capability only when the client routes discovery and ex
 6. provider dispatch through an adapter;
 7. structured audit events and measured context cost.
 
-CapabilityHub cannot govern a tool that a client also exposes through an independent bypass. Deployments that require enforcement MUST remove direct client access or enforce the same policy at the upstream gateway.
+CapSift cannot govern a tool that a client also exposes through an independent bypass. Deployments that require enforcement MUST remove direct client access or enforce the same policy at the upstream gateway.
 
 ## Release 0.1 — evidence-producing core
 
@@ -60,7 +60,7 @@ Release 0.1 MUST prove the initial-context and total-input savings gates defined
 
 ## Explicit non-goals
 
-CapabilityHub will not implement:
+CapSift will not implement:
 
 - an MCP transport stack, OAuth client, credential vault, or API gateway;
 - a container runtime, code sandbox, shell, terminal multiplexer, or agent scheduler;

@@ -16,7 +16,7 @@ because the bundled MCP search/load runtime is available.
 
 - Bare `/myskills`: render both visible groups and all items. Provider, Routing,
   Inventory, Lifecycle, Risks, and Conflicts are never hidden. Append the catalog's
-  `navigation` items so language settings and the CapabilityHub main menu stay visible.
+  `navigation` items so language settings and the CapSift main menu stay visible.
 - `list`/`inventory`: call `capability.search` with an empty query and a bounded result.
   Set `include_inventory: true`, `include_cards: true`, and `kinds: ["skill"]`. Use
   `inventory.active_by_kind.skill` for the global active Skill total and query-level
@@ -27,7 +27,7 @@ because the bundled MCP search/load runtime is available.
 - Accept exact commands and aliases: `find`, `list`/`ls`, `loaded`/`using`, `show`/`info`,
   `providers`, `routing`/`why`, `lifecycle`, `risks`, `conflicts`/`check`.
 - `/myskills back` returns to the My Skills menu. `/helpme home` always returns to the
-  CapabilityHub main menu, and `/helpme language` opens language settings. Recognize
+  CapSift main menu, and `/helpme language` opens language settings. Recognize
   localized `返回上一级`, `返回主菜单`, `back`, and `home` only while this menu is active.
 - Append the catalog's `navigation` items exactly once after every My Skills result.
 - Recognize explicit natural-language intents such as “帮我找一个处理 PDF 的 Skill”,
@@ -43,17 +43,17 @@ because the bundled MCP search/load runtime is available.
 - Search only compact Skill metadata first. Return at most five candidates unless the
   user requests more.
 - Load a Skill body only after an explicit selection.
-- Skills are load-only in CapabilityHub; do not offer a `run` command.
+- Skills are load-only in CapSift; do not offer a `run` command.
 - Read-only actions execute directly. For a discovered exact Skill coordinate, use
-  `capabilityhub lifecycle set <coordinate> <enabled|disabled|quarantined> --pretty`.
+  `capsift lifecycle set <coordinate> <enabled|disabled|quarantined> --pretty`.
   Confirm quarantine before applying it. These states only control catalog activation;
   they do not delete or execute Skill files. `update` remains unavailable, and `pause`
   is presented as the reversible `disabled` state rather than a separate hidden state.
-- For `loaded`, use `capabilityhub loaded --limit 20 --pretty`, filter returned entries
+- For `loaded`, use `capsift loaded --limit 20 --pretty`, filter returned entries
   to kind `skill`, and describe them as recent successful loads from redacted audit.
-- For `providers`, use `capabilityhub providers --pretty`, then show Provider rows whose
+- For `providers`, use `capsift providers --pretty`, then show Provider rows whose
   `kinds` contain `skill`. Keep the real Provider name visible.
-- For `routing <task>`, use `capabilityhub routing <task> --kind skill --limit 5 --pretty`
+- For `routing <task>`, use `capsift routing <task> --kind skill --limit 5 --pretty`
   and show only rank, revision, and `match_reason`. This is deterministic lexical
   explanation, not hidden chain-of-thought.
 - If one of these CLI calls is unavailable because the local runtime is not connected,

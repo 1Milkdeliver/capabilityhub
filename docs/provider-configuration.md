@@ -1,6 +1,6 @@
 # Project provider configuration
 
-CapabilityHub keeps discovery inert by default. A project manifest becomes executable only when
+CapSift keeps discovery inert by default. A project manifest becomes executable only when
 `spec.driver.name` is one of four built-in adapters and its bounded `config` is valid. Configuration
 lives in the same reviewed JSON manifest under `.capabilityhub/manifests/`; there is no second
 capability definition to keep in sync.
@@ -76,9 +76,9 @@ limits through the official MCP SDK.
 ## Execute
 
 ```bash
-capabilityhub search "task words" --project-root /absolute/project
-capabilityhub load REVISION --operation OPERATION --project-root /absolute/project
-capabilityhub execute REVISION OPERATION --arguments '{"key":"value"}' --project-root /absolute/project
+capsift search "task words" --project-root /absolute/project
+capsift load REVISION --operation OPERATION --project-root /absolute/project
+capsift execute REVISION OPERATION --arguments '{"key":"value"}' --project-root /absolute/project
 ```
 
 Add grants or approval flags only when required. `--fixture-output` remains available solely for

@@ -1,4 +1,4 @@
-"""Provider-neutral domain models used by CapabilityHub's control core."""
+"""Provider-neutral domain models used by CapSift's control core."""
 
 from __future__ import annotations
 

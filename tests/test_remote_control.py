@@ -398,7 +398,7 @@ def _certificates(
 ) -> tuple[TlsFiles, dict[str, tuple[bytes, Path, Path]]]:
     now = datetime.datetime.now(datetime.UTC)
     ca_key = rsa.generate_private_key(public_exponent=65_537, key_size=2_048)
-    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "CapabilityHub test CA")])
+    ca_name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "CapSift test CA")])
     ca = (
         x509.CertificateBuilder()
         .subject_name(ca_name)

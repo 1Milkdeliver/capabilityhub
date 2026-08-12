@@ -1,4 +1,4 @@
-"""Standard-library command line interface for local CapabilityHub operations."""
+"""Standard-library command line interface for local CapSift operations."""
 
 from __future__ import annotations
 
@@ -14,7 +14,10 @@ from capabilityhub.errors import CapabilityHubError, ErrorCategory
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="capabilityhub")
+    parser = argparse.ArgumentParser(
+        prog="capsift",
+        description="Load only the capabilities your agent needs.",
+    )
     commands = parser.add_subparsers(dest="command", required=True)
     validate = commands.add_parser("validate", help="validate JSON or YAML manifests")
     validate.add_argument("paths", nargs="+")

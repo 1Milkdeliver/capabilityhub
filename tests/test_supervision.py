@@ -205,7 +205,12 @@ def test_brokered_http_missing_alias_fails_before_worker_spawn() -> None:
             _context(),
         )
 
-    assert caught.value.code == "secret_alias_unavailable"
+    expected = (
+        "secret_alias_unavailable"
+        if os.name == "nt"
+        else "provider_worker_secret_boundary_unsupported"
+    )
+    assert caught.value.code == expected
     assert "PRIVATE_ALIAS" not in repr(caught.value.as_dict())
 
 

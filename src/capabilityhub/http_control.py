@@ -200,6 +200,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
                 )
             self._control._authenticator.authenticate(authorization[0])
         except CapabilityHubError as error:
+            self._drain_bounded_body()
             self._transport_error(HTTPStatus.UNAUTHORIZED, error.code, correlation)
             return
         if self.headers.get("Transfer-Encoding") is not None:
@@ -258,6 +259,19 @@ class _ControlHandler(BaseHTTPRequestHandler):
                 else HTTPStatus.INTERNAL_SERVER_ERROR
             )
             self._send_envelope(status, response)
+
+    def _drain_bounded_body(self) -> None:
+        """Consume a small rejected body so the peer receives the error response."""
+
+        if self.headers.get("Transfer-Encoding") is not None:
+            return
+        lengths = self.headers.get_all("Content-Length", ())
+        try:
+            length = int(lengths[0]) if len(lengths) == 1 else -1
+        except ValueError:
+            return
+        if 0 <= length <= self._control._max_body_bytes:
+            self.rfile.read(length)
 
     def do_GET(self) -> None:
         self._method_not_allowed()

@@ -222,6 +222,7 @@ def test_invalid_driver_is_counted_but_never_wired(tmp_path: Path) -> None:
     assert generation.providers == ()
 
 
+@pytest.mark.skipif(os.name != "nt", reason="encrypted worker secrets require Windows DPAPI")
 def test_cli_environment_alias_is_injected_only_into_spawned_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -252,6 +253,7 @@ def test_cli_environment_alias_is_injected_only_into_spawned_command(
     assert secret not in repr(result)
 
 
+@pytest.mark.skipif(os.name != "nt", reason="encrypted worker secrets require Windows DPAPI")
 def test_configured_http_alias_crosses_encrypted_worker_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

@@ -20,9 +20,21 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
+from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.auth import AuthIdentity
+from capabilityhub.budget import BudgetLedger
 from capabilityhub.compatibility import FeatureHandshake
-from capabilityhub.models import JsonValue
+from capabilityhub.errors import CapabilityHubError
+from capabilityhub.models import (
+    CapabilityIdentity,
+    CapabilityKind,
+    CapabilityManifest,
+    ExecutionRequest,
+    ExecutionResult,
+    JsonValue,
+    OperationSpec,
+    OperationType,
+)
 from capabilityhub.protocol import (
     AdapterKind,
     ConformanceFixture,
@@ -30,11 +42,16 @@ from capabilityhub.protocol import (
     protocol_handshake,
     run_conformance_suite,
 )
+from capabilityhub.providers.base import ProviderContext
+from capabilityhub.references import ReferenceSigner
+from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.remote_control import (
     RemotePrincipal,
     RemoteTlsControl,
     TlsFiles,
 )
+from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.service_adapter import CapabilityHubServiceAdapter
 
 
 @dataclass
@@ -58,6 +75,33 @@ class _Admin:
     ) -> JsonValue:
         self.identity = identity
         return {"operation": operation, "principal": identity.principal_id}
+
+
+class _CountingProvider:
+    name = "remote-fixture"
+
+    def __init__(self, manifest: CapabilityManifest) -> None:
+        self.manifest = manifest
+        self.calls: list[str] = []
+
+    def discover(self) -> tuple[CapabilityManifest, ...]:
+        return (self.manifest,)
+
+    def execute(
+        self,
+        identity: CapabilityIdentity,
+        request: ExecutionRequest,
+        context: ProviderContext,
+    ) -> ExecutionResult:
+        self.calls.append(context.tenant_id)
+        return ExecutionResult(
+            identity.revision,
+            request.operation,
+            {"tenant": context.tenant_id},
+            self.name,
+            1,
+            "remote-fixture-audit",
+        )
 
 
 def test_real_mtls_split_planes_roles_and_adapter_conformance(tmp_path: Path) -> None:
@@ -136,7 +180,153 @@ def test_real_mtls_split_planes_roles_and_adapter_conformance(tmp_path: Path) ->
         ].passed
 
 
-def _envelope(operation: str) -> dict[str, object]:
+def test_mtls_data_certificates_isolate_refs_budgets_and_idempotency(tmp_path: Path) -> None:
+    tls, clients = _certificates(tmp_path)
+    first_der, first_cert, first_key = clients["data"]
+    second_der, second_cert, second_key = clients["data-b"]
+    manifest = CapabilityManifest(
+        CapabilityIdentity("remote", "fixture", "1", "sha256:" + "a" * 64),
+        CapabilityKind.API,
+        "Remote tenant fixture.",
+        "remote-fixture",
+        (OperationSpec("read", OperationType.EXECUTE),),
+    )
+    registry = CapabilityRegistry()
+    registry.register(manifest)
+    registry.activate(manifest.identity.coordinate, manifest.identity.revision)
+    provider = _CountingProvider(manifest)
+    service = CapabilityHubService(
+        registry=registry,
+        providers=(provider,),
+        references=ReferenceSigner(b"remote-tenant-reference-key-material"),
+        audit=MemoryAuditSink(),
+    )
+    adapters: dict[str, CapabilityHubServiceAdapter] = {}
+    budgets: dict[tuple[str, str], BudgetLedger] = {}
+
+    def adapter_for(principal: RemotePrincipal) -> CapabilityHubServiceAdapter:
+        def budget(task_id: str) -> BudgetLedger:
+            return budgets.setdefault(
+                (principal.certificate_sha256, task_id),
+                BudgetLedger(
+                    task_id,
+                    {"bytes": 50_000, "loads": 1, "executions": 4, "portable_tokens": 5_000},
+                ),
+            )
+
+        return adapters.setdefault(
+            principal.certificate_sha256,
+            CapabilityHubServiceAdapter(
+                service,
+                kind=AdapterKind.HTTP,
+                context_provider=lambda: ServiceContext(
+                    principal.tenant_id, principal.principal_id, "remote-data"
+                ),
+                budget_provider=budget,
+            ),
+        )
+
+    template = adapter_for(
+        RemotePrincipal(hashlib.sha256(first_der).hexdigest(), "tenant-a", "caller", "data")
+    )
+    control = RemoteTlsControl(
+        template,
+        _Admin(),
+        tls=tls,
+        principals=(
+            RemotePrincipal(
+                hashlib.sha256(first_der).hexdigest(), "tenant-a", "caller", "data"
+            ),
+            RemotePrincipal(
+                hashlib.sha256(second_der).hexdigest(), "tenant-b", "caller", "data"
+            ),
+        ),
+        data_adapter_provider=adapter_for,
+    )
+    access = control.start()
+    try:
+        first_ref = _search_and_load(access.data_url, tls.client_ca, first_cert, first_key)
+        cross_status, cross = _post(
+            access.data_url,
+            _envelope(
+                "capability.load",
+                {"capability_ref": first_ref[0], "task_id": "shared-task"},
+            ),
+            tls.client_ca,
+            second_cert,
+            second_key,
+        )
+        second_ref = _search_and_load(access.data_url, tls.client_ca, second_cert, second_key)
+        exhausted_status, exhausted = _post(
+            access.data_url,
+            _envelope(
+                "capability.load",
+                {"capability_ref": first_ref[0], "task_id": "shared-task"},
+            ),
+            tls.client_ca,
+            first_cert,
+            first_key,
+        )
+        for certificate, key, execution_ref in (
+            (first_cert, first_key, first_ref[1]),
+            (second_cert, second_key, second_ref[1]),
+            (first_cert, first_key, first_ref[1]),
+        ):
+            status, _ = _post(
+                access.data_url,
+                _envelope(
+                    "capability.execute",
+                    {
+                        "execution_ref": execution_ref,
+                        "operation": "read",
+                        "arguments": {},
+                        "task_id": "shared-task",
+                        "idempotency_key": "same-key",
+                    },
+                ),
+                tls.client_ca,
+                certificate,
+                key,
+            )
+            assert status == 200
+    finally:
+        control.close()
+
+    assert cross_status == 400
+    assert cross["error"] == {"code": "reference_scope_mismatch"}
+    assert exhausted_status == 400
+    assert exhausted["error"] == {"code": "budget_exhausted"}
+    assert provider.calls == ["tenant-a", "tenant-b"]
+
+
+def test_remote_data_rejects_one_adapter_reused_across_certificates(tmp_path: Path) -> None:
+    tls, clients = _certificates(tmp_path)
+    first_der, _, _ = clients["data"]
+    second_der, _, _ = clients["data-b"]
+    shared = _Adapter()
+    first = RemotePrincipal(
+        hashlib.sha256(first_der).hexdigest(), "tenant-a", "caller", "data"
+    )
+    second = RemotePrincipal(
+        hashlib.sha256(second_der).hexdigest(), "tenant-b", "caller", "data"
+    )
+    control = RemoteTlsControl(
+        shared,
+        _Admin(),
+        tls=tls,
+        principals=(first, second),
+        data_adapter_provider=lambda _principal: shared,
+    )
+
+    control._data(_envelope("capability.search"), first)
+    with pytest.raises(CapabilityHubError) as rejected:
+        control._data(_envelope("capability.search"), second)
+    assert rejected.value.code == "remote_data_adapter_identity_mismatch"
+
+
+def _envelope(
+    operation: str, payload: dict[str, object] | None = None
+) -> dict[str, object]:
     handshake = protocol_handshake()
     return {
         "correlation_id": "correlation-1",
@@ -146,9 +336,37 @@ def _envelope(operation: str) -> dict[str, object]:
             "supported_features": list(handshake.supported_features),
         },
         "operation": operation,
-        "payload": {},
+        "payload": payload or {},
         "request_id": "request-1",
     }
+
+
+def _search_and_load(
+    url: str, ca: Path, certificate: Path, private_key: Path
+) -> tuple[str, str]:
+    status, search = _post(
+        url,
+        _envelope("capability.search", {"query": "remote", "task_id": "shared-task"}),
+        ca,
+        certificate,
+        private_key,
+    )
+    assert status == 200
+    search_result = cast(dict[str, object], search["result"])
+    capability_ref = cast(list[dict[str, str]], search_result["cards"])[0]["capability_ref"]
+    status, loaded = _post(
+        url,
+        _envelope(
+            "capability.load",
+            {"capability_ref": capability_ref, "task_id": "shared-task"},
+        ),
+        ca,
+        certificate,
+        private_key,
+    )
+    assert status == 200
+    loaded_result = cast(dict[str, object], loaded["result"])
+    return capability_ref, cast(str, loaded_result["execution_ref"])
 
 
 def _post(
@@ -283,4 +501,5 @@ def _certificates(
     return TlsFiles(server_cert, server_key, ca_path), {
         "admin": issue("admin"),
         "data": issue("data"),
+        "data-b": issue("data-b"),
     }

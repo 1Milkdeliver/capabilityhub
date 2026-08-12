@@ -411,6 +411,16 @@ class ScopedApprovalStore:
         self._scope_key = scope_key
         self._path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as connection:
+            columns = {
+                str(row[1])
+                for row in connection.execute("PRAGMA table_info(scoped_approval_records)")
+            }
+            if columns and "tenant_id" in columns:
+                connection.execute("PRAGMA secure_delete=ON")
+                connection.execute("BEGIN IMMEDIATE")
+                connection.execute(
+                    "ALTER TABLE scoped_approval_records RENAME TO scoped_approval_records_raw"
+                )
             connection.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS scoped_approval_records (
@@ -420,10 +430,6 @@ class ScopedApprovalStore:
                     revision TEXT NOT NULL,
                     operation TEXT NOT NULL,
                     arguments_digest TEXT NOT NULL,
-                    tenant_id TEXT NOT NULL,
-                    principal_id TEXT NOT NULL,
-                    session_id TEXT NOT NULL,
-                    task_id TEXT NOT NULL,
                     side_effect TEXT NOT NULL,
                     policy_revision TEXT NOT NULL,
                     status TEXT NOT NULL CHECK (
@@ -440,6 +446,24 @@ class ScopedApprovalStore:
                     ON scoped_approval_records(scope_digest, status, expires_at);
                 """
             )
+            if columns and "tenant_id" in columns:
+                connection.execute(
+                    "INSERT INTO scoped_approval_records SELECT "
+                    "scope_digest, approval_digest, approval_id, revision, operation, "
+                    "arguments_digest, side_effect, policy_revision, status, created_at, "
+                    "expires_at, decided_at, decided_by, consumed_at "
+                    "FROM scoped_approval_records_raw"
+                )
+                connection.execute("DROP TABLE scoped_approval_records_raw")
+                connection.execute(
+                    "CREATE INDEX IF NOT EXISTS scoped_approval_status_expiry "
+                    "ON scoped_approval_records(scope_digest, status, expires_at)"
+                )
+                connection.commit()
+        if columns and "tenant_id" in columns:
+            with sqlite3.connect(self._path, timeout=30) as connection:
+                connection.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+                connection.execute("VACUUM")
 
     def request(
         self,
@@ -462,7 +486,7 @@ class ScopedApprovalStore:
             with self._connect() as connection:
                 connection.execute(
                     "INSERT INTO scoped_approval_records VALUES "
-                    "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, NULL, NULL)",
+                    "(?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, NULL, NULL, NULL)",
                     (
                         scope_digest,
                         approval_digest,
@@ -470,10 +494,6 @@ class ScopedApprovalStore:
                         intent.revision,
                         intent.operation,
                         intent.arguments_digest,
-                        intent.tenant_id,
-                        intent.principal_id,
-                        intent.session_id,
-                        intent.task_id,
                         intent.side_effect,
                         intent.policy_revision,
                         current,
@@ -498,7 +518,7 @@ class ScopedApprovalStore:
             ).fetchone()
         if row is None:
             raise _error("approval_not_found", "The approval request was not found.", approval_id)
-        return _record(row)
+        return _scoped_record(row, scope)
 
     def list(
         self,
@@ -526,7 +546,7 @@ class ScopedApprovalStore:
                 "ORDER BY created_at DESC, approval_digest DESC LIMIT ?",
                 (*parameters, limit),
             ).fetchall()
-        return tuple(_record(row) for row in rows)
+        return tuple(_scoped_record(row, scope) for row in rows)
 
     def approve(
         self, scope: TenantScope, approval_id: str, *, decided_by: str, now: float | None = None
@@ -537,6 +557,42 @@ class ScopedApprovalStore:
         self, scope: TenantScope, approval_id: str, *, decided_by: str, now: float | None = None
     ) -> ApprovalRecord:
         return self._decide(scope, approval_id, ApprovalStatus.DENIED, decided_by, now)
+
+    def approve_as(
+        self,
+        requester_scope: TenantScope,
+        approver_scope: TenantScope,
+        approval_id: str,
+        *,
+        now: float | None = None,
+    ) -> ApprovalRecord:
+        """Approve an exact requester record as a distinct same-tenant approver."""
+
+        return self._decide_as(
+            requester_scope,
+            approver_scope,
+            approval_id,
+            ApprovalStatus.APPROVED,
+            now,
+        )
+
+    def deny_as(
+        self,
+        requester_scope: TenantScope,
+        approver_scope: TenantScope,
+        approval_id: str,
+        *,
+        now: float | None = None,
+    ) -> ApprovalRecord:
+        """Deny an exact requester record as a distinct same-tenant approver."""
+
+        return self._decide_as(
+            requester_scope,
+            approver_scope,
+            approval_id,
+            ApprovalStatus.DENIED,
+            now,
+        )
 
     def consume(
         self,
@@ -560,7 +616,7 @@ class ScopedApprovalStore:
                 raise _error(
                     "approval_not_found", "The approval request was not found.", approval_id
                 )
-            record = _record(row)
+            record = _scoped_record(row, scope)
             if not _same_intent(record.intent, intent):
                 raise _error(
                     "approval_intent_mismatch",
@@ -583,6 +639,28 @@ class ScopedApprovalStore:
                     "approval_already_consumed", "The approval cannot be consumed.", approval_id
                 )
         return self.get(scope, approval_id, now=current)
+
+    def _decide_as(
+        self,
+        requester_scope: TenantScope,
+        approver_scope: TenantScope,
+        approval_id: str,
+        status: ApprovalStatus,
+        now: float | None,
+    ) -> ApprovalRecord:
+        if requester_scope.tenant != approver_scope.tenant:
+            raise _error(
+                "approval_not_found",
+                "The approval request was not found.",
+                approval_id,
+            )
+        return self._decide(
+            requester_scope,
+            approval_id,
+            status,
+            approver_scope.principal,
+            now,
+        )
 
     def _decide(
         self,
@@ -682,7 +760,30 @@ class ScopedApprovalStore:
 
 
 _SCOPED_SELECT = (
-    "SELECT approval_id, revision, operation, arguments_digest, tenant_id, principal_id, "
-    "session_id, task_id, side_effect, policy_revision, status, created_at, expires_at, "
+    "SELECT approval_id, revision, operation, arguments_digest, side_effect, "
+    "policy_revision, status, created_at, expires_at, "
     "decided_at, decided_by, consumed_at FROM scoped_approval_records"
 )
+
+
+def _scoped_record(row: sqlite3.Row | tuple[object, ...], scope: TenantScope) -> ApprovalRecord:
+    return ApprovalRecord(
+        approval_id=str(row[0]),
+        intent=ApprovalIntent(
+            revision=str(row[1]),
+            operation=str(row[2]),
+            arguments_digest=str(row[3]),
+            tenant_id=scope.tenant,
+            principal_id=scope.principal,
+            session_id=scope.session,
+            task_id=scope.task,
+            side_effect=str(row[4]),
+            policy_revision=str(row[5]),
+        ),
+        status=ApprovalStatus(str(row[6])),
+        created_at=_stored_float(row[7]),
+        expires_at=_stored_float(row[8]),
+        decided_at=_stored_float(row[9]) if row[9] is not None else None,
+        decided_by=str(row[10]) if row[10] is not None else None,
+        consumed_at=_stored_float(row[11]) if row[11] is not None else None,
+    )

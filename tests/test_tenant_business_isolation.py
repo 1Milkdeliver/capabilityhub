@@ -90,6 +90,91 @@ def test_same_approval_id_is_isolated_per_scope_under_concurrency(tmp_path: Path
         len(scope_digest) == len(approval_digest) == 64
         for scope_digest, approval_digest in keys
     )
+    persisted = path.read_bytes()
+    assert all(tenant.encode() not in persisted for tenant in tenants)
+    assert b"same-principal" not in persisted
+    assert b"same-session" not in persisted
+    assert b"same-task" not in persisted
+
+
+def test_distinct_approver_is_same_tenant_only_and_scope_remains_opaque(tmp_path: Path) -> None:
+    path = tmp_path / "state.sqlite3"
+    store = ScopedApprovalStore(path, scope_key=SCOPE_KEY)
+    requester = TenantScope(
+        "TENANT-APPROVAL-CANARY", "REQUESTER-CANARY", "SESSION-CANARY", "TASK-CANARY"
+    )
+    intent = ApprovalIntent.from_arguments(
+        revision="demo/revision",
+        operation="write",
+        arguments={"value": 1},
+        tenant_id=requester.tenant,
+        principal_id=requester.principal,
+        session_id=requester.session,
+        task_id=requester.task,
+        side_effect="reversible_write",
+        policy_revision="policy-v1",
+    )
+    store.request(requester, intent, ttl_seconds=60, approval_id="independent", now=100)
+
+    approved = store.approve_as(
+        requester,
+        TenantScope(requester.tenant, "REVIEWER-CANARY", "admin", requester.task),
+        "independent",
+        now=101,
+    )
+    assert approved.status is ApprovalStatus.APPROVED
+    assert approved.decided_by == "REVIEWER-CANARY"
+
+    persisted = path.read_bytes()
+    for canary in (requester.tenant, requester.principal, requester.session, requester.task):
+        assert canary.encode() not in persisted
+
+
+def test_legacy_scoped_approval_rows_are_migrated_without_raw_scope(tmp_path: Path) -> None:
+    path = tmp_path / "legacy.sqlite3"
+    with sqlite3.connect(path) as connection:
+        connection.executescript(
+            """
+            CREATE TABLE scoped_approval_records (
+                scope_digest TEXT NOT NULL, approval_digest TEXT NOT NULL,
+                approval_id TEXT NOT NULL, revision TEXT NOT NULL,
+                operation TEXT NOT NULL, arguments_digest TEXT NOT NULL,
+                tenant_id TEXT NOT NULL, principal_id TEXT NOT NULL,
+                session_id TEXT NOT NULL, task_id TEXT NOT NULL,
+                side_effect TEXT NOT NULL, policy_revision TEXT NOT NULL,
+                status TEXT NOT NULL, created_at REAL NOT NULL, expires_at REAL NOT NULL,
+                decided_at REAL, decided_by TEXT, consumed_at REAL,
+                PRIMARY KEY (scope_digest, approval_digest)
+            );
+            """
+        )
+        connection.execute(
+            "INSERT INTO scoped_approval_records VALUES "
+            "(?, ?, 'legacy-id', 'revision', 'read', ?, ?, ?, ?, ?, "
+            "'none', 'policy', 'pending', 100, 200, NULL, NULL, NULL)",
+            (
+                "a" * 64,
+                "b" * 64,
+                "c" * 64,
+                "LEGACY-TENANT-CANARY",
+                "LEGACY-PRINCIPAL-CANARY",
+                "LEGACY-SESSION-CANARY",
+                "LEGACY-TASK-CANARY",
+            ),
+        )
+
+    ScopedApprovalStore(path, scope_key=SCOPE_KEY)
+
+    columns = {
+        str(row[1])
+        for row in sqlite3.connect(path).execute(
+            "PRAGMA table_info(scoped_approval_records)"
+        )
+    }
+    assert not {"tenant_id", "principal_id", "session_id", "task_id"} & columns
+    raw = path.read_bytes()
+    assert b"LEGACY-TENANT-CANARY" not in raw
+    assert b"LEGACY-PRINCIPAL-CANARY" not in raw
 
 
 def test_idempotency_slot_is_keyed_and_same_logical_key_is_tenant_isolated(

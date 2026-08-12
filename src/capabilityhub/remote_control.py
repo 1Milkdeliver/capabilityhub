@@ -88,11 +88,11 @@ class RemoteTlsControl:
         *,
         tls: TlsFiles,
         principals: tuple[RemotePrincipal, ...],
+        data_adapter_provider: Callable[[RemotePrincipal], AdapterContract],
         host: str = "127.0.0.1",
         data_port: int = 0,
         admin_port: int = 0,
         max_body_bytes: int = 65_536,
-        data_adapter_provider: Callable[[RemotePrincipal], AdapterContract] | None = None,
     ) -> None:
         if data_adapter.kind is not AdapterKind.HTTP:
             raise ValueError("remote data control requires an HTTP adapter")
@@ -111,6 +111,7 @@ class RemoteTlsControl:
         self._data_port = data_port
         self._admin_port = admin_port
         self._max_body_bytes = max_body_bytes
+        self._data_adapters: dict[int, tuple[AdapterContract, str]] = {}
         self._servers: list[ThreadingHTTPServer] = []
         self._threads: list[Thread] = []
         self._lock = RLock()
@@ -169,13 +170,16 @@ class RemoteTlsControl:
     def _data(
         self, raw: Mapping[str, Any], principal: RemotePrincipal
     ) -> dict[str, JsonValue]:
-        adapter = (
-            self._adapter
-            if self._data_adapter_provider is None
-            else self._data_adapter_provider(principal)
-        )
+        adapter = self._data_adapter_provider(principal)
         if adapter.kind is not AdapterKind.HTTP or adapter.handshake != self._adapter.handshake:
             raise _remote_error("remote_data_adapter_invalid", ErrorCategory.INTERNAL)
+        with self._lock:
+            owned = self._data_adapters.get(id(adapter))
+            if owned is not None and (
+                owned[0] is adapter and owned[1] != principal.certificate_sha256
+            ):
+                raise _remote_error("remote_data_adapter_identity_mismatch", ErrorCategory.POLICY)
+            self._data_adapters[id(adapter)] = (adapter, principal.certificate_sha256)
         request = parse_request(AdapterKind.HTTP, raw, server_handshake=adapter.handshake)
         if request.operation not in _DATA_OPERATIONS:
             raise _remote_error("remote_data_operation_denied", ErrorCategory.POLICY)

@@ -33,7 +33,9 @@ def test_cli_and_dashboard_admin_entries_return_same_lifecycle_contract(tmp_path
     assert dashboard == cli
 
 
-def test_approval_decision_is_bound_to_exact_authenticated_principal(tmp_path: Path) -> None:
+def test_distinct_authenticated_approver_can_decide_exact_requester_intent(
+    tmp_path: Path,
+) -> None:
     project = tmp_path / "project"
     state_root = project / ".capabilityhub"
     state_root.mkdir(parents=True)
@@ -53,22 +55,26 @@ def test_approval_decision_is_bound_to_exact_authenticated_principal(tmp_path: P
     )
     record = store.request(scope, intent, ttl_seconds=60, approval_id="same-id")
 
-    with pytest.raises(CapabilityHubError):
-        local_admin_dispatch(
-            "approval.decide",
-            {"task_id": "local-cli", "approval_id": record.approval_id, "decision": "approve"},
-            roles=("approver",),
-            source="admin-dashboard",
-            project_root=project,
-            principal_id="other-principal",
-        )
-
     approved = local_admin_dispatch(
         "approval.decide",
-        {"task_id": "local-cli", "approval_id": record.approval_id, "decision": "approve"},
+        {
+            "task_id": "local-cli",
+            "approval_id": record.approval_id,
+            "decision": "approve",
+            "requester_principal_id": "operator",
+            "requester_session_id": "cli",
+        },
         roles=("approver",),
         source="admin-dashboard",
         project_root=project,
+        principal_id="other-principal",
     )
     assert approved["status"] == "approved"
-    assert approved["decided_by"] == "operator"
+    assert approved["decided_by"] == "other-principal"
+
+    with pytest.raises(CapabilityHubError):
+        store.approve_as(
+            scope,
+            TenantScope("other-tenant", "reviewer", "admin", "local-cli"),
+            record.approval_id,
+        )

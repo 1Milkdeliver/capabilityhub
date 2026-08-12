@@ -2111,7 +2111,11 @@ class _LocalAdminBackend:
                 monitor=self._monitor,
             )
         if operation == "approval.list":
-            _admin_payload(payload, required=("task_id",), optional=("status", "limit"))
+            _admin_payload(
+                payload,
+                required=("task_id",),
+                optional=("status", "limit", "requester_principal_id", "requester_session_id"),
+            )
             task_id = _admin_text(payload, "task_id")
             status = payload.get("status")
             if status is not None and not isinstance(status, str):
@@ -2122,10 +2126,18 @@ class _LocalAdminBackend:
                     status=status,
                     limit=_admin_int(payload, "limit", default=50),
                 )
+            requester_scope = TenantScope(
+                identity.tenant_id,
+                _admin_text(
+                    payload, "requester_principal_id", default=identity.principal_id
+                ),
+                _admin_text(payload, "requester_session_id", default=identity.session_id),
+                task_id,
+            )
             records = ScopedApprovalStore(
                 _state_path(self._project), scope_key=_tenant_scope_key(self._project)
             ).list(
-                _tenant_scope(identity, task_id),
+                requester_scope,
                 status=status,
                 limit=_admin_int(payload, "limit", default=50),
             )
@@ -2137,6 +2149,7 @@ class _LocalAdminBackend:
             _admin_payload(
                 payload,
                 required=("task_id", "approval_id", "decision"),
+                optional=("requester_principal_id", "requester_session_id"),
             )
             task_id = _admin_text(payload, "task_id")
             approval_id = _admin_text(payload, "approval_id")
@@ -2151,11 +2164,21 @@ class _LocalAdminBackend:
             store = ScopedApprovalStore(
                 _state_path(self._project), scope_key=_tenant_scope_key(self._project)
             )
-            scope = _tenant_scope(identity, task_id)
+            requester_scope = TenantScope(
+                identity.tenant_id,
+                _admin_text(
+                    payload, "requester_principal_id", default=identity.principal_id
+                ),
+                _admin_text(payload, "requester_session_id", default=identity.session_id),
+                task_id,
+            )
+            approver_scope = _tenant_scope(identity, task_id)
             if decision == "approve":
-                record = store.approve(scope, approval_id, decided_by=identity.principal_id)
+                record = store.approve_as(
+                    requester_scope, approver_scope, approval_id
+                )
             elif decision == "deny":
-                record = store.deny(scope, approval_id, decided_by=identity.principal_id)
+                record = store.deny_as(requester_scope, approver_scope, approval_id)
             else:
                 raise ValueError("decision must be approve or deny")
             return _approval_json(record)

@@ -11,7 +11,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from capabilityhub.lifecycle import StagedUpdateManager
 from capabilityhub.models import CapabilityIdentity, CapabilityKind, CapabilityManifest
@@ -23,6 +23,8 @@ from capabilityhub.supply_chain_bundle import (
     SignedCheckpoint,
     SigstoreBundle,
     SigstoreBundleVerifier,
+    SQLiteCheckpointObserver,
+    TransparencyConsistencyProof,
     TransparencyInclusionProof,
     TrustedCertificateRoot,
     TrustedTransparencyLog,
@@ -71,6 +73,20 @@ def _certificate_chain() -> tuple[
         .not_valid_before(moment - timedelta(days=1))
         .not_valid_after(moment + timedelta(days=1))
         .add_extension(x509.BasicConstraints(ca=True, path_length=0), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=False,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=None,
+                decipher_only=None,
+            ),
+            critical=True,
+        )
         .sign(root_key, algorithm=None)
     )
     leaf = (
@@ -82,6 +98,23 @@ def _certificate_chain() -> tuple[
         .not_valid_before(moment - timedelta(hours=1))
         .not_valid_after(moment + timedelta(hours=1))
         .add_extension(x509.BasicConstraints(ca=False, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=False,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=False,
+                crl_sign=False,
+                encipher_only=None,
+                decipher_only=None,
+            ),
+            critical=True,
+        )
+        .add_extension(
+            x509.ExtendedKeyUsage([ExtendedKeyUsageOID.CODE_SIGNING]), critical=False
+        )
         .add_extension(
             x509.SubjectAlternativeName([x509.RFC822Name("release@example.org")]),
             critical=False,
@@ -144,6 +177,8 @@ def _fixture(
         },
         frozenset({"CN=Test Fulcio"}),
         frozenset({"release@example.org"}),
+        require_online_checkpoint=False,
+        require_checkpoint_observer=False,
     )
     return manifest, bundle, policy, log_key
 
@@ -209,6 +244,17 @@ def test_bundle_tamper_fails_closed(
     assert raised.value.details == {}
 
 
+def test_bundle_size_is_bounded_before_certificate_parsing() -> None:
+    _, bundle, policy, _ = _fixture()
+    oversized = replace(
+        bundle,
+        certificate_chain_pem=(b"x" * (32 * 1024 + 1),),
+    )
+    with pytest.raises(SupplyChainError) as raised:
+        _verify(oversized, policy)
+    assert raised.value.code == "transparency_bundle_too_large"
+
+
 def test_revoked_distributed_root_and_log_keys_fail_closed() -> None:
     _, bundle, policy, _ = _fixture()
     root_id, root = next(iter(policy.roots.items()))
@@ -242,6 +288,61 @@ def test_production_requires_bundle_and_online_freshness_when_configured() -> No
             online_checkpoint=lambda _log_id: bundle.inclusion_proof.checkpoint,
         )
     assert stale.value.code == "transparency_checkpoint_stale"
+
+
+def test_production_requires_persistent_observer_and_accepts_log_growth(
+    tmp_path: Path,
+) -> None:
+    _, bundle, policy, log_key = _fixture()
+    required = replace(
+        policy,
+        require_online_checkpoint=True,
+        require_checkpoint_observer=True,
+    )
+    with pytest.raises(SupplyChainError) as missing_observer:
+        SigstoreBundleVerifier(
+            required,
+            clock=lambda: NOW,
+            online_checkpoint=lambda _log_id: bundle.inclusion_proof.checkpoint,
+        )
+    assert missing_observer.value.code == "checkpoint_observer_required"
+
+    old = bytes.fromhex(bundle.inclusion_proof.checkpoint.root_hash)
+    second = hashlib.sha256(b"\x00second-entry").digest()
+    current = SignedCheckpoint(
+        "rekor.example",
+        2,
+        hashlib.sha256(b"\x01" + old + second).hexdigest(),
+        NOW,
+        "",
+    )
+    current = replace(
+        current,
+        signature=_b64(
+            log_key.sign(
+                b"capabilityhub-transparency-checkpoint-v1\0"
+                + _checkpoint_payload(current)
+            )
+        ),
+    )
+    observer_path = tmp_path / "checkpoints.sqlite3"
+    evidence = _verify(
+        bundle,
+        required,
+        online_checkpoint=lambda _log_id: TransparencyConsistencyProof(
+            current, (second.hex(),)
+        ),
+        observer=SQLiteCheckpointObserver(observer_path),
+    )
+    assert evidence.environment == "production"
+    with pytest.raises(SupplyChainError) as replayed:
+        _verify(
+            bundle,
+            required,
+            online_checkpoint=lambda _log_id: bundle.inclusion_proof.checkpoint,
+            observer=SQLiteCheckpointObserver(observer_path),
+        )
+    assert replayed.value.code == "transparency_checkpoint_replayed"
 
 
 def test_online_checkpoint_and_observer_detect_replay_and_log_fork() -> None:

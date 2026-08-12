@@ -58,6 +58,19 @@ def validate_production_profile(profile: Mapping[str, JsonValue]) -> None:
         raise ValueError("filesystem isolation must fail closed when unavailable")
     if worker.get("network_isolation") != "required-or-fail-closed":
         raise ValueError("network isolation must fail closed when unavailable")
+    supply_chain = _object(profile.get("supply_chain"), "supply_chain")
+    required_supply_chain = {
+        "bundle": "required",
+        "certificate_profile": "code-signing-ed25519",
+        "online_checkpoint": "required",
+        "checkpoint_observer": "persistent-required",
+        "log_growth": "consistency-proof-required",
+    }
+    if any(supply_chain.get(key) != value for key, value in required_supply_chain.items()):
+        raise ValueError("production supply-chain verification must fail closed")
+    maximum = supply_chain.get("max_bundle_bytes")
+    if isinstance(maximum, bool) or maximum != 131_072:
+        raise ValueError("production supply-chain bundle limit is invalid")
     if profile.get("external_credentials") != "not-required-for-validation":
         raise ValueError("reference validation cannot depend on private credentials")
 

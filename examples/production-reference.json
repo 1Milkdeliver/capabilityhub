@@ -15,6 +15,14 @@
     "filesystem_isolation": "required-or-fail-closed",
     "network_isolation": "required-or-fail-closed"
   },
+  "supply_chain": {
+    "bundle": "required",
+    "certificate_profile": "code-signing-ed25519",
+    "online_checkpoint": "required",
+    "checkpoint_observer": "persistent-required",
+    "log_growth": "consistency-proof-required",
+    "max_bundle_bytes": 131072
+  },
   "state": {"backend": "sqlite", "backup": "operator-required"},
   "external_credentials": "not-required-for-validation",
   "claim": "reference-profile-not-production-certification"

@@ -17,6 +17,7 @@ def test_reference_profile_is_reproducible_and_fail_closed() -> None:
     assert {item["plane"] for item in first["listeners"]} == {"data", "admin"}
     assert all(item["on_unknown"] == "deny" for item in first["dependencies"])
     assert first["external_credentials"] == "not-required-for-validation"
+    assert first["supply_chain"]["checkpoint_observer"] == "persistent-required"
 
 
 def test_reference_profile_rejects_permissive_dependency(tmp_path: Path) -> None:
@@ -38,4 +39,15 @@ def test_reference_profile_rejects_shared_plane_binding(tmp_path: Path) -> None:
     path.write_text(json.dumps(changed), encoding="utf-8")
 
     with pytest.raises(ValueError, match="distinct"):
+        load_production_profile(path)
+
+
+def test_reference_profile_rejects_offline_supply_chain(tmp_path: Path) -> None:
+    profile = load_production_profile("examples/production-reference.json")
+    changed = deepcopy(profile)
+    changed["supply_chain"]["online_checkpoint"] = "optional"
+    path = tmp_path / "unsafe.json"
+    path.write_text(json.dumps(changed), encoding="utf-8")
+
+    with pytest.raises(ValueError, match="supply-chain"):
         load_production_profile(path)

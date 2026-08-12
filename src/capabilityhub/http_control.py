@@ -196,6 +196,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
             return
         origin = self.headers.get("Origin")
         if origin is not None and origin not in self._control._allowed_origins:
+            self._drain_bounded_body()
             self._transport_error(HTTPStatus.FORBIDDEN, "origin_not_allowed", correlation)
             return
         authorization = self.headers.get_all("Authorization", ())
@@ -216,6 +217,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
             return
         content_types = self.headers.get_all("Content-Type", ())
         if len(content_types) != 1 or not _is_json_content_type(content_types[0]):
+            self._drain_bounded_body()
             self._transport_error(
                 HTTPStatus.UNSUPPORTED_MEDIA_TYPE,
                 "json_content_type_required",
@@ -278,7 +280,7 @@ class _ControlHandler(BaseHTTPRequestHandler):
             length = int(lengths[0]) if len(lengths) == 1 else -1
         except ValueError:
             return
-        if 0 <= length <= self._control._max_body_bytes:
+        if 0 <= length <= 1_048_576:
             self.rfile.read(length)
 
     def do_GET(self) -> None:

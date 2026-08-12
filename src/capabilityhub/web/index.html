@@ -4,14 +4,21 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title>CapabilityHub</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <main>
+  <main id="top">
     <header>
       <p class="eyebrow">LOCAL / CONTROLLED</p>
       <h1>CapabilityHub</h1>
       <p id="state" aria-live="polite">Loading live Inventory…</p>
+      <nav aria-label="Dashboard navigation">
+        <a href="#search-title">Search</a>
+        <a href="#manage-title">Manage</a>
+        <button id="back" type="button">Back</button>
+        <a href="#top">Home</a>
+      </nav>
     </header>
 
     <section aria-labelledby="inventory-title">
@@ -32,7 +39,7 @@
       <form id="search-form" class="controls">
         <label>Task or name <input id="search-query" maxlength="500" placeholder="Example: work with PDF files"></label>
         <label>Kind
-          <select id="search-kind">
+          <select id="search-kind" aria-label="Capability kind">
             <option value="">All</option><option>skill</option><option>mcp</option><option>cli</option><option>api</option><option>rag</option>
           </select>
         </label>

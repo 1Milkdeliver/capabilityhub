@@ -1,4 +1,4 @@
-"""Fail-closed artifact provenance checks using local HMAC evidence.
+"""Fail-closed artifact provenance checks using HMAC or Ed25519 evidence.
 
 HMAC-SHA256 is intentionally limited to deployments where the verifier and trusted
 publisher share a local secret. It provides integrity and key-id rotation evidence,
@@ -12,6 +12,7 @@ import hashlib
 import hmac
 import json
 import time
+from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
@@ -22,7 +23,9 @@ from .models import CapabilityManifest
 
 Environment = Literal["development", "production"]
 HMAC_SHA256 = "hmac-sha256"
+ED25519 = "ed25519"
 _DOMAIN = b"capabilityhub-local-artifact-attestation-v1\0"
+_PUBLIC_DOMAIN = b"capabilityhub-public-artifact-attestation-v1\0"
 
 
 class SupplyChainError(CapabilityHubError):
@@ -60,14 +63,43 @@ class TrustedHMACKey:
 
 
 @dataclass(frozen=True, slots=True)
+class TrustedEd25519Key:
+    """Pinned offline Ed25519 authority; raw public bytes are never secret."""
+
+    key_id: str
+    publisher: str
+    registry: str
+    public_key: bytes
+    issuer: str | None = None
+    subject: str | None = None
+    not_before: int = 0
+    expires_at: int | None = None
+    revoked: bool = False
+
+    def __post_init__(self) -> None:
+        if not self.key_id or not self.publisher or not self.registry:
+            raise ValueError("key_id, publisher, and registry must be non-empty")
+        if not isinstance(self.public_key, bytes) or len(self.public_key) != 32:
+            raise ValueError("Ed25519 public_key must contain 32 raw bytes")
+        if (self.issuer is None) != (self.subject is None):
+            raise ValueError("issuer and subject must be supplied together")
+        if self.expires_at is not None and self.expires_at <= self.not_before:
+            raise ValueError("key expiry must be after not_before")
+
+
+@dataclass(frozen=True, slots=True)
 class SupplyChainPolicy:
     environment: Environment
     trusted_publishers: frozenset[str]
     trusted_registries: frozenset[str]
     keys: Mapping[str, TrustedHMACKey] = field(default_factory=dict)
+    ed25519_keys: Mapping[str, TrustedEd25519Key] = field(default_factory=dict)
     revoked_key_ids: frozenset[str] = frozenset()
     revoked_publishers: frozenset[str] = frozenset()
     allow_unsigned_development: bool = True
+    trusted_certificate_issuers: frozenset[str] = frozenset()
+    trusted_certificate_subjects: frozenset[str] = frozenset()
+    require_transparency: bool = False
 
     def __post_init__(self) -> None:
         if self.environment not in ("development", "production"):
@@ -78,10 +110,22 @@ class SupplyChainPolicy:
         if any(key_id != key.key_id for key_id, key in normalized.items()):
             raise ValueError("key mapping identifiers must match key_id")
         object.__setattr__(self, "keys", MappingProxyType(normalized))
+        public_keys = dict(self.ed25519_keys)
+        if any(key_id != key.key_id for key_id, key in public_keys.items()):
+            raise ValueError("Ed25519 key mapping identifiers must match key_id")
+        if set(normalized) & set(public_keys):
+            raise ValueError("signing key identifiers must be unique across algorithms")
+        object.__setattr__(self, "ed25519_keys", MappingProxyType(public_keys))
         object.__setattr__(self, "trusted_publishers", frozenset(self.trusted_publishers))
         object.__setattr__(self, "trusted_registries", frozenset(self.trusted_registries))
         object.__setattr__(self, "revoked_key_ids", frozenset(self.revoked_key_ids))
         object.__setattr__(self, "revoked_publishers", frozenset(self.revoked_publishers))
+        object.__setattr__(
+            self, "trusted_certificate_issuers", frozenset(self.trusted_certificate_issuers)
+        )
+        object.__setattr__(
+            self, "trusted_certificate_subjects", frozenset(self.trusted_certificate_subjects)
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -95,6 +139,10 @@ class ArtifactAttestation:
     issued_at: int
     expires_at: int
     signature: str
+    certificate_issuer: str | None = None
+    certificate_subject: str | None = None
+    transparency_log_id: str | None = None
+    transparency_entry_digest: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,6 +213,59 @@ def create_local_hmac_attestation(
     )
 
 
+def create_ed25519_attestation(
+    *,
+    revision: str,
+    artifact_digest: str,
+    key: TrustedEd25519Key,
+    private_key: object,
+    issued_at: int,
+    expires_at: int,
+    transparency_log_id: str | None = None,
+    transparency_entry_digest: str | None = None,
+) -> ArtifactAttestation:
+    """Create test/offline evidence using cryptography's Ed25519 implementation."""
+
+    if expires_at <= issued_at:
+        raise ValueError("attestation expiry must be after issuance")
+    unsigned = ArtifactAttestation(
+        revision,
+        artifact_digest,
+        key.publisher,
+        key.registry,
+        key.key_id,
+        ED25519,
+        issued_at,
+        expires_at,
+        "",
+        key.issuer,
+        key.subject,
+        transparency_log_id,
+        transparency_entry_digest,
+    )
+    sign = getattr(private_key, "sign", None)
+    if not callable(sign):
+        raise TypeError("private_key must be a cryptography Ed25519 private key")
+    signature = sign(_PUBLIC_DOMAIN + _payload(unsigned))
+    if not isinstance(signature, bytes):
+        raise TypeError("Ed25519 signer returned invalid signature bytes")
+    return ArtifactAttestation(
+        unsigned.revision,
+        unsigned.artifact_digest,
+        unsigned.publisher,
+        unsigned.registry,
+        unsigned.key_id,
+        unsigned.algorithm,
+        unsigned.issued_at,
+        unsigned.expires_at,
+        _b64(signature),
+        unsigned.certificate_issuer,
+        unsigned.certificate_subject,
+        unsigned.transparency_log_id,
+        unsigned.transparency_entry_digest,
+    )
+
+
 class SupplyChainVerifier:
     """Verify content digest, provenance policy, validity, revocation, and HMAC."""
 
@@ -222,6 +323,15 @@ class SupplyChainVerifier:
             publisher=publisher,
             registry=registry,
         )
+        if attestation.algorithm == ED25519:
+            return self._verify_ed25519(
+                manifest,
+                attestation,
+                digest=actual_digest,
+                publisher=publisher,
+                registry=registry,
+                timestamp=timestamp,
+            )
         if attestation.algorithm != HMAC_SHA256:
             raise SupplyChainError("unsupported_signature_algorithm")
         key = self.policy.keys.get(attestation.key_id)
@@ -268,6 +378,91 @@ class SupplyChainVerifier:
             key_id=attestation.key_id,
             expires_at=attestation.expires_at,
         )
+
+    def _verify_ed25519(
+        self,
+        manifest: CapabilityManifest,
+        attestation: ArtifactAttestation,
+        *,
+        digest: str,
+        publisher: str,
+        registry: str,
+        timestamp: int,
+    ) -> TrustEvidence:
+        key = self.policy.ed25519_keys.get(attestation.key_id)
+        if key is None:
+            raise SupplyChainError("unknown_signing_key")
+        if key.publisher != publisher or key.registry != registry:
+            raise SupplyChainError("signing_key_scope_mismatch")
+        if (
+            key.revoked
+            or key.key_id in self.policy.revoked_key_ids
+            or publisher in self.policy.revoked_publishers
+        ):
+            raise SupplyChainError("signing_authority_revoked")
+        if timestamp >= attestation.expires_at:
+            raise SupplyChainError("attestation_expired")
+        if attestation.issued_at > timestamp + 60:
+            raise SupplyChainError("attestation_not_yet_valid")
+        if attestation.issued_at < key.not_before or (
+            key.expires_at is not None
+            and (attestation.issued_at >= key.expires_at or timestamp >= key.expires_at)
+        ):
+            raise SupplyChainError("signing_key_expired")
+        self._verify_certificate_identity(key, attestation)
+        self._verify_transparency(attestation)
+        try:
+            from cryptography.exceptions import InvalidSignature
+            from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
+        except ImportError as error:
+            raise SupplyChainError("public_key_verifier_unavailable") from error
+        try:
+            signature = _unb64(attestation.signature)
+            Ed25519PublicKey.from_public_bytes(key.public_key).verify(
+                signature, _PUBLIC_DOMAIN + _payload(attestation)
+            )
+        except (InvalidSignature, TypeError, ValueError) as error:
+            raise SupplyChainError("invalid_artifact_signature") from error
+        return TrustEvidence(
+            manifest.identity.revision,
+            digest,
+            publisher,
+            registry,
+            self.policy.environment,
+            True,
+            ED25519,
+            attestation.key_id,
+            attestation.expires_at,
+        )
+
+    def _verify_certificate_identity(
+        self, key: TrustedEd25519Key, attestation: ArtifactAttestation
+    ) -> None:
+        supplied = (attestation.certificate_issuer, attestation.certificate_subject)
+        if (supplied[0] is None) != (supplied[1] is None):
+            raise SupplyChainError("invalid_certificate_identity")
+        if key.issuer is None:
+            if any(value is not None for value in supplied):
+                raise SupplyChainError("certificate_identity_mismatch")
+            return
+        if supplied != (key.issuer, key.subject):
+            raise SupplyChainError("certificate_identity_mismatch")
+        if (
+            key.issuer not in self.policy.trusted_certificate_issuers
+            or key.subject not in self.policy.trusted_certificate_subjects
+        ):
+            raise SupplyChainError("certificate_identity_not_trusted")
+
+    def _verify_transparency(self, attestation: ArtifactAttestation) -> None:
+        supplied = (attestation.transparency_log_id, attestation.transparency_entry_digest)
+        if self.policy.require_transparency and any(value is None for value in supplied):
+            raise SupplyChainError("transparency_evidence_required")
+        if any(value is not None for value in supplied):
+            if not all(isinstance(value, str) and value for value in supplied):
+                raise SupplyChainError("invalid_transparency_evidence")
+            digest = attestation.transparency_entry_digest or ""
+            if len(digest) != 64 or any(char not in "0123456789abcdef" for char in digest):
+                raise SupplyChainError("invalid_transparency_evidence")
 
     def _verify_source_policy(self, publisher: str, registry: str) -> None:
         if not publisher or publisher not in self.policy.trusted_publishers:
@@ -321,15 +516,27 @@ def _payload(attestation: ArtifactAttestation) -> bytes:
         {
             "algorithm": attestation.algorithm,
             "artifact_digest": attestation.artifact_digest,
+            "certificate_issuer": attestation.certificate_issuer,
+            "certificate_subject": attestation.certificate_subject,
             "expires_at": attestation.expires_at,
             "issued_at": attestation.issued_at,
             "key_id": attestation.key_id,
             "publisher": attestation.publisher,
             "registry": attestation.registry,
             "revision": attestation.revision,
+            "transparency_entry_digest": attestation.transparency_entry_digest,
+            "transparency_log_id": attestation.transparency_log_id,
             "version": 1,
         },
         ensure_ascii=False,
         separators=(",", ":"),
         sort_keys=True,
     ).encode("utf-8")
+
+
+def _b64(value: bytes) -> str:
+    return urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
+
+
+def _unb64(value: str) -> bytes:
+    return urlsafe_b64decode(value + "=" * (-len(value) % 4))

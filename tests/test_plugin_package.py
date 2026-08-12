@@ -1,7 +1,14 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import shutil
 from pathlib import Path
+from typing import cast
+
+from mcp import Client
+
+from capabilityhub.mcp_server import create_empty_mcp_server
 
 ROOT = Path(__file__).parents[1]
 PLUGIN = ROOT / "plugins" / "capabilityhub"
@@ -121,6 +128,61 @@ def test_myskills_catalogs_match_and_keep_professional_terms_visible() -> None:
             or (text.startswith("\uff08") and text.endswith("\uff09"))
             for text in catalog["navigation"].values()
         )
+
+
+def test_fresh_install_and_upgrade_keep_plugin_actions_connected_to_mcp(tmp_path: Path) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    cache = home / ".codex" / "plugins" / "cache" / "local" / "capabilityhub"
+    config = home / ".codex" / "config.toml"
+    project.mkdir(parents=True)
+    config.parent.mkdir(parents=True)
+    config.write_text(
+        '[plugins."capabilityhub@local"]\nenabled = true\n'
+        "[mcp_servers.capabilityhub-local]\ncommand = 'capabilityhub'\nargs = ['mcp-serve']\n",
+        encoding="utf-8",
+    )
+
+    shutil.copytree(PLUGIN, cache / "0.1.0")
+    shutil.copytree(PLUGIN, cache / "0.1.1")
+    server = create_empty_mcp_server(home=home, project=project, refresh_interval_seconds=0)
+
+    async def scenario() -> None:
+        async with Client(server) as client:
+            listed = await client.list_tools()
+            assert [tool.name for tool in listed.tools] == [
+                "capability.search",
+                "capability.load",
+                "capability.execute",
+            ]
+            result = await client.call_tool(
+                "capability.search",
+                {
+                    "query": "",
+                    "task_id": "plugin-upgrade",
+                    "include_inventory": True,
+                    "include_cards": True,
+                    "max_output_tokens": 2_000,
+                },
+            )
+            assert not result.is_error
+            payload = cast(dict[str, object], result.structured_content)
+            inventory = cast(dict[str, object], payload["inventory"])
+            by_kind = cast(dict[str, int], inventory["active_by_kind"])
+            assert by_kind["skill"] == 2
+            assert by_kind["mcp"] == 1
+            cards = cast(list[dict[str, object]], payload["cards"])
+            revisions = {cast(str, card["revision"]) for card in cards}
+            assert any("helpme" in revision for revision in revisions)
+            assert any("myskills" in revision for revision in revisions)
+
+    asyncio.run(scenario())
+
+    installed_skills = {
+        path.parent.name for path in (cache / "0.1.1" / "skills").glob("*/SKILL.md")
+    }
+    assert installed_skills == {"helpme", "myskills"}
+    assert installed_skills.isdisjoint({"help", "skills", "status", "model", "mcp"})
 
 
 def _group_items(groups: list[dict[str, object]]) -> dict[str, str]:

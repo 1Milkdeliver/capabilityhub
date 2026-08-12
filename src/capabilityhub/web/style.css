@@ -7,6 +7,9 @@
 body { margin: 0; }
 main { max-width: 1040px; margin: auto; padding: 2rem 1rem 4rem; }
 header { margin-bottom: 2rem; }
+nav { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+nav a { color: #3347a5; padding: .55rem .25rem; }
+nav button { padding: .45rem .7rem; }
 h1 { margin: .1rem 0; font-size: clamp(2rem, 6vw, 3.5rem); }
 h2 { margin: 2rem 0 .25rem; }
 .eyebrow { color: #4659a8; font-weight: 800; letter-spacing: .08em; font-size: .8rem; }
@@ -32,6 +35,10 @@ input, select, button { font: inherit; border: 1px solid #aeb7cc; border-radius:
 input { min-width: min(28rem, 70vw); }
 button { cursor: pointer; color: white; background: #3347a5; border-color: #3347a5; }
 button:hover { background: #263887; }
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+  outline: 3px solid #e0a400;
+  outline-offset: 2px;
+}
 .actions { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .75rem; }
 .actions button { font-size: .8rem; padding: .4rem .55rem; }
 

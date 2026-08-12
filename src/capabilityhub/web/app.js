@@ -253,5 +253,9 @@ document.getElementById("save-language").addEventListener("click", async () => {
   }
 });
 
+document.getElementById("back").addEventListener("click", () => {
+  history.back();
+});
+
 refresh();
 setInterval(refresh, 3000);

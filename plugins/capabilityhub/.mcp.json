@@ -1,3 +1,11 @@
 {
-  "mcpServers": {}
+  "mcpServers": {
+    "capabilityhub-local": {
+      "title": "CapabilityHub Local",
+      "description": "Local progressive inventory, search, load, and controlled execution.",
+      "cwd": ".",
+      "command": "capabilityhub",
+      "args": ["mcp-serve"]
+    }
+  }
 }

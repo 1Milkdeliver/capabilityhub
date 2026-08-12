@@ -18,16 +18,18 @@ credentials, provider output, raw task identifiers, and absolute audit paths.
 
 The repository-local Codex plugin provides two minimal menu skills. They can be
 installed as an always-available help entry without loading the catalog into each chat.
-Its `.mcp.json` intentionally stays empty: the Python package and its `mcp` extra are
-separate runtime dependencies, and the public plugin must not embed one developer's
-absolute executable path. After installing the package, register the local runtime
-explicitly:
+Its `.mcp.json` declares the portable `capabilityhub mcp-serve` console command instead
+of embedding one developer's absolute executable path. Install the Python package with
+its MCP extra before installing the plugin:
 
 ```bash
-codex mcp add capabilityhub-local -- /absolute/path/to/python -m capabilityhub.cli mcp-serve
+python -m pip install '.[mcp]'
 ```
 
-Open a new Codex task after registration. The local server builds a read-only catalog
+The plugin supplies the `capabilityhub-local` stdio server automatically, so no separate
+`codex mcp add` step is needed. If the console command is not on the Codex process PATH,
+the menu skills remain usable but live runtime calls report unavailable. Open a new Codex
+task after install or update. The local server builds a read-only catalog
 generation from approved Skill roots, enabled plugin Skill roots, configured MCP names,
 the installed CapabilityHub CLI, and project `.capabilityhub/manifests`; it never
 executes discovered code or reports

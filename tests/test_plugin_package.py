@@ -17,6 +17,24 @@ def test_helpme_is_the_plugin_entry_and_menu_is_progressive() -> None:
     assert "Do not discover or preload" in skill
 
 
+def test_plugin_declares_portable_local_mcp_runtime() -> None:
+    config = json.loads((PLUGIN / ".mcp.json").read_text(encoding="utf-8"))
+
+    assert config == {
+        "mcpServers": {
+            "capabilityhub-local": {
+                "args": ["mcp-serve"],
+                "command": "capabilityhub",
+                "cwd": ".",
+                "description": (
+                    "Local progressive inventory, search, load, and controlled execution."
+                ),
+                "title": "CapabilityHub Local",
+            }
+        }
+    }
+
+
 def test_helpme_locale_catalogs_have_matching_parenthesized_menus() -> None:
     locale_dir = PLUGIN / "skills" / "helpme" / "references" / "locales"
     catalogs = {

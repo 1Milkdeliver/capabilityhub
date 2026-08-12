@@ -153,14 +153,16 @@ uses temporary references, and enforces bounded per-task budgets. Embedders can
 construct a configured service and call `create_mcp_server(...)`; production provider
 wiring and persistent configuration are not part of this pre-alpha release.
 
-Register a source checkout as a local Codex MCP server with an absolute interpreter
-path so the public plugin remains portable:
+The plugin declares the portable `capabilityhub mcp-serve` console command. Install the
+package with its MCP extra before installing the plugin:
 
 ```bash
-codex mcp add capabilityhub-local -- /absolute/path/to/python -m capabilityhub.cli mcp-serve
+python -m pip install '.[mcp]'
 ```
 
-Open a new Codex task after registration. Before each search, the runtime checks a
+No separate `codex mcp add` step is needed. If `capabilityhub` is not on the Codex process
+PATH, the static menus still work and live commands report unavailable. Open a new Codex
+task after install or update. Before each search, the runtime checks a
 lightweight filesystem fingerprint and atomically refreshes only when inputs changed;
 same-task Skill and manifest changes therefore receive a new inventory generation. A
 250 ms coalescing window lets burst requests share one fingerprint scan; it never loads

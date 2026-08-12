@@ -28,6 +28,7 @@ from capabilityhub.secret_broker import (
     SecretConsumer,
     SecretConsumerContext,
     SecretScope,
+    resolve_worker_alias,
 )
 
 _PATH_PARAMETER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
@@ -83,7 +84,9 @@ class EnvironmentHeaders:
 
         headers: dict[str, str] = {}
         for header, environment_name in self.sources:
-            value = os.environ.get(environment_name)
+            value = resolve_worker_alias(environment_name)
+            if value is None:
+                value = os.environ.get(environment_name)
             if value is None:
                 raise _error(
                     "http_header_environment_missing",
@@ -116,7 +119,11 @@ class EnvironmentHeaders:
             broker = (
                 self.broker_factory(consumers)
                 if self.broker_factory is not None
-                else ScopedSecretBroker(consumers)
+                else ScopedSecretBroker(
+                    consumers,
+                    environment=lambda selected: resolve_worker_alias(selected)
+                    or os.environ.get(selected),
+                )
             )
             scope = SecretScope(
                 tenant=context.tenant_id,

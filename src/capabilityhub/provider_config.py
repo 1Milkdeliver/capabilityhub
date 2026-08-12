@@ -15,6 +15,7 @@ from capabilityhub.providers.http import (
     HttpInvocation,
 )
 from capabilityhub.providers.rag import LocalRagFixture, LocalRagProvider
+from capabilityhub.secret_broker import EnvironmentAliases
 
 
 def project_providers(
@@ -125,13 +126,11 @@ def _http_operations(config: Mapping[str, object]) -> dict[str, HttpInvocation]:
     return result
 
 
-def _environment(config: Mapping[str, object], *, field: str = "environmentFrom") -> dict[str, str]:
+def _environment(
+    config: Mapping[str, object], *, field: str = "environmentFrom"
+) -> EnvironmentAliases:
     names = _string_mapping(config, field, required=False)
-    if names:
-        raise ValueError(
-            "provider environment aliases require a secure child-process injection channel"
-        )
-    return {}
+    return EnvironmentAliases(tuple(names.items()))
 
 
 def _absolute_file(config: Mapping[str, object], field: str) -> Path:

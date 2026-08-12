@@ -222,7 +222,7 @@ def test_invalid_driver_is_counted_but_never_wired(tmp_path: Path) -> None:
     assert generation.providers == ()
 
 
-def test_cli_environment_alias_fails_closed_without_resolving_secret(
+def test_cli_environment_alias_is_injected_only_into_spawned_command(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     secret = "CHILD-ENV-CANARY-83"
@@ -230,21 +230,29 @@ def test_cli_environment_alias_fails_closed_without_resolving_secret(
     document = _manifest(sys.executable)
     config = document["spec"]["driver"]["config"]  # type: ignore[index]
     config["environmentFrom"] = {"TOKEN": "PRIVATE_CHILD_TOKEN"}  # type: ignore[index]
+    config["operations"]["run"]["argv"] = [  # type: ignore[index]
+        "-c",
+        "import json, os; print(json.dumps({'has_token': bool(os.environ.get('TOKEN'))}))",
+    ]
     root = tmp_path / ".capabilityhub" / "manifests"
     root.mkdir(parents=True)
     (root / "cli.json").write_text(json.dumps(document), encoding="utf-8")
 
-    generation = LocalCatalogMonitor(
+    monitor = LocalCatalogMonitor(
         project=tmp_path,
         home=tmp_path / "home",
-    ).snapshot(force=True)
+    )
+    generation = monitor.snapshot(force=True)
+    revision = "project/configured-cli@1.0.0#sha256:" + ("a" * 64)
+    result = local_execute(revision, "run", {}, monitor=monitor)
 
-    assert generation.inventory["invalid_count"] == 1
-    assert generation.providers == ()
+    assert generation.inventory["invalid_count"] == 0
+    assert result["output"] == {"has_token": True}
     assert secret not in repr(generation.inventory)
+    assert secret not in repr(result)
 
 
-def test_configured_http_alias_fails_closed_at_process_boundary(
+def test_configured_http_alias_crosses_encrypted_worker_boundary(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     secret = "RUNTIME-BROKER-CANARY-31"
@@ -287,12 +295,11 @@ def test_configured_http_alias_fails_closed_at_process_boundary(
         monitor = LocalCatalogMonitor(project=tmp_path, home=tmp_path / "home")
         revision = "project/configured-api@1.0.0#sha256:" + ("c" * 64)
 
-        with pytest.raises(CapabilityHubError) as caught:
-            local_execute(revision, "read", {}, monitor=monitor)
+        result = local_execute(revision, "read", {}, monitor=monitor)
 
-    assert caught.value.code == "provider_worker_secret_boundary_unsupported"
-    assert _ConfiguredApiHandler.authorizations == []
-    assert secret not in repr(caught.value.as_dict())
+    assert result["output"] == {"ok": True}
+    assert _ConfiguredApiHandler.authorizations == [secret]
+    assert secret not in repr(result)
 
 
 def test_configured_execution_consumes_one_durable_exact_approval(tmp_path: Path) -> None:

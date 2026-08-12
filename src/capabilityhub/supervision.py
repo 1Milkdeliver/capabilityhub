@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import json
 import multiprocessing
+import os
 import pickle
 from collections.abc import Mapping
 from dataclasses import dataclass
 from multiprocessing.connection import Connection
+from threading import RLock
 from time import monotonic
 from typing import Any, Protocol, cast
 
@@ -19,6 +21,14 @@ from capabilityhub.models import (
     JsonValue,
 )
 from capabilityhub.providers.base import CapabilityProvider, ProviderContext
+from capabilityhub.secret_broker import (
+    DpapiSecretEnvelope,
+    EnvironmentAliases,
+    SecretBrokerError,
+    worker_secret_scope,
+)
+
+_SPAWN_ENVIRONMENT_LOCK = RLock()
 
 
 class ProviderSupervisor(Protocol):
@@ -66,7 +76,12 @@ class ProcessProviderSupervisor:
                     "The provider cannot safely cross the configured process boundary.",
                 )
         try:
-            pickle.dumps((provider, identity, request, context))
+            aliases = _provider_aliases(provider)
+            envelope = _seal_aliases(aliases)
+        except SecretBrokerError:
+            raise
+        try:
+            pickle.dumps((provider, identity, request, context, envelope))
         except (pickle.PickleError, TypeError, AttributeError) as error:
             raise _error(
                 "provider_worker_not_serializable",
@@ -79,12 +94,13 @@ class ProcessProviderSupervisor:
         process_factory = cast(Any, process_context).Process
         process = process_factory(
             target=_worker,
-            args=(sender, provider, identity, request, context),
+            args=(sender, provider, identity, request, context, envelope),
             name=f"capabilityhub-{provider.name}",
             daemon=True,
         )
         try:
-            process.start()
+            with _scrubbed_spawn_environment(aliases):
+                process.start()
         except (OSError, RuntimeError, TypeError, AttributeError) as error:
             receiver.close()
             sender.close()
@@ -151,10 +167,12 @@ def _worker(
     identity: CapabilityIdentity,
     request: ExecutionRequest,
     context: ProviderContext,
+    secret_envelope: DpapiSecretEnvelope | None,
 ) -> None:
     try:
         try:
-            result = provider.execute(identity, request, context)
+            with worker_secret_scope(secret_envelope):
+                result = provider.execute(identity, request, context)
         except CapabilityHubError as error:
             payload: dict[str, JsonValue] = {
                 "category": error.category.value,
@@ -290,24 +308,91 @@ def _local_provider_restriction(provider: CapabilityProvider) -> str | None:
     from capabilityhub.providers.static import StaticProvider
 
     if isinstance(provider, HttpApiProvider):
-        for fixture in provider._fixtures:
-            headers = fixture.headers
+        for http_fixture in provider._fixtures:
+            headers = http_fixture.headers
             if headers is None:
                 continue
             if isinstance(headers, EnvironmentHeaders):
-                return "provider_worker_secret_boundary_unsupported"
+                if headers.broker_factory is not None:
+                    return "provider_worker_header_supplier_unsupported"
+                if not DpapiSecretEnvelope.available():
+                    return "provider_worker_secret_boundary_unsupported"
+                continue
             return "provider_worker_header_supplier_unsupported"
         return None
-    if isinstance(provider, (CliProcessProvider, McpStdioProvider)):
-        if any(
-            fixture.environment
-            for fixture in provider._fixtures
-        ):
-            return "provider_worker_plaintext_environment_denied"
+    if isinstance(provider, CliProcessProvider):
+        for cli_fixture in provider._fixtures:
+            environment = cli_fixture.environment
+            if environment and not isinstance(environment, EnvironmentAliases):
+                return "provider_worker_plaintext_environment_denied"
+            if environment and not DpapiSecretEnvelope.available():
+                return "provider_worker_secret_boundary_unsupported"
+        return None
+    if isinstance(provider, McpStdioProvider):
+        for mcp_fixture in provider._fixtures:
+            environment = mcp_fixture.environment
+            if environment and not isinstance(environment, EnvironmentAliases):
+                return "provider_worker_plaintext_environment_denied"
+            if environment and not DpapiSecretEnvelope.available():
+                return "provider_worker_secret_boundary_unsupported"
         return None
     if isinstance(provider, (LocalRagProvider, StaticProvider)):
         return None
     return "provider_worker_type_unsupported"
+
+
+def _provider_aliases(provider: CapabilityProvider) -> tuple[str, ...]:
+    from capabilityhub.providers.cli import CliProcessProvider
+    from capabilityhub.providers.http import EnvironmentHeaders, HttpApiProvider
+    from capabilityhub.providers.mcp import McpStdioProvider
+
+    aliases: list[str] = []
+    if isinstance(provider, HttpApiProvider):
+        for http_fixture in provider._fixtures:
+            if isinstance(http_fixture.headers, EnvironmentHeaders):
+                aliases.extend(alias for _header, alias in http_fixture.headers.sources)
+    elif isinstance(provider, CliProcessProvider):
+        for cli_fixture in provider._fixtures:
+            if isinstance(cli_fixture.environment, EnvironmentAliases):
+                aliases.extend(cli_fixture.environment.aliases)
+    elif isinstance(provider, McpStdioProvider):
+        for mcp_fixture in provider._fixtures:
+            if isinstance(mcp_fixture.environment, EnvironmentAliases):
+                aliases.extend(mcp_fixture.environment.aliases)
+    return tuple(dict.fromkeys(aliases))
+
+
+def _seal_aliases(aliases: tuple[str, ...]) -> DpapiSecretEnvelope | None:
+    if not aliases:
+        return None
+    values: dict[str, str] = {}
+    for alias in aliases:
+        value = os.environ.get(alias)
+        if not value:
+            raise SecretBrokerError("secret_alias_unavailable")
+        values[alias] = value
+    try:
+        return DpapiSecretEnvelope.seal(values)
+    finally:
+        values.clear()
+
+
+class _scrubbed_spawn_environment:
+    def __init__(self, aliases: tuple[str, ...]) -> None:
+        self._aliases = aliases
+        self._saved: dict[str, str] = {}
+
+    def __enter__(self) -> None:
+        _SPAWN_ENVIRONMENT_LOCK.acquire()
+        for alias in self._aliases:
+            value = os.environ.pop(alias, None)
+            if value is not None:
+                self._saved[alias] = value
+
+    def __exit__(self, _type: object, _value: object, _traceback: object) -> None:
+        os.environ.update(self._saved)
+        self._saved.clear()
+        _SPAWN_ENVIRONMENT_LOCK.release()
 
 
 def _protocol_error() -> CapabilityHubError:

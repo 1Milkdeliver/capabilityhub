@@ -98,3 +98,30 @@ For each supported model revision, run the core stratified suite at each adverti
 ## Minimum report
 
 Each generated run must include raw `events.jsonl`, task scores, environment and fixture digests, configuration/model/tier/cache metadata, per-provider matrix, p10/p50/p95 latency and token summaries, confidence intervals, and the eager/lazy rendered prompt digests. A reviewer must be able to replay the report entirely from these artifacts and the pinned fixtures.
+# Disk-backed RAG scale evidence
+
+The RAG scale benchmark streams deterministic chunks into a real SQLite FTS5
+index and queries that index through a small retrieval provider. It records
+fixed-seed top-k quality fixtures, cold/warm/concurrent p50 and p95 latency,
+index bytes, hardware metadata, and enforced hard limits.
+
+Fast CI verification (10,000 chunks):
+
+```powershell
+python -m benchmarks.rag_scale --chunks 10000 --concurrency 8 --artifact benchmarks/artifacts/rag-scale-ci.json
+```
+
+Full replay (exactly 1,000,000 chunks):
+
+```powershell
+python -m benchmarks.rag_scale --chunks 1000000 --concurrency 32 --artifact benchmarks/artifacts/rag-scale-1m.json
+```
+
+An artifact is evidence only for the `chunk_count`, seed, digest, limits, and
+environment recorded inside it. The CI artifact must not be presented as a
+one-million-chunk result. This benchmark does not call an embedding model and
+does not claim semantic-model or production-service quality; its quality
+fixtures prove deterministic phrase retrieval through the real disk index.
+Here, `cold` means a fresh read-only SQLite connection for each query; `warm`
+means repeated queries on one open connection. It does not claim an operating
+system page-cache flush.

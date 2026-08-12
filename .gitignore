@@ -20,3 +20,4 @@ build/
 .capabilityhub/audit.jsonl
 .capabilityhub/context-state.json
 .capabilityhub/secure-audit/
+benchmarks/artifacts/.rag-scale-index/

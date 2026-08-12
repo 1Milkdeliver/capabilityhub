@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import hashlib
-import hmac
 import json
 import secrets
 import socket
@@ -15,6 +13,7 @@ from threading import RLock, Thread, current_thread
 from typing import Any
 from urllib.parse import urlsplit
 
+from .auth import AuthIdentity, LoopbackAuthenticator
 from .errors import CapabilityHubError, ErrorCategory
 from .protocol import (
     AdapterContract,
@@ -53,6 +52,8 @@ class LoopbackHttpControl:
         port: int = 0,
         max_body_bytes: int = 65_536,
         allowed_origins: tuple[str, ...] = (),
+        identity: AuthIdentity | None = None,
+        authenticator: LoopbackAuthenticator | None = None,
     ) -> None:
         if host not in _LOOPBACK_HOSTS:
             raise ValueError("HTTP control host must be 127.0.0.1 or ::1")
@@ -72,9 +73,12 @@ class LoopbackHttpControl:
         self._requested_port = port
         self._max_body_bytes = max_body_bytes
         self._allowed_origins = origins
+        selected_identity = identity or AuthIdentity("local", "operator", "http-loopback", "http")
+        if authenticator is not None and identity is not None:
+            raise ValueError("supply identity or authenticator, not both")
+        self._authenticator = authenticator or LoopbackAuthenticator(selected_identity)
         self._server: ThreadingHTTPServer | None = None
         self._thread: Thread | None = None
-        self._token_digest: bytes | None = None
         self._lifecycle_lock = RLock()
 
     def start(self) -> HttpControlAccess:
@@ -83,14 +87,13 @@ class LoopbackHttpControl:
         with self._lifecycle_lock:
             if self._server is not None:
                 raise RuntimeError("HTTP control is already running")
-            token = secrets.token_urlsafe(32)
-            self._token_digest = hashlib.sha256(token.encode()).digest()
+            credential = self._authenticator.start_session()
             handler = partial(_ControlHandler, control=self)
             server_type = _IPv6ThreadingHTTPServer if self._host == "::1" else ThreadingHTTPServer
             try:
                 server = server_type((self._host, self._requested_port), handler)
             except Exception:
-                self._token_digest = None
+                self._authenticator.close()
                 raise
             server.daemon_threads = True
             thread = Thread(
@@ -103,7 +106,7 @@ class LoopbackHttpControl:
             thread.start()
             port = int(server.server_address[1])
             host = f"[{self._host}]" if ":" in self._host else self._host
-            return HttpControlAccess(f"http://{host}:{port}/protocol", token)
+            return HttpControlAccess(f"http://{host}:{port}/protocol", credential.token)
 
     def status(self) -> HttpControlStatus:
         with self._lifecycle_lock:
@@ -122,7 +125,7 @@ class LoopbackHttpControl:
             thread = self._thread
             self._server = None
             self._thread = None
-            self._token_digest = None
+            self._authenticator.close()
         if server is None:
             return
         server.shutdown()
@@ -131,13 +134,16 @@ class LoopbackHttpControl:
             thread.join(timeout=5)
 
     def _authorized(self, value: str | None) -> bool:
-        supplied = ""
-        if isinstance(value, str) and value.startswith("Bearer "):
-            supplied = value[7:]
-        supplied_digest = hashlib.sha256(supplied.encode()).digest()
-        with self._lifecycle_lock:
-            expected = self._token_digest or bytes(hashlib.sha256().digest_size)
-        return hmac.compare_digest(supplied_digest, expected)
+        try:
+            self._authenticator.authenticate(value)
+        except CapabilityHubError:
+            return False
+        return True
+
+    def issue_request_token(self, *, ttl_seconds: int = 60) -> str:
+        """Issue a short-lived, single-use token bound to this control identity."""
+
+        return self._authenticator.issue_one_time(ttl_seconds=ttl_seconds)
 
     def _dispatch(self, raw: dict[str, Any]) -> ResponseEnvelope:
         request = parse_request(
@@ -185,8 +191,16 @@ class _ControlHandler(BaseHTTPRequestHandler):
             self._transport_error(HTTPStatus.FORBIDDEN, "origin_not_allowed", correlation)
             return
         authorization = self.headers.get_all("Authorization", ())
-        if len(authorization) != 1 or not self._control._authorized(authorization[0]):
-            self._transport_error(HTTPStatus.UNAUTHORIZED, "invalid_bearer_token", correlation)
+        try:
+            if len(authorization) != 1:
+                raise CapabilityHubError(
+                    code="invalid_bearer_token",
+                    category=ErrorCategory.POLICY,
+                    safe_message="The HTTP control credential was rejected.",
+                )
+            self._control._authenticator.authenticate(authorization[0])
+        except CapabilityHubError as error:
+            self._transport_error(HTTPStatus.UNAUTHORIZED, error.code, correlation)
             return
         if self.headers.get("Transfer-Encoding") is not None:
             self._transport_error(HTTPStatus.BAD_REQUEST, "chunked_body_not_allowed", correlation)

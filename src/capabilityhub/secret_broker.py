@@ -11,15 +11,22 @@ import json
 import os
 import re
 import secrets
+import sys
 import time
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Iterator, Mapping
+from contextlib import contextmanager
+from contextvars import ContextVar
 from dataclasses import dataclass, field
+from pathlib import Path
 from threading import RLock
 from types import MappingProxyType
 
 from .errors import CapabilityHubError, ErrorCategory
 
 _ALIAS = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,127}$")
+_worker_environment: ContextVar[Mapping[str, str] | None] = ContextVar(
+    "capabilityhub_worker_environment", default=None
+)
 
 
 class SecretBrokerError(CapabilityHubError):
@@ -291,6 +298,153 @@ class ScopedSecretBroker:
         if isinstance(value, bool) or not isinstance(value, int):
             raise ValueError("now must be an integer timestamp")
         return value
+
+
+@dataclass(frozen=True, slots=True)
+class EnvironmentAliases(Mapping[str, str]):
+    """Serializable target-to-alias bindings resolved only inside a worker scope."""
+
+    sources: tuple[tuple[str, str], ...]
+
+    def __post_init__(self) -> None:
+        if any(not target or _ALIAS.fullmatch(alias) is None for target, alias in self.sources):
+            raise ValueError("environment alias bindings are invalid")
+
+    @property
+    def aliases(self) -> tuple[str, ...]:
+        return tuple(alias for _target, alias in self.sources)
+
+    def __getitem__(self, target: str) -> str:
+        aliases = dict(self.sources)
+        alias = aliases[target]
+        environment = _worker_environment.get()
+        if environment is None or alias not in environment:
+            raise SecretBrokerError("secret_worker_scope_unavailable")
+        return environment[alias]
+
+    def __iter__(self) -> Iterator[str]:
+        return (target for target, _alias in self.sources)
+
+    def __len__(self) -> int:
+        return len(self.sources)
+
+
+@dataclass(slots=True)
+class DpapiSecretEnvelope:
+    ciphertext: bytes = field(repr=False)
+    _consumed: bool = field(default=False, init=False, repr=False)
+
+    @staticmethod
+    def available() -> bool:
+        return sys.platform == "win32"
+
+    @classmethod
+    def seal(cls, values: Mapping[str, str]) -> DpapiSecretEnvelope:
+        if not cls.available():
+            raise SecretBrokerError("secret_transport_unsupported")
+        payload = json.dumps(dict(values), separators=(",", ":"), sort_keys=True).encode()
+        return cls(_crypt_protect(payload))
+
+    def open(self) -> dict[str, str]:
+        if not self.available():
+            raise SecretBrokerError("secret_transport_unsupported")
+        if self._consumed:
+            raise SecretBrokerError("secret_transport_consumed")
+        self._consumed = True
+        try:
+            payload = json.loads(_crypt_unprotect(self.ciphertext))
+        except Exception as error:
+            raise SecretBrokerError("secret_transport_invalid") from error
+        if not isinstance(payload, dict) or not all(
+            isinstance(key, str) and isinstance(value, str) for key, value in payload.items()
+        ):
+            raise SecretBrokerError("secret_transport_invalid")
+        return payload
+
+
+class DpapiSecretStore:
+    """Optional Windows current-user DPAPI store; disk contains ciphertext only."""
+
+    backend = "windows-dpapi-current-user"
+
+    def __init__(self, root: str | Path) -> None:
+        if not DpapiSecretEnvelope.available():
+            raise SecretBrokerError("secret_store_unsupported")
+        self._root = Path(root).resolve()
+        self._root.mkdir(parents=True, exist_ok=True)
+
+    def put(self, alias: str, value: str) -> str:
+        if _ALIAS.fullmatch(alias) is None or not value:
+            raise ValueError("secret store alias and value must be non-empty")
+        path = self._path(alias)
+        temporary = path.with_suffix(".tmp")
+        envelope = DpapiSecretEnvelope.seal({"value": value})
+        temporary.write_bytes(envelope.ciphertext)
+        temporary.replace(path)
+        return _digest(alias)
+
+    def get(self, alias: str) -> str:
+        if _ALIAS.fullmatch(alias) is None:
+            raise ValueError("secret store alias is invalid")
+        try:
+            ciphertext = self._path(alias).read_bytes()
+            value = DpapiSecretEnvelope(ciphertext).open().get("value")
+        except (OSError, SecretBrokerError) as error:
+            raise SecretBrokerError("secret_store_unavailable") from error
+        if not value:
+            raise SecretBrokerError("secret_store_unavailable")
+        return value
+
+    def _path(self, alias: str) -> Path:
+        name = hashlib.sha256(alias.encode()).hexdigest() + ".dpapi"
+        return self._root / name
+
+
+@contextmanager
+def worker_secret_scope(envelope: DpapiSecretEnvelope | None) -> Iterator[None]:
+    values = None if envelope is None else envelope.open()
+    token = _worker_environment.set(values)
+    try:
+        yield
+    finally:
+        _worker_environment.reset(token)
+        if values is not None:
+            values.clear()
+
+
+def resolve_worker_alias(alias: str) -> str | None:
+    values = _worker_environment.get()
+    return None if values is None else values.get(alias)
+
+
+def _crypt_protect(payload: bytes) -> bytes:
+    return _windows_crypt(payload, protect=True)
+
+
+def _crypt_unprotect(payload: bytes) -> bytes:
+    return _windows_crypt(payload, protect=False)
+
+
+def _windows_crypt(payload: bytes, *, protect: bool) -> bytes:
+    import ctypes
+    from ctypes import wintypes
+
+    class DataBlob(ctypes.Structure):
+        _fields_ = [("cbData", wintypes.DWORD), ("pbData", ctypes.POINTER(ctypes.c_byte))]
+
+    buffer = ctypes.create_string_buffer(payload)
+    source = DataBlob(len(payload), ctypes.cast(buffer, ctypes.POINTER(ctypes.c_byte)))
+    output = DataBlob()
+    crypt32 = ctypes.windll.crypt32
+    kernel32 = ctypes.windll.kernel32
+    function = crypt32.CryptProtectData if protect else crypt32.CryptUnprotectData
+    arguments = (ctypes.byref(source), None, None, None, None, 0x01, ctypes.byref(output))
+    if not function(*arguments):
+        raise SecretBrokerError("secret_transport_failed")
+    try:
+        return ctypes.string_at(output.pbData, output.cbData)
+    finally:
+        kernel32.LocalFree(output.pbData)
 
 
 def _digest(value: str) -> str:

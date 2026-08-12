@@ -7,6 +7,8 @@ from threading import Lock
 import pytest
 
 from capabilityhub.secret_broker import (
+    DpapiSecretEnvelope,
+    DpapiSecretStore,
     ScopedSecretBroker,
     SecretAuditEvent,
     SecretBrokerError,
@@ -181,3 +183,35 @@ def test_environment_resolver_exception_is_sanitized() -> None:
 
     assert raised.value.code == "secret_alias_unavailable"
     assert alias not in repr(raised.value.as_dict())
+
+
+def test_windows_dpapi_envelope_roundtrip_hides_plaintext() -> None:
+    if not DpapiSecretEnvelope.available():
+        pytest.skip("Windows DPAPI is unavailable")
+    secret = "DPAPI-CANARY-71"
+
+    envelope = DpapiSecretEnvelope.seal({"TOKEN_ALIAS": secret})
+
+    assert envelope.open() == {"TOKEN_ALIAS": secret}
+    assert secret.encode() not in envelope.ciphertext
+    assert secret not in repr(envelope)
+    assert "TOKEN_ALIAS" not in repr(envelope)
+    with pytest.raises(SecretBrokerError) as replay:
+        envelope.open()
+    assert replay.value.code == "secret_transport_consumed"
+
+
+def test_windows_dpapi_store_persists_only_ciphertext(tmp_path) -> None:
+    if not DpapiSecretEnvelope.available():
+        pytest.skip("Windows DPAPI is unavailable")
+    secret = "DPAPI-STORED-CANARY-19"
+    store = DpapiSecretStore(tmp_path / "secrets")
+
+    digest = store.put("SERVICE_TOKEN", secret)
+
+    assert store.backend == "windows-dpapi-current-user"
+    assert store.get("SERVICE_TOKEN") == secret
+    assert digest.startswith("sha256:")
+    serialized = b"".join(path.read_bytes() for path in (tmp_path / "secrets").iterdir())
+    assert secret.encode() not in serialized
+    assert b"SERVICE_TOKEN" not in serialized

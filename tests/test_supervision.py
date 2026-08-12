@@ -178,7 +178,7 @@ def test_strict_local_policy_rejects_unknown_provider_instead_of_fake_isolation(
     assert caught.value.category is ErrorCategory.POLICY
 
 
-def test_strict_local_policy_rejects_brokered_http_before_worker_spawn() -> None:
+def test_brokered_http_missing_alias_fails_before_worker_spawn() -> None:
     manifest = CapabilityManifest(
         identity=IDENTITY,
         kind=CapabilityKind.API,
@@ -205,7 +205,7 @@ def test_strict_local_policy_rejects_brokered_http_before_worker_spawn() -> None
             _context(),
         )
 
-    assert caught.value.code == "provider_worker_secret_boundary_unsupported"
+    assert caught.value.code == "secret_alias_unavailable"
     assert "PRIVATE_ALIAS" not in repr(caught.value.as_dict())
 
 

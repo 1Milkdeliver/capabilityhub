@@ -27,6 +27,7 @@ from capabilityhub.approval_store import (
     SqliteApprovalStore,
 )
 from capabilityhub.audit import AuditEvent, AuditSink
+from capabilityhub.auth import AuthIdentity
 from capabilityhub.authorization import ParameterAuthorizer
 from capabilityhub.budget import BudgetLedger, BudgetSnapshot
 from capabilityhub.budget_store import SqliteBudgetLedger, SqliteBudgetRepository
@@ -1760,10 +1761,11 @@ def local_http_control(
         idempotency_store=_local_idempotency_store(selected.project),
         provider_supervisor=None,
     )
+    identity = AuthIdentity(tenant_id, principal_id, "http-loopback", session_id)
     context = ServiceContext(
-        tenant_id,
-        principal_id,
-        session_id,
+        identity.tenant_id,
+        identity.principal_id,
+        identity.session_id,
         granted_permissions=frozenset(granted_permissions or ()),
     )
     selected_task_limits = {
@@ -1798,7 +1800,12 @@ def local_http_control(
         inventory_provider=lifecycle_service.inventory,
         observability=_runtime_observability(selected.project),
     )
-    control = _LifecycleLoopbackHttpControl(adapter, port=port, lifecycle=lifecycle_service)
+    control = _LifecycleLoopbackHttpControl(
+        adapter,
+        port=port,
+        lifecycle=lifecycle_service,
+        identity=identity,
+    )
     return control, control.start()
 
 

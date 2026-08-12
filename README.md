@@ -16,7 +16,7 @@ This is `0.1.0a0`, not a production release. The public surface includes Python 
 a small local CLI, and an experimental MCP server adapter; none is a stable protocol
 compatibility guarantee. MCP framing and transports come from the official Python SDK.
 
-CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, local RAG, and MCP stdio adapters; these are supervised reference adapters, not a production sandbox. A secret broker, authenticated tenant isolation, OS resource confinement, remote control plane, and production RAG remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
+CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, local RAG, and MCP stdio adapters; these are supervised reference adapters, not a production sandbox. An in-memory scoped secret-handle broker exists for embedders, while OS-backed secret storage, authenticated tenant isolation, OS resource confinement, a remote control plane, and production RAG remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
 
 ## Install from source
 
@@ -81,6 +81,7 @@ capabilityhub inventory --pretty
 capabilityhub search "work with PDF files" --kind skill --limit 5 --pretty
 capabilityhub health --pretty
 capabilityhub connections --pretty
+capabilityhub connections --probe --pretty
 capabilityhub loaded --limit 20 --pretty
 capabilityhub providers --pretty
 capabilityhub routing "work with PDF files" --kind skill --pretty
@@ -111,7 +112,7 @@ supported driver is explicitly configured; `execute` uses that provider by defau
 
 Project manifests can opt into the CLI process, fixed-origin HTTP API, local RAG, and MCP stdio adapters. The process supervisor enforces wall-clock termination and bounded JSON IPC, but it is not an OS CPU/memory/filesystem sandbox; those production hardening gates remain open.
 
-The supply-chain module can verify artifact bytes against the manifest digest and an explicit publisher/registry policy. Its current signed profile uses standard-library HMAC-SHA256 for local shared-key deployments, with key IDs, expiry, and revocation. Production policy rejects unsigned artifacts. HMAC is not public publisher identity or third-party non-repudiation; a future public distribution profile must use a standard public-key/Sigstore implementation.
+The supply-chain module verifies artifact bytes against the manifest digest and an explicit publisher/registry policy. Stage, health recording, and activation each re-acquire and reverify the supplied bytes before changing durable state; the default path fails closed without a verifier. The local CLI accepts a bounded artifact file plus explicit publisher/registry and requires an explicit development mode for unsigned local material. The signed profile uses standard-library HMAC-SHA256 for local shared-key deployments, with key IDs, expiry, and revocation. HMAC is not public publisher identity or third-party non-repudiation; a public distribution profile must use a standard public-key/Sigstore implementation.
 
 Manifests may be JSON, `.yaml`, or `.yml`. YAML intake uses `safe_load` only after enforcing byte, node, and depth limits and rejecting aliases, custom tags, and multiple documents. `activation-lock export` captures exact active revisions plus dependency closure without loading providers; `activation-lock verify FILE` fails closed on missing, extra, or drifted capabilities.
 
@@ -125,13 +126,15 @@ Additional control-plane primitives remain metadata-only: automatic projection a
 
 `LoopbackHttpControl` is an authenticated local HTTP transport for the shared protocol envelope. It binds only numeric loopback addresses, exposes one `POST /protocol` endpoint and exactly the three capability operations, requires a 256-bit bearer token, bounds request bodies, and enforces loopback Host/peer plus explicit browser Origin policy. It is an embeddable adapter rather than a remote TLS service. `DrainController` separately coordinates accepting, draining, and retired revisions; it preserves in-flight pins, blocks new admission, requests cancellation only for declared cancellable work, and requires an explicit policy for forced retirement.
 
+`connections` remains configuration-only by default. `connections --probe` is an explicit bounded diagnostic for configured MCP HTTP(S) endpoints: it performs DNS, TCP, and TLS setup only, rejects private/link-local/reserved and mixed-DNS targets unless loopback is explicitly allowed, and never sends an HTTP request or invokes a capability. A successful result means transport reachability (and, for HTTPS, verified TLS); application authentication and health remain unknown.
+
 `capabilityhub http-serve` connects that transport to a real immutable `CapabilityHubService` catalog snapshot and prints its URL and one-process bearer token once to the launching terminal. Restart it to pick up catalog changes. The same strict service adapter is tested for library, CLI, MCP, and HTTP envelope kinds; this does not turn the endpoint into a remote multi-user deployment. `DrainedCapabilityHubService` is available to embedders that need the drain controller around actual execution admission and provider calls.
 
 `HttpApiProvider` is the opt-in real JSON API adapter. Each operation is tied to one configured HTTPS origin (cleartext is loopback-only), an allowlisted HTTP method and path template, named query/body fields, and an optional out-of-band header supplier. Path values are percent encoded, redirects are rejected, credentials are forbidden in base URLs, response reads are hard bounded before parsing, and errors expose only safe status metadata. It deliberately does not provide a generic URL-fetch capability.
 
 `LocalRagProvider` provides real read-only retrieval over explicitly approved local `.md`/`.txt` roots. It reads bounded files only at execution time, rejects path escapes, ranks compact line chunks deterministically, emits relative-path and line-range citations, enforces `top_k`, deadline, and output budgets, and never returns an entire index or hidden absolute path. It is a small local reference adapter, not a vector database or production managed-RAG replacement.
 
-Install the `mcp` extra to use `capabilityhub.providers.mcp.McpStdioProvider`, the real upstream MCP adapter. It delegates framing, initialization, tool discovery, calls, cancellation, and stdio process management to the official MCP Python SDK. Each operation maps to one explicitly configured upstream tool on an absolute command with fixed args and an explicit environment; stderr is suppressed from model-visible output, unadvertised tools are denied, the whole session has a deadline, and returned structured content is JSON-checked and budgeted. Persistent sessions, OAuth, HTTP transport, and production gateway pooling remain upstream responsibilities.
+Install the `mcp` extra to use `capabilityhub.providers.mcp.McpStdioProvider`, the real upstream MCP adapter. It delegates framing, initialization, tool discovery, calls, cancellation, and stdio process management to the official MCP Python SDK. The CapabilityHub MCP server's exact three public tools now dispatch through the same protocol envelope and strict service adapter used by the library and loopback HTTP path. Each upstream operation maps to one explicitly configured tool on an absolute command with fixed args and an explicit environment; stderr is suppressed from model-visible output, unadvertised tools are denied, the whole session has a deadline, and returned structured content is JSON-checked and budgeted. Persistent sessions, OAuth, HTTP transport, and production gateway pooling remain upstream responsibilities.
 
 Menu language and activation overrides now persist without a model call. Use `capabilityhub language set zh-CN --scope project` (or `en`/`auto`) and `capabilityhub lifecycle set NAMESPACE/NAME disabled --scope project`. Lifecycle supports `enabled`, `disabled`, and `quarantined`; it changes only whether a discovered capability is active in the local catalog and never deletes, updates, or executes its files. Project settings override global settings, JSON writes are atomic, and unrelated configuration keys are preserved.
 

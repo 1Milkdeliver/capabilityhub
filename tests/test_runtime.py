@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
@@ -312,7 +313,12 @@ def test_staged_update_activation_and_rollback_change_live_catalog_pointer(tmp_p
     project = tmp_path / "project"
     root = project / ".capabilityhub" / "manifests"
     root.mkdir(parents=True)
-    for version, digest in (("1.0.0", "1"), ("2.0.0", "2")):
+    artifacts: dict[str, bytes] = {}
+    revisions: dict[str, str] = {}
+    for version in ("1.0.0", "2.0.0"):
+        artifact = f"artifact-{version}".encode()
+        artifacts[version] = artifact
+        digest = "sha256:" + hashlib.sha256(artifact).hexdigest()
         document = {
             "apiVersion": "capabilityhub.io/v1alpha1",
             "kind": "Capability",
@@ -320,7 +326,7 @@ def test_staged_update_activation_and_rollback_change_live_catalog_pointer(tmp_p
                 "namespace": "demo",
                 "name": "updatable",
                 "version": version,
-                "digest": "sha256:" + digest * 64,
+                "digest": digest,
             },
             "spec": {
                 "type": "api",
@@ -330,14 +336,21 @@ def test_staged_update_activation_and_rollback_change_live_catalog_pointer(tmp_p
             },
         }
         (root / f"v{version[0]}.json").write_text(json.dumps(document), encoding="utf-8")
+        revisions[version] = f"demo/updatable@{version}#{digest}"
     monitor = LocalCatalogMonitor(project=project, home=tmp_path / "home")
-    first = "demo/updatable@1.0.0#sha256:" + "1" * 64
-    second = "demo/updatable@2.0.0#sha256:" + "2" * 64
+    first = revisions["1.0.0"]
+    second = revisions["2.0.0"]
     assert monitor.snapshot().registry.activations["demo/updatable"] == second
 
-    local_update_action("stage", first, monitor=monitor)
-    local_update_action("health", first, health_passed=True, monitor=monitor)
-    local_update_action("activate", first, monitor=monitor)
+    trust = {
+        "artifact": artifacts["1.0.0"],
+        "publisher": "local-test",
+        "artifact_registry": "local-test",
+        "trust_mode": "development",
+    }
+    local_update_action("stage", first, monitor=monitor, **trust)
+    local_update_action("health", first, health_passed=True, monitor=monitor, **trust)
+    local_update_action("activate", first, monitor=monitor, **trust)
     assert monitor.snapshot().registry.activations["demo/updatable"] == first
     assert local_updates(monitor=monitor)["states"][0]["previous_revision"] == second
 

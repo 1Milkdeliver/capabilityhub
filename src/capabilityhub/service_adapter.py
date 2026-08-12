@@ -131,7 +131,7 @@ class CapabilityHubServiceAdapter:
             if inventory is not None:
                 inventory = _json_object(inventory)
         response = self._service.search(
-            _text(payload["query"]),
+            _query(payload["query"]),
             task_id=task_id,
             context=self._context(),
             budget=self._budget(task_id),
@@ -211,6 +211,12 @@ def _payload(
 
 def _text(value: object, *, maximum: int = _MAX_TEXT) -> str:
     if not isinstance(value, str) or not value or len(value) > maximum:
+        raise _invalid_payload()
+    return value
+
+
+def _query(value: object) -> str:
+    if not isinstance(value, str) or len(value) > _MAX_TEXT:
         raise _invalid_payload()
     return value
 

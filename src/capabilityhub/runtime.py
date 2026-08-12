@@ -32,6 +32,11 @@ from capabilityhub.compatibility import (
     decide_compatibility,
     v1alpha1_handshake,
 )
+from capabilityhub.connections import (
+    ConnectionProber,
+    ProbeResult,
+    configured_mcp_targets,
+)
 from capabilityhub.context_state import LocalContextState
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.hierarchical_budget import (
@@ -76,6 +81,12 @@ from capabilityhub.state import (
     set_locale,
 )
 from capabilityhub.supervision import ProcessProviderSupervisor
+from capabilityhub.supply_chain import (
+    ArtifactAttestation,
+    ArtifactMaterial,
+    SupplyChainPolicy,
+    SupplyChainVerifier,
+)
 from capabilityhub.update_store import SQLiteUpdateStore
 from capabilityhub.webui import (
     ApprovalProvider,
@@ -367,13 +378,31 @@ def local_connections(
     project_root: str | Path | None = None,
     *,
     monitor: LocalCatalogMonitor | None = None,
+    probe: bool = False,
+    probe_timeout_ms: int = 1_000,
+    probe_concurrency: int = 4,
+    allow_loopback: bool = False,
+    connection_prober: ConnectionProber | None = None,
 ) -> dict[str, JsonValue]:
-    """Describe configured local capability connections without dialing providers."""
+    """Describe configuration; probe only when explicitly requested."""
 
     selected = _select_local_scope(project_root, monitor)
     snapshot = selected.snapshot()
     active = snapshot.inventory.get("active_by_kind")
     active_counts = active if isinstance(active, dict) else {}
+    probe_results: tuple[ProbeResult, ...] = ()
+    if probe:
+        if not 50 <= probe_timeout_ms <= 5_000:
+            raise ValueError("probe_timeout_ms must be between 50 and 5000")
+        if not 1 <= probe_concurrency <= 16:
+            raise ValueError("probe_concurrency must be between 1 and 16")
+        prober = connection_prober or ConnectionProber(
+            timeout_seconds=probe_timeout_ms / 1_000,
+            max_concurrency=probe_concurrency,
+            allow_loopback=allow_loopback,
+        )
+        targets = configured_mcp_targets(selected.home / ".codex" / "config.toml")
+        probe_results = prober.probe_all(targets)
     connections: list[JsonValue] = []
     for kind in CapabilityKind:
         configured = len(snapshot.registry.by_kind(kind))
@@ -383,20 +412,77 @@ def local_connections(
             state = "available" if configured else "not_found"
         else:
             state = "configured_not_probed" if configured else "not_configured"
-        connections.append(
-            {
-                "active": active_counts.get(kind.value, 0),
-                "configured": configured,
-                "kind": kind.value,
-                "state": state,
-            }
-        )
-    return {
+        row: dict[str, JsonValue] = {
+            "active": active_counts.get(kind.value, 0),
+            "configured": configured,
+            "kind": kind.value,
+            "state": state,
+        }
+        if probe:
+            selected_results = tuple(item for item in probe_results if item.kind is kind)
+            attempted = tuple(item for item in selected_results if item.attempted)
+            row.update(
+                {
+                    "authenticated": "unknown",
+                    "healthy": None,
+                    "latency_bucket": _connection_latency(attempted),
+                    "reachable": (
+                        any(item.reachable is True for item in attempted) if attempted else None
+                    ),
+                    "reason_codes": _connection_reason_codes(selected_results, configured),
+                    "transport_security": _connection_transport_security(attempted),
+                }
+            )
+            if row["reachable"] is True:
+                row["state"] = "reachable"
+            elif attempted:
+                row["state"] = "probe_failed"
+            elif configured:
+                row["state"] = "probe_unsupported"
+        connections.append(row)
+    response: dict[str, JsonValue] = {
         "connections": connections,
         "generation": snapshot.inventory.get("generation"),
-        "network_probes_performed": 0,
-        "scope": "configuration_only",
+        "network_probes_performed": sum(item.attempted for item in probe_results),
+        "scope": "configuration_and_safe_probe" if probe else "configuration_only",
     }
+    if probe:
+        response["probe_results"] = [
+            {
+                "authenticated": item.authenticated,
+                "configured": item.configured,
+                "connection_id": item.connection_id,
+                "healthy": item.healthy,
+                "kind": item.kind.value,
+                "latency_bucket": item.latency_bucket,
+                "reachable": item.reachable,
+                "reason_code": item.reason_code,
+                "transport_security": item.transport_security,
+            }
+            for item in probe_results
+        ]
+    return response
+
+
+def _connection_latency(results: tuple[ProbeResult, ...]) -> str:
+    order = {"lt_50ms": 0, "50_199ms": 1, "200_999ms": 2, "gte_1000ms": 3}
+    buckets = [item.latency_bucket for item in results if item.latency_bucket in order]
+    return max(buckets, key=order.__getitem__) if buckets else "unknown"
+
+
+def _connection_transport_security(results: tuple[ProbeResult, ...]) -> str:
+    values = {item.transport_security for item in results}
+    if len(values) == 1:
+        return next(iter(values))
+    if values:
+        return "mixed"
+    return "unknown"
+
+
+def _connection_reason_codes(results: tuple[ProbeResult, ...], configured: int) -> list[JsonValue]:
+    if results:
+        return list(sorted({item.reason_code for item in results}))
+    return ["probe_unsupported" if configured else "not_configured"]
 
 
 def local_audit(
@@ -651,10 +737,41 @@ def local_update_action(
     pin_id: str | None = None,
     project_root: str | Path | None = None,
     monitor: LocalCatalogMonitor | None = None,
+    artifact: bytes | None = None,
+    publisher: str | None = None,
+    artifact_registry: str | None = None,
+    attestation: ArtifactAttestation | None = None,
+    trust_mode: str = "strict",
+    supply_chain_verifier: SupplyChainVerifier | None = None,
 ) -> dict[str, JsonValue]:
     """Stage, health-gate, activate, rollback, pin, or release an immutable revision."""
 
-    selected, manager = _update_manager(project_root, monitor)
+    if trust_mode not in {"strict", "development"}:
+        raise ValueError("trust_mode must be strict or development")
+    material: ArtifactMaterial | None = None
+    supplied = (artifact, publisher, artifact_registry)
+    if any(item is not None for item in supplied):
+        if artifact is None or publisher is None or artifact_registry is None:
+            raise ValueError("artifact, publisher, and artifact_registry must be supplied together")
+        material = ArtifactMaterial(artifact, publisher, artifact_registry, attestation)
+    verifier = supply_chain_verifier
+    if trust_mode == "development":
+        if material is None:
+            raise ValueError("development trust mode requires explicit artifact material")
+        verifier = SupplyChainVerifier(
+            SupplyChainPolicy(
+                environment="development",
+                trusted_publishers=frozenset({material.publisher}),
+                trusted_registries=frozenset({material.registry}),
+                allow_unsigned_development=True,
+            )
+        )
+    selected, manager = _update_manager(
+        project_root,
+        monitor,
+        verifier=verifier,
+        material=material,
+    )
     if action in {"stage", "health", "activate"}:
         manifest = manager.registry.revision(target)
         coordinate = manifest.identity.coordinate
@@ -1325,12 +1442,17 @@ def _select_local_scope(
 def _update_manager(
     project_root: str | Path | None,
     monitor: LocalCatalogMonitor | None,
+    *,
+    verifier: SupplyChainVerifier | None = None,
+    material: ArtifactMaterial | None = None,
 ) -> tuple[LocalCatalogMonitor, StagedUpdateManager]:
     selected = _select_local_scope(project_root, monitor)
     generation = selected.snapshot()
     return selected, StagedUpdateManager(
         registry=generation.registry,
         store=SQLiteUpdateStore(_state_path(selected.project)),
+        verifier=verifier,
+        artifact_acquirer=(None if material is None else lambda _revision: material),
     )
 
 

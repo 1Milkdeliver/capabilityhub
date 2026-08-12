@@ -1,19 +1,36 @@
-"""Staged capability update coordination without artifact download or execution."""
+"""Staged capability updates with fail-closed artifact trust gates."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 
 from .registry import CapabilityRegistry
+from .supply_chain import (
+    ArtifactMaterial,
+    SupplyChainError,
+    SupplyChainVerifier,
+    TrustEvidence,
+)
 from .update_store import RevisionPin, SQLiteUpdateStore, UpdateState
+
+ArtifactAcquirer = Callable[[str], ArtifactMaterial]
 
 
 class StagedUpdateManager:
     """Validate immutable registry revisions around an atomic SQLite pointer store."""
 
-    def __init__(self, *, registry: CapabilityRegistry, store: SQLiteUpdateStore) -> None:
+    def __init__(
+        self,
+        *,
+        registry: CapabilityRegistry,
+        store: SQLiteUpdateStore,
+        verifier: SupplyChainVerifier | None = None,
+        artifact_acquirer: ArtifactAcquirer | None = None,
+    ) -> None:
         self.registry = registry
         self.store = store
+        self.verifier = verifier
+        self.artifact_acquirer = artifact_acquirer
 
     def stage(
         self,
@@ -21,9 +38,10 @@ class StagedUpdateManager:
         *,
         expected_active_revision: str | None,
     ) -> UpdateState:
-        """Stage a registered revision without fetching or executing its artifact."""
+        """Acquire and verify artifact bytes before staging a registered revision."""
 
         manifest = self.registry.revision(revision)
+        self._verify_artifact(revision)
         return self.store.stage(
             manifest.identity.coordinate,
             revision,
@@ -37,9 +55,10 @@ class StagedUpdateManager:
         return self.store.bootstrap_active(coordinate, revision)
 
     def record_health(self, revision: str, *, passed: bool) -> UpdateState:
-        """Record an externally obtained health result; this performs no health execution."""
+        """Reverify trust before accepting an externally obtained health result."""
 
         manifest = self.registry.revision(revision)
+        self._verify_artifact(revision)
         return self.store.record_health(
             manifest.identity.coordinate,
             revision,
@@ -53,6 +72,7 @@ class StagedUpdateManager:
         expected_active_revision: str | None,
     ) -> UpdateState:
         manifest = self.registry.revision(revision)
+        self._verify_artifact(revision)
         return self.store.activate(
             manifest.identity.coordinate,
             revision,
@@ -81,6 +101,24 @@ class StagedUpdateManager:
 
     def release_pin(self, pin_id: str) -> bool:
         return self.store.release_pin(pin_id)
+
+    def _verify_artifact(self, revision: str) -> TrustEvidence:
+        if self.verifier is None or self.artifact_acquirer is None:
+            raise SupplyChainError("artifact_trust_not_configured")
+        manifest = self.registry.revision(revision)
+        try:
+            material = self.artifact_acquirer(revision)
+        except SupplyChainError:
+            raise
+        except Exception as error:
+            raise SupplyChainError("artifact_acquisition_failed") from error
+        return self.verifier.verify(
+            manifest,
+            material.artifact,
+            publisher=material.publisher,
+            registry=material.registry,
+            attestation=material.attestation,
+        )
 
     def _validate_pointers(self, pointers: Mapping[str, str]) -> None:
         combined = dict(self.registry.activations)

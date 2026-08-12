@@ -69,7 +69,19 @@ def build_parser() -> argparse.ArgumentParser:
     _project_argument(health, must_exist=False)
     _pretty_argument(health)
     connections = commands.add_parser(
-        "connections", help="show configured capability connection state without probing"
+        "connections", help="show configured connections; probing is explicit and bounded"
+    )
+    connections.add_argument(
+        "--probe",
+        action="store_true",
+        help="perform safe TCP/TLS setup only; never invoke a capability",
+    )
+    connections.add_argument("--probe-timeout-ms", type=_probe_timeout, default=1_000)
+    connections.add_argument("--probe-concurrency", type=_probe_concurrency, default=4)
+    connections.add_argument(
+        "--allow-loopback-probe",
+        action="store_true",
+        help="allow explicitly configured loopback endpoints",
     )
     _project_argument(connections)
     _pretty_argument(connections)
@@ -122,6 +134,19 @@ def build_parser() -> argparse.ArgumentParser:
     updates.add_argument("target", nargs="?")
     updates.add_argument("--expected-active")
     updates.add_argument("--pin-id")
+    updates.add_argument(
+        "--artifact",
+        type=_bounded_artifact_file,
+        help="local artifact bytes to verify for stage, health, or activate",
+    )
+    updates.add_argument("--publisher")
+    updates.add_argument("--artifact-registry")
+    updates.add_argument(
+        "--trust-mode",
+        choices=("strict", "development"),
+        default="strict",
+        help="strict requires an injected verifier; development explicitly permits unsigned bytes",
+    )
     updates.add_argument("--limit", type=_positive_int, default=100)
     _project_argument(updates)
     _pretty_argument(updates)
@@ -320,7 +345,16 @@ def _main(argv: Sequence[str] | None = None) -> int:
         _print_json(runtime.local_health(args.project_root), pretty=args.pretty)
         return 0
     if args.command == "connections":
-        _print_json(runtime.local_connections(args.project_root), pretty=args.pretty)
+        _print_json(
+            runtime.local_connections(
+                args.project_root,
+                probe=args.probe,
+                probe_timeout_ms=args.probe_timeout_ms,
+                probe_concurrency=args.probe_concurrency,
+                allow_loopback=args.allow_loopback_probe,
+            ),
+            pretty=args.pretty,
+        )
         return 0
     if args.command == "loaded":
         _print_json(runtime.local_loaded(args.project_root, limit=args.limit), pretty=args.pretty)
@@ -371,9 +405,15 @@ def _main(argv: Sequence[str] | None = None) -> int:
         _print_json(payload, pretty=args.pretty)
         return 0
     if args.command == "updates":
+        trust_options_used = (
+            args.artifact is not None
+            or args.publisher is not None
+            or args.artifact_registry is not None
+            or args.trust_mode != "strict"
+        )
         if args.action == "list":
-            if args.target is not None:
-                raise _usage("updates list does not accept a target")
+            if args.target is not None or trust_options_used:
+                raise _usage("updates list does not accept a target or trust options")
             payload = runtime.local_updates(
                 args.project_root,
                 limit=args.limit,
@@ -390,6 +430,15 @@ def _main(argv: Sequence[str] | None = None) -> int:
             if action in {"health-pass", "health-fail"}:
                 health_passed = action == "health-pass"
                 action = "health"
+            trust_action = action in {"stage", "health", "activate"}
+            supplied = (args.artifact, args.publisher, args.artifact_registry)
+            if trust_action and any(item is None for item in supplied):
+                raise _usage(
+                    f"updates {args.action} requires --artifact, --publisher, "
+                    "and --artifact-registry"
+                )
+            if not trust_action and trust_options_used:
+                raise _usage(f"updates {args.action} does not accept trust options")
             payload = runtime.local_update_action(
                 action,
                 args.target,
@@ -397,6 +446,10 @@ def _main(argv: Sequence[str] | None = None) -> int:
                 health_passed=health_passed,
                 pin_id=args.pin_id,
                 project_root=args.project_root,
+                artifact=(None if args.artifact is None else _read_artifact(args.artifact)),
+                publisher=args.publisher,
+                artifact_registry=args.artifact_registry,
+                trust_mode=args.trust_mode,
             )
         _print_json(payload, pretty=args.pretty)
         return 0
@@ -651,6 +704,20 @@ def _loaded_limit(value: str) -> int:
     return parsed
 
 
+def _probe_timeout(value: str) -> int:
+    parsed = int(value)
+    if not 50 <= parsed <= 5_000:
+        raise argparse.ArgumentTypeError("must be between 50 and 5000")
+    return parsed
+
+
+def _probe_concurrency(value: str) -> int:
+    parsed = int(value)
+    if not 1 <= parsed <= 16:
+        raise argparse.ArgumentTypeError("must be between 1 and 16")
+    return parsed
+
+
 def _positive_int(value: str) -> int:
     parsed = int(value)
     if parsed < 1:
@@ -691,6 +758,24 @@ def _existing_directory(value: str) -> str:
     if not Path(value).is_dir():
         raise argparse.ArgumentTypeError("must be an existing directory")
     return value
+
+
+def _bounded_artifact_file(value: str) -> str:
+    path = Path(value)
+    try:
+        size = path.stat().st_size
+    except OSError as error:
+        raise argparse.ArgumentTypeError("must be a readable artifact file") from error
+    if not path.is_file() or size > 64 * 1024 * 1024:
+        raise argparse.ArgumentTypeError("must be a file no larger than 64 MiB")
+    return value
+
+
+def _read_artifact(value: str) -> bytes:
+    try:
+        return Path(value).read_bytes()
+    except OSError as error:
+        raise _usage("the artifact file could not be read") from error
 
 
 if __name__ == "__main__":

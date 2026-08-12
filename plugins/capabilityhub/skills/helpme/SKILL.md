@@ -78,7 +78,11 @@ in the current interaction only. Report a failed CLI write instead of claiming s
   parsing, and package version.
 - For `/helpme runtime connections`, use `capabilityhub connections --pretty` when
   available. Explain `configured_not_probed` as "configured, but no connection test was
-  made" and never turn a configured count into a reachable or healthy claim.
+  made" and never turn a configured count into a reachable or healthy claim. Only when
+  the user explicitly asks to test connections, use `capabilityhub connections --probe
+  --pretty`. Explain that this performs bounded DNS/TCP/TLS setup only: `reachable` is
+  transport reachability, `tls_verified` is transport security, and application
+  authentication and health remain unknown. It never invokes an MCP tool or API operation.
 - If the user explicitly asks for the local API, provide `capabilityhub http-serve
   --project-root <absolute path>`. Explain that it is numeric-loopback only, prints a
   one-process bearer token to the launching terminal, uses an immutable startup snapshot,
@@ -90,8 +94,10 @@ in the current interaction only. Report a failed CLI write instead of claiming s
   the capability. Require an exact coordinate and confirmation for quarantine.
 - For staged update details, use `capabilityhub updates list --pretty`. Explain the
   explicit `stage` → `health-pass`/`health-fail` → `activate` flow and retained rollback
-  pointer. Never report a candidate healthy unless an operator supplied that result;
-  this command does not download or run an artifact.
+  pointer. Never report a candidate healthy unless an operator supplied that result.
+  Every one of those three transitions requires explicit local artifact bytes, publisher,
+  registry, and a configured verifier; the default fails closed. Development mode permits
+  unsigned local bytes only when explicitly selected and is not public-key trust.
 - For `/helpme security audit`, use `capabilityhub audit --limit 50 --pretty`. Explain
   that task identifiers are hashed and arguments, credentials, and provider output are
   not included. Do not claim tamper evidence, cross-machine history, or complete search

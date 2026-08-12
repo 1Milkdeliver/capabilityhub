@@ -314,21 +314,47 @@ def test_secure_audit_command_routes(monkeypatch, capsys) -> None:
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "invalid_command_arguments"
 
 
-def test_updates_commands_route(monkeypatch, capsys) -> None:
+def test_updates_commands_route(tmp_path, monkeypatch, capsys) -> None:
+    artifact = tmp_path / "artifact.bin"
+    artifact.write_bytes(b"trusted-local-artifact")
+    seen: list[dict[str, object]] = []
     monkeypatch.setattr(runtime, "local_updates", lambda *_args, **_kwargs: {"states": []})
     monkeypatch.setattr(
         runtime,
         "local_update_action",
-        lambda action, target, **_kwargs: {"action": action, "target": target},
+        lambda action, target, **kwargs: (
+            seen.append(kwargs) or {"action": action, "target": target}
+        ),
     )
 
     assert main(["updates"]) == 0
     assert json.loads(capsys.readouterr().out) == {"states": []}
-    assert main(["updates", "health-pass", "demo/tool@2#digest"]) == 0
+    assert (
+        main(
+            [
+                "updates",
+                "health-pass",
+                "demo/tool@2#digest",
+                "--artifact",
+                str(artifact),
+                "--publisher",
+                "local-test",
+                "--artifact-registry",
+                "local-test",
+                "--trust-mode",
+                "development",
+            ]
+        )
+        == 0
+    )
     assert json.loads(capsys.readouterr().out) == {
         "action": "health",
         "target": "demo/tool@2#digest",
     }
+    assert seen[-1]["artifact"] == b"trusted-local-artifact"
+    assert seen[-1]["trust_mode"] == "development"
+    assert main(["updates", "activate", "demo/tool@2#digest"]) == 2
+    assert json.loads(capsys.readouterr().err)["error"]["code"] == "invalid_command_arguments"
     assert main(["updates", "pin", "demo/tool"]) == 2
     assert json.loads(capsys.readouterr().err)["error"]["code"] == "invalid_command_arguments"
 

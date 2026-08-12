@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import hashlib
+
 import pytest
 
 from capabilityhub.errors import CapabilityHubError
 from capabilityhub.lifecycle import StagedUpdateManager
 from capabilityhub.manifest import API_VERSION, parse_manifest
 from capabilityhub.registry import CapabilityRegistry
+from capabilityhub.supply_chain import (
+    ArtifactMaterial,
+    SupplyChainPolicy,
+    SupplyChainVerifier,
+)
 from capabilityhub.update_store import SQLiteUpdateStore
 
 
@@ -16,6 +23,7 @@ def _manifest(
     name: str = "tool",
     dependencies: list[dict[str, object]] | None = None,
 ):
+    artifact_digest = "sha256:" + hashlib.sha256(digest.encode()).hexdigest()
     return parse_manifest(
         {
             "apiVersion": API_VERSION,
@@ -24,7 +32,8 @@ def _manifest(
                 "namespace": "demo",
                 "name": name,
                 "version": version,
-                "digest": "sha256:" + digest * 64,
+                "digest": artifact_digest,
+                "artifact_fixture": digest,
             },
             "spec": {
                 "type": "api",
@@ -40,9 +49,22 @@ def _manifest(
 def _manager(tmp_path, *manifests) -> StagedUpdateManager:
     registry = CapabilityRegistry()
     registry.register_many(manifests)
+    policy = SupplyChainPolicy(
+        environment="development",
+        trusted_publishers=frozenset({"local-development"}),
+        trusted_registries=frozenset({"local-development"}),
+    )
+
+    def acquire(revision: str) -> ArtifactMaterial:
+        artifact = registry.revision(revision).metadata["artifact_fixture"]
+        assert isinstance(artifact, str)
+        return ArtifactMaterial(artifact.encode(), "local-development", "local-development")
+
     return StagedUpdateManager(
         registry=registry,
         store=SQLiteUpdateStore(tmp_path / "updates.sqlite3"),
+        verifier=SupplyChainVerifier(policy, clock=lambda: 500),
+        artifact_acquirer=acquire,
     )
 
 

@@ -15,6 +15,7 @@ from capabilityhub.protocol import (
     JsonValue,
     RequestEnvelope,
     error_response,
+    in_process_request,
     parse_request,
     protocol_handshake,
     run_conformance_suite,
@@ -211,3 +212,18 @@ def test_protocol_handshake_exposes_optional_features_only_when_enabled() -> Non
     assert STREAMING in full.supported_features
     assert CANCELLATION in full.supported_features
     assert set(BASE_PROTOCOL_FEATURES) <= set(full.required_features)
+
+
+def test_in_process_request_preserves_sdk_correlation_without_wire_reparse() -> None:
+    request = in_process_request(
+        AdapterKind.MCP,
+        "capability.search",
+        {"query": "records", "task_id": "task"},
+        request_id="mcp-request-7",
+        correlation_id="trace-sdk-42",
+    )
+
+    assert request.adapter is AdapterKind.MCP
+    assert request.request_id == "mcp-request-7"
+    assert request.correlation_id == "trace-sdk-42"
+    assert request.negotiation.decision.compatible

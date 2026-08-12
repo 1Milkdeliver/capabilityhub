@@ -6,11 +6,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 21 - runtime hierarchy, private telemetry, and progressive continuation.
+Phase 22 - trusted updates, shared MCP dispatch, and explicit probes.
 
 ## Next Step
 
-Continue closing partial requirements while preserving measured disclosure bounds.
+Re-audit remaining partial requirements and close the next highest-value runtime gaps.
 
 ## Phases
 
@@ -90,6 +90,15 @@ Status: complete
 - Validate concurrent refresh, stale fallback, add/change/remove behavior, token bounds, and redaction.
 
 ## Decisions Made
+
+### Phase 22 - trusted updates, shared MCP dispatch, and explicit probes
+
+Status: complete for the local pre-alpha scope
+
+- Reverify artifact acquisition and trust before stage, health recording, and activation.
+- Route the exact three MCP tools through the shared protocol/service adapter.
+- Add opt-in DNS/TCP/TLS connection probes without invoking capabilities or overstating health.
+- Keep HMAC evidence local/shared-secret and connection health unknown without application checks.
 
 ### Phase 21 - runtime hierarchy, private telemetry, and progressive continuation
 

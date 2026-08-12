@@ -130,6 +130,29 @@ def protocol_handshake(*, streaming: bool = False, cancellation: bool = False) -
     )
 
 
+def in_process_request(
+    adapter: AdapterKind,
+    operation: str,
+    payload: Mapping[str, JsonValue],
+    *,
+    request_id: str,
+    correlation_id: str,
+    handshake: FeatureHandshake | None = None,
+) -> RequestEnvelope:
+    """Build a negotiated envelope for an SDK or in-memory adapter boundary."""
+
+    selected = handshake or protocol_handshake()
+    return RequestEnvelope(
+        adapter=adapter,
+        request_id=request_id,
+        correlation_id=correlation_id,
+        operation=operation,
+        payload=payload,
+        handshake=selected,
+        negotiation=negotiate_protocol(selected, selected),
+    )
+
+
 def negotiate_protocol(client: FeatureHandshake, server: FeatureHandshake) -> ProtocolNegotiation:
     decision = decide_compatibility(client, server)
     if not decision.compatible:

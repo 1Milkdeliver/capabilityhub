@@ -201,6 +201,26 @@ def test_service_typed_error_propagates_without_adapter_rewriting() -> None:
     assert caught.value.code != "adapter_provider_failed"
 
 
+def test_empty_search_query_remains_available_for_inventory_only_requests() -> None:
+    adapter = _setup()
+    result = adapter.dispatch(
+        _request(
+            adapter,
+            "capability.search",
+            {
+                "query": "",
+                "task_id": "inventory-task",
+                "include_inventory": True,
+                "include_cards": False,
+            },
+        )
+    )
+
+    assert isinstance(result, dict)
+    assert result["cards"] == []
+    assert result["inventory"] == {"total": 1, "categories": {"api": 1}}
+
+
 def test_provider_failures_are_typed_and_redacted() -> None:
     base = _setup()
 

@@ -6,16 +6,17 @@ sessions, and every transport remain the SDK's responsibility.
 
 from __future__ import annotations
 
+import hashlib
 import math
 import secrets
 from collections.abc import Callable
-from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from threading import RLock
 from typing import Any, Literal, TypeVar
 
 from mcp.server import MCPServer
+from mcp.server.mcpserver import Context
 from mcp_types import CallToolResult, TextContent
 
 from capabilityhub.audit import JsonlAuditSink
@@ -23,19 +24,17 @@ from capabilityhub.budget import BudgetLedger
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.metering import canonical_json
-from capabilityhub.models import (
-    ExecutionRequest,
-    JsonValue,
-    LoadedCapability,
-    SearchCard,
-)
+from capabilityhub.protocol import AdapterKind, JsonValue, in_process_request
 from capabilityhub.references import ReferenceSigner
-from capabilityhub.search import SearchResponse
 from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.service_adapter import (
+    BudgetProvider,
+    CapabilityHubServiceAdapter,
+    ContextProvider,
+)
 
-ContextProvider = Callable[[], ServiceContext]
-BudgetProvider = Callable[[str], BudgetLedger]
 _ResultT = TypeVar("_ResultT", bound=dict[str, JsonValue])
+MCP_CORRELATION_META_KEY = "capabilityhub/correlation_id"
 
 
 @dataclass(frozen=True, slots=True)
@@ -72,6 +71,7 @@ def create_mcp_server(
     def search(
         query: str,
         task_id: str,
+        ctx: Context,
         kinds: list[str] | None = None,
         limit: int = 8,
         max_output_tokens: int = 900,
@@ -81,17 +81,21 @@ def create_mcp_server(
         """Search active capabilities within a hard output budget."""
 
         return _safe(
-            lambda: _search_state(
-                current_state(),
+            lambda: _dispatch_mcp(
+                current_state,
                 context_provider,
                 budget_provider,
-                query=query,
-                task_id=_task_id(task_id),
-                kinds=kinds,
-                limit=limit,
-                max_output_tokens=max_output_tokens,
-                include_cards=include_cards,
-                include_inventory=include_inventory,
+                ctx,
+                "capability.search",
+                {
+                    "query": query,
+                    "task_id": _task_id(task_id),
+                    "kinds": list(kinds) if kinds is not None else None,
+                    "limit": limit,
+                    "max_output_tokens": max_output_tokens,
+                    "include_inventory": include_inventory,
+                    "include_cards": include_cards,
+                },
             )
         )
 
@@ -102,6 +106,7 @@ def create_mcp_server(
     def load(
         capability_ref: str,
         task_id: str,
+        ctx: Context,
         section_names: list[str] | None = None,
         operation_names: list[str] | None = None,
         max_output_tokens: int = 2_000,
@@ -109,15 +114,21 @@ def create_mcp_server(
         """Resolve a scoped load reference and progressively disclose content."""
 
         return _safe(
-            lambda: _load(
-                current_state().service,
+            lambda: _dispatch_mcp(
+                current_state,
                 context_provider,
                 budget_provider,
-                capability_ref=capability_ref,
-                task_id=_task_id(task_id),
-                section_names=section_names,
-                operation_names=operation_names,
-                max_output_tokens=max_output_tokens,
+                ctx,
+                "capability.load",
+                {
+                    "capability_ref": capability_ref,
+                    "task_id": _task_id(task_id),
+                    "section_names": (list(section_names) if section_names is not None else None),
+                    "operation_names": (
+                        list(operation_names) if operation_names is not None else None
+                    ),
+                    "max_output_tokens": max_output_tokens,
+                },
             )
         )
 
@@ -130,6 +141,7 @@ def create_mcp_server(
         operation: str,
         arguments: dict[str, Any],
         task_id: str,
+        ctx: Context,
         approval_ref: str | None = None,
         idempotency_key: str | None = None,
         max_output_tokens: int | None = None,
@@ -137,17 +149,21 @@ def create_mcp_server(
         """Verify, authorize, budget, and execute a loaded capability operation."""
 
         return _safe(
-            lambda: _execute(
-                current_state().service,
+            lambda: _dispatch_mcp(
+                current_state,
                 context_provider,
                 budget_provider,
-                execution_ref=execution_ref,
-                operation=operation,
-                arguments=_json_object(arguments),
-                task_id=_task_id(task_id),
-                approval_ref=approval_ref,
-                idempotency_key=idempotency_key,
-                max_output_tokens=max_output_tokens,
+                ctx,
+                "capability.execute",
+                {
+                    "execution_ref": execution_ref,
+                    "operation": operation,
+                    "arguments": _json_object(arguments),
+                    "task_id": _task_id(task_id),
+                    "approval_ref": approval_ref,
+                    "idempotency_key": idempotency_key,
+                    "max_output_tokens": max_output_tokens,
+                },
             )
         )
 
@@ -278,177 +294,63 @@ def create_empty_mcp_server(
     )
 
 
-def _search_state(
-    state: _MCPRuntimeState,
+def _dispatch_mcp(
+    state_provider: RuntimeStateProvider,
     context_provider: ContextProvider,
     budget_provider: BudgetProvider,
-    *,
-    query: str,
-    task_id: str,
-    kinds: list[str] | None,
-    limit: int,
-    max_output_tokens: int,
-    include_cards: bool,
-    include_inventory: bool,
-) -> dict[str, JsonValue]:
-    return _search(
-        state.service,
-        context_provider,
-        budget_provider,
-        query=query,
-        task_id=task_id,
-        kinds=kinds,
-        limit=limit,
-        max_output_tokens=max_output_tokens,
-        include_cards=include_cards,
-        inventory=state.inventory if include_inventory else None,
-    )
-
-
-def _search(
-    service: CapabilityHubService,
-    context_provider: ContextProvider,
-    budget_provider: BudgetProvider,
-    *,
-    query: str,
-    task_id: str,
-    kinds: list[str] | None,
-    limit: int,
-    max_output_tokens: int,
-    include_cards: bool,
-    inventory: dict[str, JsonValue] | None,
-) -> dict[str, JsonValue]:
-    response = service.search(
-        query,
-        task_id=task_id,
-        context=context_provider(),
-        budget=budget_provider(task_id),
-        kinds=kinds,
-        limit=limit,
-        max_output_tokens=max_output_tokens,
-        include_cards=include_cards,
-        inventory=inventory,
-    )
-    return _search_dict(response)
-
-
-def _load(
-    service: CapabilityHubService,
-    context_provider: ContextProvider,
-    budget_provider: BudgetProvider,
-    *,
-    capability_ref: str,
-    task_id: str,
-    section_names: list[str] | None,
-    operation_names: list[str] | None,
-    max_output_tokens: int,
-) -> dict[str, JsonValue]:
-    loaded = service.load(
-        capability_ref,
-        task_id=task_id,
-        context=context_provider(),
-        budget=budget_provider(task_id),
-        section_names=section_names,
-        operation_names=operation_names,
-        max_output_tokens=max_output_tokens,
-    )
-    return _loaded_dict(loaded)
-
-
-def _execute(
-    service: CapabilityHubService,
-    context_provider: ContextProvider,
-    budget_provider: BudgetProvider,
-    *,
-    execution_ref: str,
+    context: Context,
     operation: str,
-    arguments: dict[str, JsonValue],
-    task_id: str,
-    approval_ref: str | None,
-    idempotency_key: str | None,
-    max_output_tokens: int | None,
+    payload: dict[str, JsonValue],
 ) -> dict[str, JsonValue]:
-    result = service.execute(
-        ExecutionRequest(
-            execution_ref=execution_ref,
-            operation=operation,
-            arguments=arguments,
-            task_id=task_id,
-            approval_ref=approval_ref,
-            idempotency_key=idempotency_key,
-        ),
-        context=context_provider(),
-        budget=budget_provider(task_id),
-        max_output_tokens=max_output_tokens,
+    state = state_provider()
+    adapter = CapabilityHubServiceAdapter(
+        state.service,
+        kind=AdapterKind.MCP,
+        context_provider=context_provider,
+        budget_provider=budget_provider,
+        inventory_provider=lambda: state.inventory,
     )
-    return {
-        "audit_id": result.audit_id,
-        "capability_revision": result.capability_revision,
-        "operation": result.operation,
-        "output": result.output,
-        "portable_tokens": result.portable_tokens,
-        "provider": result.provider,
-    }
-
-
-def _search_dict(response: SearchResponse) -> dict[str, JsonValue]:
-    counts: dict[str, JsonValue] = {kind: count for kind, count in response.kind_counts.items()}
-    result: dict[str, JsonValue] = {
-        "cards": [_card_dict(card) for card in response.cards],
-        "kind_counts": counts,
-        "payload_bytes": response.payload_bytes,
-        "portable_tokens": response.portable_tokens,
-        "total_matches": response.total_matches,
-        "truncated": response.truncated,
-    }
-    if response.inventory is not None:
-        result["inventory"] = deepcopy(response.inventory)
+    request_id, correlation_id = _mcp_identifiers(context)
+    result = adapter.dispatch(
+        in_process_request(
+            AdapterKind.MCP,
+            operation,
+            payload,
+            request_id=request_id,
+            correlation_id=correlation_id,
+            handshake=adapter.handshake,
+        )
+    )
+    if not isinstance(result, dict):
+        raise TypeError("service adapter returned a non-object result")
     return result
 
 
-def _card_dict(card: SearchCard) -> dict[str, JsonValue]:
-    return {
-        "capability_ref": card.capability_ref,
-        "estimated_load_tokens": card.estimated_load_tokens,
-        "kind": card.kind.value,
-        "match_reason": list(card.match_reason),
-        "operations": list(card.operations),
-        "revision": card.revision,
-        "risk": card.risk.value,
-        "summary": card.summary,
-        "trust_tier": card.trust_tier,
-    }
-
-
-def _loaded_dict(loaded: LoadedCapability) -> dict[str, JsonValue]:
-    return {
-        "execution_ref": loaded.execution_ref,
-        "omitted_sections": list(loaded.omitted_sections),
-        "operations": [
-            {
-                "input_schema": dict(operation.input_schema),
-                "name": operation.name,
-                "operation_type": operation.operation_type.value,
-                "output_schema": dict(operation.output_schema),
-                "requires_approval": operation.requires_approval,
-                "side_effect": operation.side_effect.value,
-            }
-            for operation in loaded.operations
-        ],
-        "permissions": list(loaded.permissions),
-        "portable_tokens": loaded.portable_tokens,
-        "revision": loaded.revision,
-        "sections": [
-            {
-                "content": section.content,
-                "media_type": section.media_type,
-                "name": section.name,
-                "portable_tokens": section.portable_tokens,
-                "sensitive": section.sensitive,
-            }
-            for section in loaded.sections
-        ],
-    }
+def _mcp_identifiers(context: Context) -> tuple[str, str]:
+    try:
+        wire_request_id = context.request_id
+    except ValueError:
+        wire_request_id = secrets.token_hex(16)
+    request_id = "mcp-" + hashlib.sha256(wire_request_id.encode()).hexdigest()[:32]
+    try:
+        meta = context.request_context.meta
+    except ValueError:
+        meta = None
+    supplied = meta.get(MCP_CORRELATION_META_KEY) if meta is not None else None
+    if supplied is None:
+        return request_id, request_id
+    if (
+        not isinstance(supplied, str)
+        or not supplied
+        or len(supplied) > 256
+        or any(character.isspace() for character in supplied)
+    ):
+        raise CapabilityHubError(
+            code="invalid_correlation_id",
+            category=ErrorCategory.INPUT,
+            safe_message="The MCP correlation identifier is invalid.",
+        )
+    return request_id, supplied
 
 
 def _safe(call: Callable[[], _ResultT]) -> CallToolResult:

@@ -26,7 +26,7 @@ Security invariants below describe the intended and tested core boundary; they a
 - Write-like operations require an idempotency key; uncertain provider outcomes are not automatically replayed.
 - The local durable idempotency store records argument digests and outcome state, not raw arguments. Result persistence is disabled by default; completed duplicates are denied instead of re-executed.
 - Optional secure audit uses an environment-supplied HMAC key, verifies the full chain and signed checkpoint before append/export, and allowlists metadata. The key value, arguments, credentials, and provider output are never written into its records.
-- Staged revision activation requires an explicit health result and compare-and-swap active pointer; rollback retains the prior immutable revision. This is not artifact signature verification or a sandbox health probe.
+- Stage, health recording, and activation each re-acquire and verify artifact bytes against the immutable digest and configured trust policy before mutating durable state; rollback retains the prior immutable revision. The operator-supplied health result is still not a sandbox health probe.
 - Optional parameter authorization applies the same dependency-aware eligibility decision before search disclosure and execution, then checks normalized path, host, method, command, profile, and secret-alias constraints. It never accepts raw secret values.
 - Local artifact attestations use HMAC-SHA256 only for shared-key deployments and are not a substitute for public-key publisher identity. Production policy fails closed on unsigned, expired, revoked, untrusted, or digest-mismatched artifacts.
 - YAML manifests are byte-, node-, and depth-bounded and reject aliases, custom tags, multiple documents, non-string keys, and non-JSON values before entering the common manifest parser.
@@ -39,6 +39,7 @@ Security invariants below describe the intended and tested core boundary; they a
 - Privacy observability accepts only bounded low-cardinality fields and hashed correlation domains; it has no arbitrary metadata channel for arguments, outputs, secrets, URLs, paths, or raw identities.
 - Loopback HTTP budgets derive opaque tenant, principal, session, and task scope IDs with a private local HMAC key; raw scope identifiers are not stored in the hierarchy tables or returned in budget errors.
 - Progressive-load continuation handles bind scope, revision, omission kind, target digest, and expiry. Notice, omission-name, and handle lists have hard bounds; declared conflict values are represented only by digests.
+- Connection probing is opt-in and performs bounded DNS/TCP/TLS setup only. Transport reachability or TLS verification never becomes a claim of application authentication or health, and no capability operation is invoked.
 - The HTTP control adapter accepts only numeric loopback binding/peers/Hosts, one bounded JSON POST endpoint, and a high-entropy bearer token whose digest alone remains in the server. It is not a remote TLS/authentication profile.
 - Draining blocks new admissions while preserving every in-flight revision pin. Cancellation is requested only for operations declared cancellable; forced retirement requires an explicit policy and bounded reason code.
 - Secrets are references resolved outside model-visible payloads.

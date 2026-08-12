@@ -63,3 +63,4 @@
 - Completed Phase 19: real service protocol adapter, `http-serve` runtime/CLI, drained real-service wrapper, and one five-kind Provider security/conformance matrix.
 - Completed Phase 20 standalone cores: restart-safe hierarchical budgets, privacy-bounded observability, and offline allowlisted OpenAPI 3 projection; exposed the latter through the twenty-ninth local CLI command.
 - Completed Phase 21: real loopback HTTP hierarchy enforcement, optional privacy telemetry on the shared service adapter, and budget-bounded progressive load continuation.
+- Completed Phase 22: trust-gated staged transitions, shared MCP service dispatch, and explicit bounded transport-only connection probes.

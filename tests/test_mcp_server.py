@@ -5,11 +5,16 @@ from collections.abc import Callable
 from typing import cast
 
 from mcp import Client
-from mcp_types import TextContent
+from mcp_types import RequestParamsMeta, TextContent
+from pytest import MonkeyPatch
 
 from capabilityhub.audit import MemoryAuditSink
 from capabilityhub.budget import BudgetLedger
-from capabilityhub.mcp_server import create_empty_mcp_server, create_mcp_server
+from capabilityhub.mcp_server import (
+    MCP_CORRELATION_META_KEY,
+    create_empty_mcp_server,
+    create_mcp_server,
+)
 from capabilityhub.models import (
     CapabilityIdentity,
     CapabilityKind,
@@ -20,11 +25,13 @@ from capabilityhub.models import (
     OperationType,
     SectionDescriptor,
 )
+from capabilityhub.protocol import AdapterKind, JsonValue, RequestEnvelope
 from capabilityhub.providers.base import ProviderContext
 from capabilityhub.providers.static import StaticFixture, StaticProvider
 from capabilityhub.references import ReferenceSigner
 from capabilityhub.registry import CapabilityRegistry
 from capabilityhub.service import CapabilityHubService, ServiceContext
+from capabilityhub.service_adapter import CapabilityHubServiceAdapter
 
 
 def _manifest(*, provider: str = "fixture") -> CapabilityManifest:
@@ -116,6 +123,97 @@ def test_official_sdk_lists_exactly_the_three_capability_tools() -> None:
                 "capability.load",
                 "capability.execute",
             ]
+            schemas = {tool.name: tool.input_schema for tool in listed.tools}
+            assert set(schemas["capability.search"]["properties"]) == {
+                "query",
+                "task_id",
+                "kinds",
+                "limit",
+                "max_output_tokens",
+                "include_inventory",
+                "include_cards",
+            }
+            assert schemas["capability.search"]["required"] == ["query", "task_id"]
+            assert set(schemas["capability.load"]["properties"]) == {
+                "capability_ref",
+                "task_id",
+                "section_names",
+                "operation_names",
+                "max_output_tokens",
+            }
+            assert schemas["capability.load"]["required"] == [
+                "capability_ref",
+                "task_id",
+            ]
+            assert set(schemas["capability.execute"]["properties"]) == {
+                "execution_ref",
+                "operation",
+                "arguments",
+                "task_id",
+                "approval_ref",
+                "idempotency_key",
+                "max_output_tokens",
+            }
+            assert schemas["capability.execute"]["required"] == [
+                "execution_ref",
+                "operation",
+                "arguments",
+                "task_id",
+            ]
+
+    asyncio.run(scenario())
+
+
+def test_sdk_correlation_and_result_match_the_in_memory_service_adapter(
+    monkeypatch: MonkeyPatch,
+) -> None:
+    server, _ = _server()
+    captured: list[tuple[RequestEnvelope, JsonValue]] = []
+    original_dispatch = CapabilityHubServiceAdapter.dispatch
+
+    def capture_dispatch(
+        adapter: CapabilityHubServiceAdapter,
+        request: RequestEnvelope,
+    ) -> JsonValue:
+        result = original_dispatch(adapter, request)
+        captured.append((request, result))
+        return result
+
+    monkeypatch.setattr(CapabilityHubServiceAdapter, "dispatch", capture_dispatch)
+
+    async def scenario() -> None:
+        metadata = {MCP_CORRELATION_META_KEY: "sdk-trace-42"}
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "capability.search",
+                {"query": "records", "task_id": "correlated-task"},
+                meta=cast(RequestParamsMeta, metadata),
+            )
+            assert not result.is_error
+            assert captured
+            request, direct_result = captured[0]
+            assert request.adapter is AdapterKind.MCP
+            assert request.correlation_id == "sdk-trace-42"
+            assert result.structured_content == direct_result
+
+    asyncio.run(scenario())
+
+
+def test_invalid_sdk_correlation_is_a_safe_typed_error() -> None:
+    server, _ = _server()
+
+    async def scenario() -> None:
+        metadata = {MCP_CORRELATION_META_KEY: "SECRET invalid correlation"}
+        async with Client(server) as client:
+            result = await client.call_tool(
+                "capability.search",
+                {"query": "records", "task_id": "correlated-task"},
+                meta=cast(RequestParamsMeta, metadata),
+            )
+            assert result.is_error
+            text = cast(TextContent, result.content[0]).text
+            assert "invalid_correlation_id" in text
+            assert "SECRET" not in text
 
     asyncio.run(scenario())
 

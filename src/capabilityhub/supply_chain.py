@@ -98,6 +98,22 @@ class ArtifactAttestation:
 
 
 @dataclass(frozen=True, slots=True)
+class ArtifactMaterial:
+    """Locally acquired bytes plus provenance claims supplied to a verifier."""
+
+    artifact: bytes = field(repr=False)
+    publisher: str
+    registry: str
+    attestation: ArtifactAttestation | None = None
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.artifact, bytes):
+            raise TypeError("artifact must be bytes")
+        if not self.publisher or not self.registry:
+            raise ValueError("publisher and registry must be non-empty")
+
+
+@dataclass(frozen=True, slots=True)
 class TrustEvidence:
     revision: str
     artifact_digest: str

@@ -1,6 +1,6 @@
 # CapabilityHub
 
-CapabilityHub is a pre-alpha Python control core for progressively disclosing agent capabilities. It has one manifest model for five capability kinds:
+CapabilityHub is a certified self-hosted Python control plane for progressively disclosing agent capabilities. It has one manifest model for five capability kinds:
 
 - Skills (`SKILL.md` content)
 - MCP-described capabilities
@@ -12,11 +12,12 @@ The implemented core keeps immutable revisions, activates one revision per coord
 
 ## Status and non-goals
 
-This is `0.1.0a0`, not a production release. The public surface includes Python APIs,
-a small local CLI, and an experimental MCP server adapter; none is a stable protocol
-compatibility guarantee. MCP framing and transports come from the official Python SDK.
+Version `0.1.0` is the first stable self-hosted release. Its Python, CLI, three-tool MCP,
+loopback HTTP/Dashboard, and optional mTLS reference surfaces follow the published
+compatibility and minimum 180-day deprecation policy. MCP framing and transports come
+from the official Python SDK.
 
-CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, ACL-scoped indexed RAG, and MCP stdio adapters. Separate authenticated data/admin planes now have loopback and optional mTLS reference transports; scoped grant/state/budget controls, OS-backed local secret stores, spawned-worker CPU/memory limits, and process-tree cancellation also exist. Filesystem/network confinement and a hardened production profile remain future work. See [release readiness](docs/release-readiness.md) before considering any deployment.
+CapabilityHub does not execute discovered Skills. The bundled Skill provider reads `SKILL.md` only and treats it as loadable content. Explicit project manifests can opt into bounded CLI-process, fixed-origin HTTP, ACL-scoped indexed RAG, and MCP stdio adapters. Separate authenticated data/admin planes provide loopback and optional mTLS reference transports; scoped grant/state/budget controls, OS-backed local secret stores, spawned-worker CPU/memory limits, process-tree cancellation, and a hardened production profile are included. Linux production workers can require Landlock filesystem and libseccomp network confinement; unsupported hosts fail closed. See [release readiness](docs/release-readiness.md) for the certified scope and deployment boundaries.
 
 ## Install from source
 
@@ -156,19 +157,20 @@ enabled plugin Skill roots, configured MCP server names, and project-local
 running package. Discovery never executes capability code or exposes
 MCP commands, URLs, or credentials. The default service has no execution providers,
 uses temporary references, and enforces bounded per-task budgets. Embedders can
-construct a configured service and call `create_mcp_server(...)`; production provider
-wiring and persistent configuration are not part of this pre-alpha release.
+construct a configured service and call `create_mcp_server(...)`; project manifests,
+durable scoped state, and the production reference profile provide the configured path.
 
-The plugin declares the portable `capabilityhub mcp-serve` console command. Install the
-package with its MCP extra before installing the plugin:
+The plugin bundles a dependency-free Node stdio MCP runtime and does not require a
+global `capabilityhub` executable. Codex supplies the same Node host used by bundled
+plugins. Install the Python package only when you also want the full CLI, Dashboard,
+configured Providers, or remote reference service:
 
 ```bash
 python -m pip install '.[mcp]'
 ```
 
-No separate `codex mcp add` step is needed. If `capabilityhub` is not on the Codex process
-PATH, the static menus still work and live commands report unavailable. Open a new Codex
-task after install or update. Before each search, the runtime checks a
+No separate `codex mcp add` step is needed for the plugin's packaged Skill inventory.
+Open a new Codex task after install or update. The full Python runtime checks a
 lightweight filesystem fingerprint and atomically refreshes only when inputs changed;
 same-task Skill and manifest changes therefore receive a new inventory generation. A
 250 ms coalescing window lets burst requests share one fingerprint scan; it never loads
@@ -221,8 +223,8 @@ The pinned [reference run](benchmarks/reference-run.json) uses 100 definitions a
 
 ## Contributing and security
 
-The live [36-requirement completion matrix](docs/completion-matrix.md) separates implemented paths from
-partial or open production gates. It is the authoritative scope audit; passing the structural benchmark
-alone is not a completion claim.
+The live [36-requirement completion matrix](docs/completion-matrix.md) binds every implemented path to
+direct source and test evidence. It is the authoritative scope audit; the stable release additionally
+requires the signed multi-platform certification rather than relying on one structural benchmark.
 
 See [CONTRIBUTING.md](CONTRIBUTING.md), [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md), and [SECURITY.md](SECURITY.md). The project is MIT licensed; integration notices are tracked in [THIRD_PARTY.md](THIRD_PARTY.md).

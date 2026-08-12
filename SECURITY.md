@@ -8,13 +8,13 @@ Use GitHub's private vulnerability reporting feature for this repository. Includ
 
 ## Supported versions
 
-The project is pre-alpha. Only the latest `main` revision is currently supported for security fixes. No deployment should expose CapabilityHub directly to untrusted networks until an explicit stable release documents that profile.
+Version `0.1.x` and the latest `main` revision receive security fixes. Deploy the remote reference surface only with its split mTLS data/admin listeners, certificate-role mapping, default-deny grant policy, and documented production profile; the Dashboard remains loopback-only.
 
 ## Current release posture
 
-The current tree ships a pre-alpha local CLI, an experimental three-tool MCP server, and a loopback dashboard around the Python control core. The dashboard offers bounded metadata search, project language and activation overrides, exact-intent approval decisions, Context metadata controls, and Reasoning state; mutations require a random per-process CSRF header and same-origin browser requests. SQLite persists local budgets, idempotency, approvals, reasoning state, and metadata-only Context residency. These interfaces are supported only for local experimentation; there is no remote API listener, OS sandbox, OS-backed secret store, authenticated tenant control plane, or production deployment profile. Explicit project manifests may opt into supervised CLI-process, fixed-origin HTTP, local RAG, and MCP stdio providers; a static fixture remains available only for deterministic tests. Dashboard responses must not contain credentials, full capability content, retrieved passages, raw provider output, commands, endpoint URLs, argument digests, or absolute configuration paths.
+The stable self-hosted release ships a local CLI, exact three-tool MCP server, loopback Dashboard, authenticated loopback data/admin HTTP, and optional split mTLS reference listeners. The Dashboard offers bounded metadata search, project language and activation overrides, exact-intent approval decisions, Context metadata controls, and Reasoning state; mutations require a random per-process CSRF header and same-origin browser requests. HMAC-scoped SQLite state isolates budgets, idempotency, approvals, reasoning, grants, audit, RAG ACLs, and metadata-only Context residency. Platform stores protect local secret aliases. Supervised workers enforce deadlines, bounded IPC, resource limits and process-tree cancellation; Linux production workers may additionally require Landlock filesystem and libseccomp network confinement, while unsupported platforms fail closed. Explicit project manifests opt into CLI-process, fixed-origin HTTP, indexed RAG, and MCP stdio providers. Dashboard responses must not contain credentials, full capability content, retrieved passages, raw provider output, commands, endpoint URLs, argument digests, or absolute configuration paths.
 
-Security invariants below describe the intended and tested core boundary; they are not a claim that a complete production deployment profile exists today.
+Security invariants below are enforced by the certified self-hosted reference profile. They do not claim a hosted multi-region control service, universal third-party gateway compatibility, or protection outside the configured OS and identity boundaries.
 
 ## Security invariants
 

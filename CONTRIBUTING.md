@@ -1,6 +1,6 @@
 # Contributing to CapabilityHub
 
-Thanks for helping with this pre-alpha project. Small, well-scoped changes with tests are especially useful while interfaces are still settling.
+Thanks for helping improve CapabilityHub. Small, well-scoped changes with tests are especially useful for preserving the certified compatibility and security boundaries.
 
 ## Local setup
 

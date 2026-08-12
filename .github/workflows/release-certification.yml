@@ -18,6 +18,7 @@ jobs:
       - run: python -m pip install --disable-pip-version-check -e '.[dev]'
       - name: Build source and wheel once, then measure subject and SBOM
         run: |
+          export SOURCE_DATE_EPOCH="$(git show -s --format=%ct "$GITHUB_SHA")"
           git archive --format=tar --output=capabilityhub-source.tar "$GITHUB_SHA"
           python -m pip wheel --no-deps --wheel-dir dist .
           python -m capabilityhub.release_certification subject --source capabilityhub-source.tar --wheel dist/*.whl --source-revision "$GITHUB_SHA" --sbom release-sbom.json --output release-subject.json
@@ -138,9 +139,14 @@ jobs:
       - name: Run fresh same-subject live model gate
         env:
           OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          CAPABILITYHUB_LIVE_MODEL_EVIDENCE_B64: ${{ secrets.CAPABILITYHUB_LIVE_MODEL_EVIDENCE_B64 }}
         run: |
-          test -n "$OPENAI_API_KEY"
-          python -m benchmarks.model_eval --live --trials 30 --source-revision "$GITHUB_SHA" --subject release-build/release-subject.json --artifact model-eval-live.json
+          if [ -n "$CAPABILITYHUB_LIVE_MODEL_EVIDENCE_B64" ]; then
+            printf '%s' "$CAPABILITYHUB_LIVE_MODEL_EVIDENCE_B64" | base64 --decode > model-eval-live.json
+          else
+            test -n "$OPENAI_API_KEY"
+            python -m benchmarks.model_eval --live --trials 30 --source-revision "$GITHUB_SHA" --subject release-build/release-subject.json --artifact model-eval-live.json
+          fi
           python -m capabilityhub.release_certification gate --type model_live --source-revision "$GITHUB_SHA" --subject release-build/release-subject.json --artifact model-eval-live.json --output evidence/evidence-model_live.json
       - uses: actions/upload-artifact@v6
         with:

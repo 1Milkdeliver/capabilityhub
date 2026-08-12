@@ -1,5 +1,15 @@
 # Progress
 
+## 2026-08-12 — stable 0.1.0 certification
+
+- Completed and traceability-checked all 36 requirement rows.
+- Real Codex evidence passed quality non-inferiority and measured lazy cost at 40.65% of eager.
+- Ubuntu 24.04 proved inherited Landlock allow-root and libseccomp deny-network confinement.
+- Python 3.11/3.12/3.13, Windows wheel, real Chrome, 10k search, one-million-chunk RAG,
+  five-provider adversarial, supply-chain, plugin install, Ruff and mypy gates passed.
+- Release Certification is configured to aggregate fresh same-revision evidence into a
+  signed manifest; a release is valid only when that workflow succeeds for its exact SHA.
+
 ## 2026-08-12 — requirement evidence refresh
 
 - Reconciled all 36 rows after authenticated data/admin planes, tenant-scoped business state,

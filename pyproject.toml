@@ -4,14 +4,14 @@ build-backend = "hatchling.build"
 
 [project]
 name = "capabilityhub"
-version = "0.1.0a0"
+version = "0.1.0"
 description = "A lazy capability control plane for AI agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
 authors = [{ name = "1Milkdeliver" }]
 classifiers = [
-  "Development Status :: 2 - Pre-Alpha",
+  "Development Status :: 5 - Production/Stable",
   "License :: OSI Approved :: MIT License",
   "Programming Language :: Python :: 3",
   "Programming Language :: Python :: 3.11",

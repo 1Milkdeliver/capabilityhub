@@ -3,9 +3,9 @@
 ## Phase 30 — conservative release evidence
 
 - Re-audit all 36 discovery requirements against runtime paths and broad acceptance gates.
-- Keep useful-but-incomplete work `Partial`; a passing unit test alone cannot promote a row.
 - Bind every `Implemented` claim and public menu/control-plane claim to source and test markers in CI.
-- Keep remote tenancy, provider conformance, production RAG ACLs, and measured quality as gates.
+- Require real Codex, Chrome, Linux confinement, Windows, wheel, 10k/1m and adversarial evidence.
+- Sign only fresh, complete, same-revision release evidence.
 
 ## Goal
 
@@ -13,11 +13,11 @@ Build and validate an open-source capability control plane that discovers, route
 
 ## Current Phase
 
-Phase 22 - trusted updates, shared MCP dispatch, and explicit probes.
+Phase 35 - stable `0.1.0` certified self-hosted release.
 
 ## Next Step
 
-Re-audit remaining partial requirements and close the next highest-value runtime gaps.
+Maintain the certified boundary and reject regressions through the release gates.
 
 ## Phases
 
@@ -56,7 +56,7 @@ Status: complete (reference adapters only; production execution remains out of s
 
 ### Phase 5 — MCP server and CLI
 
-Status: complete (pre-alpha local surface; twenty-nine commands and three MCP tools)
+Status: complete (certified self-hosted surface; twenty-nine commands and three MCP tools)
 
 - Expose minimal meta-tools: search, inspect/load, and execute.
 - Provide local validation, discovery, dashboard, and MCP serving commands.
@@ -100,7 +100,7 @@ Status: complete
 
 ### Phase 22 - trusted updates, shared MCP dispatch, and explicit probes
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Reverify artifact acquisition and trust before stage, health recording, and activation.
 - Route the exact three MCP tools through the shared protocol/service adapter.
@@ -109,7 +109,7 @@ Status: complete for the local pre-alpha scope
 
 ### Phase 21 - runtime hierarchy, private telemetry, and progressive continuation
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Wire loopback HTTP to restart-safe tenant/principal/session/task hard budgets.
 - Attach privacy-bounded observability optionally at the shared real-service adapter.
@@ -148,16 +148,16 @@ Status: complete
 
 ### Phase 12 — Durable management and real adapters
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Add persistent language and activation lifecycle state. (Locale, enabled/disabled/quarantined overrides, redacted project audit, conservative SQLite idempotency, exact-intent approvals, and budgets are complete.)
 - Connect menu and Dashboard actions only where a real backend exists.
-- Add allowlisted process-level MCP, CLI, HTTP/API, and RAG adapters without copying upstream implementations. (Reference adapters, project-manifest wiring, and spawned-worker supervision are complete; OS resource confinement remains open.)
-- Add semantic, failure, cold/warm cache, browser, and plugin validation evidence. Production-adapter evidence remains an explicit release gate.
+- Add allowlisted process-level MCP, CLI, HTTP/API, and RAG adapters without copying upstream implementations. (Reference adapters, project-manifest wiring, spawned-worker supervision, resource limits, and Linux filesystem/network confinement are complete.)
+- Add semantic, failure, cold/warm cache, browser, plugin, and production-adapter validation evidence. (Complete and release-gated.)
 
 ### Phase 13 — Durable approvals, Context, and Reasoning
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Persist exact-intent single-use approvals without storing arguments.
 - Persist metadata-only context residency, pinning, access order, and observable eviction.
@@ -166,7 +166,7 @@ Status: complete for the local pre-alpha scope
 
 ### Phase 14 — Staged updates, portability, and secure audit
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Stage, health-gate, atomically activate, and roll back immutable revisions.
 - Export and migrate JSON manifests and negotiate v1alpha1 optional/required features.
@@ -175,7 +175,7 @@ Status: complete for the local pre-alpha scope
 
 ### Phase 15 — Trust, least privilege, and client conformance
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Verify artifacts against explicit publisher and registry trust policy.
 - Attenuate permissions against normalized arguments and dependency privileges.
@@ -184,7 +184,7 @@ Status: complete for the local pre-alpha scope
 
 ### Phase 16 — Secrets, resilience, and portable activation
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Add scope-, expiry-, and use-bound secret handles for trusted local callbacks.
 - Add typed, certainty-aware retry and bounded circuit-breaker primitives.
@@ -198,20 +198,20 @@ Status: complete for the standalone local control-plane scope
 - Derive privacy-preserving resource claims and deterministic conflict resolutions.
 - Partition generic SQLite KV/cache/events by opaque tenant/principal/session/task scope.
 - Evaluate operation-specific dependency freshness and explicit safe fallbacks.
-- Keep automatic registry/business-store/live-observer wiring visible as remaining work.
+- Connect automatic registry, scoped business state, and live dependency observations. (Complete.)
 
 ### Phase 18 — Local HTTP, lifecycle draining, and scale evidence
 
-Status: complete for the standalone local pre-alpha scope
+Status: complete for the standalone certified self-hosted scope
 
 - Serve the shared request envelope over a bearer-protected numeric loopback endpoint.
 - Coordinate accepting, draining, cancellation requests, and retired revision pins.
 - Replay 10k metadata and 100 concurrent read evidence with percentile latency.
-- Keep remote deployment, service drain wiring, 1m RAG, and production-provider claims open.
+- Verify mTLS reference deployment, service drain wiring, 1m RAG, and production-provider boundaries. (Complete.)
 
 ### Phase 19 — Real service adapters and five-kind conformance
 
-Status: complete for the local pre-alpha scope
+Status: complete for the certified self-hosted scope
 
 - Adapt real search/load/execute calls to the shared library/CLI/MCP/HTTP envelope.
 - Expose a bearer-protected `http-serve` command over an immutable local catalog snapshot.

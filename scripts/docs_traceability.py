@@ -144,6 +144,10 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/production_profile.py", "def validate_production_profile"),
         ("tests/test_wheel_smoke.py", "base_wheel_smoke_is_real_and_offline"),
     ),
+    "R35": (
+        ("src/capabilityhub/release_certification.py", "def certify_release"),
+        ("tests/test_release_certification.py", "fake_live_and_mixed_revision"),
+    ),
     "R36": (
         ("src/capabilityhub/webui.py", "class DashboardServer"),
         ("tests/browser/test_dashboard_browser.py", '"width": 390'),

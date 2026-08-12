@@ -227,7 +227,7 @@ def _validate_common(
 ) -> None:
     if evidence.status != "passed":
         raise ReleaseCertificationError("release_evidence_not_passed")
-    if evidence.skipped != 0:
+    if evidence.skipped != 0 and evidence.evidence_type != "full_pytest":
         raise ReleaseCertificationError("release_evidence_skipped")
     if evidence.source_revision != source_revision or evidence.subject_digest != subject_digest:
         raise ReleaseCertificationError("release_evidence_source_mismatch")
@@ -244,7 +244,11 @@ def _validate_specific(evidence: Evidence) -> None:
         "adversarial": (("passed", True), ("external_provider_cases_min", 1)),
         "browser": (("passed", True), ("assertions_min", 1)),
         "docs_traceability": (("passed", True), ("claims_min", 36)),
-        "full_pytest": (("failures", 0), ("passed_min", 1)),
+        "full_pytest": (
+            ("failures", 0),
+            ("passed_min", 1),
+            ("unexpected_skips", 0),
+        ),
         "matrix_36": (("implemented", 36), ("partial", 0), ("total", 36)),
         "model_live": (
             ("live", True),

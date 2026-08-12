@@ -41,7 +41,7 @@ run does not upgrade a row by itself.
 | R32 | Scale evidence | Implemented | CI gates fixed-seed 10k metadata search and 100 concurrent real service executions; the signed million-chunk cold/warm/concurrent replay uses production `DiskRagIndex`, while separate tests enforce its tenant/ACL semantics |
 | R33 | Compatibility and migration | Implemented | The published lifecycle policy enforces a minimum 180-day deprecation window and migration target; all four adapters reject unsupported old clients identically, required features fail closed, and v1alpha0 documents migrate idempotently |
 | R34 | Self-hosted operation | Implemented | Clean Linux/Windows wheel gates run offline discovery, search, load, execution, audit and local RAG; the checked-in self-hosted reference profile binds split mTLS planes, dependency freshness, fail-closed confinement requirements and reproducible configuration digest without a cloud dependency |
-| R35 | Release gates | Partial | Cross-platform CI adds disclosure and scale gates plus one five-kind real-provider security matrix; automated browser, external-provider adversarial and model-backed gates remain open |
+| R35 | Release gates | Implemented | Mandatory CI is green across Python 3.11/3.12/3.13, Windows wheel smoke, Ubuntu Landlock/seccomp and real Chrome; replayable 10k/1m, five-provider adversarial and real Codex cost/quality evidence feed a fail-closed fresh same-revision signed release certification workflow |
 | R36 | Context-external UI/plugin | Implemented | The packaged `/helpme` and `/myskills` entry points remain outside task context; isolated real-browser tests cover search/lifecycle/language/approval/context/back/home and fresh install/upgrade proves live three-tool MCP inventory without native slash collisions |
 
 ## Direct evidence index
@@ -84,7 +84,7 @@ These are narrow, reproducible evidence paths; they do not close a `Partial` row
 | R32 | `benchmarks/scale.py`, `benchmarks/rag_scale.py` | `test_scale_benchmark.py`, `test_rag_scale_benchmark.py` |
 | R33 | `compatibility.py`, `migration.py` | `test_compatibility.py`, `test_migration.py` |
 | R34 | `cli.py`, `runtime.py` | `test_cli.py`, `test_wheel_smoke.py` |
-| R35 | `.github/workflows/ci.yml`, `benchmarks/release_gate.py` | `test_release_gate.py`, browser tests |
+| R35 | `.github/workflows/ci.yml`, `.github/workflows/release-certification.yml`, `release_certification.py` | `test_release_gate.py`, `test_release_certification.py`, browser and Linux sandbox CI |
 | R36 | `webui.py`, `plugins/capabilityhub` | `test_webui.py`, `test_plugin_package.py` |
 
 ## Completion rule

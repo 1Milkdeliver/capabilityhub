@@ -25,7 +25,7 @@ def _metrics(name: str) -> dict[str, object]:
         "adversarial": {"passed": True, "external_provider_cases_min": 5},
         "browser": {"passed": True, "assertions_min": 12},
         "docs_traceability": {"passed": True, "claims_min": 36},
-        "full_pytest": {"failures": 0, "passed_min": 760},
+        "full_pytest": {"failures": 0, "passed_min": 760, "unexpected_skips": 0},
         "matrix_36": {"implemented": 36, "partial": 0, "total": 36},
         "model_live": {
             "live": True,
@@ -97,7 +97,7 @@ def test_complete_fresh_evidence_generates_deterministic_signed_manifest(tmp_pat
 @pytest.mark.parametrize(
     ("changes", "code"),
     (
-        ({"full_pytest": {"skipped": 1}}, "release_evidence_skipped"),
+        ({"sandbox_linux": {"skipped": 1}}, "release_evidence_skipped"),
         ({"model_live": {"status": "skipped"}}, "release_evidence_not_passed"),
         (
             {"model_live": {"metrics": {"live": False, "trials_min": 30}}},

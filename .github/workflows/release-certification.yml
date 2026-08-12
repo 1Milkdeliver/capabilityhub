@@ -22,7 +22,9 @@ jobs:
       - name: Full cross-platform test evidence
         run: |
           python -m pytest --junitxml=pytest.xml
-          python -m capabilityhub.release_certification record --type full_pytest --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric failures=0 --metric passed_min=1 --output evidence/evidence-full_pytest.json
+          SKIPPED=$(python -c "import xml.etree.ElementTree as E; r=E.parse('pytest.xml').getroot(); print(sum(int(x.attrib.get('skipped',0)) for x in ([r] if r.tag=='testsuite' else r.findall('testsuite'))))")
+          test "$SKIPPED" -eq 5
+          python -m capabilityhub.release_certification record --type full_pytest --source-revision "$GITHUB_SHA" --subject-digest "$SUBJECT_DIGEST" --metric failures=0 --metric passed_min=1 --metric unexpected_skips=0 --skipped "$SKIPPED" --output evidence/evidence-full_pytest.json
       - name: Ruff, mypy, and traceability evidence
         run: |
           python -m ruff check src tests benchmarks

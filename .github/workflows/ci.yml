@@ -68,7 +68,7 @@ jobs:
       - name: Test
         run: python -m pytest --cov=capabilityhub --cov-report=term-missing
       - name: Verify POSIX sandbox boundary
-        run: python -m pytest -q tests/test_supervision.py
+        run: python -m pytest -q tests/test_supervision.py tests/test_confinement.py
       - name: Deterministic benchmark gate
         run: |
           capabilityhub benchmark
@@ -113,7 +113,7 @@ jobs:
       - name: Test and benchmark
         run: |
           python -m pytest
-          python -m pytest -q tests/test_supervision.py
+          python -m pytest -q tests/test_supervision.py tests/test_confinement.py
           capabilityhub benchmark
           capabilityhub benchmark --scale
           python -c "from benchmarks.harness import assert_validation_artifacts; assert_validation_artifacts()"

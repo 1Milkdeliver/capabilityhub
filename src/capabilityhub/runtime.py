@@ -49,6 +49,7 @@ from capabilityhub.connections import (
     ProbeResult,
     configured_mcp_targets,
 )
+from capabilityhub.context_removal import CONTEXT_REMOVAL, ContextRemovalCoordinator
 from capabilityhub.context_state import LocalContextState
 from capabilityhub.degraded import (
     DegradedDecision,
@@ -1166,14 +1167,23 @@ def local_load(
 
 def local_context(
     project_root: str | Path | None = None,
+    *,
+    adapter: AdapterKind = AdapterKind.CLI,
 ) -> dict[str, JsonValue]:
     """Return the durable metadata-only view of currently resident sections."""
 
-    snapshot = _context_state(_catalog_project(project_root)).snapshot()
+    project = _catalog_project(project_root)
+    snapshot = _context_state(project).snapshot()
+    removal = _context_removal(
+        project,
+        adapter=adapter,
+        supported=adapter is AdapterKind.CLI,
+    )
     return {
         "entries": [_jsonable(entry) for entry in snapshot.entries],
         "generation": snapshot.generation,
         "max_portable_tokens": snapshot.max_portable_tokens,
+        "removal_contract": removal.view(),
         "used_portable_tokens": snapshot.used_portable_tokens,
     }
 
@@ -1198,6 +1208,52 @@ def local_context_action(
     else:
         raise ValueError("context action must be access, pin, unpin, or remove")
     return local_context(project_root)
+
+
+def local_context_removal(
+    action: str,
+    target: str | None = None,
+    *,
+    expected_generation: int | None = None,
+    idempotency_key: str | None = None,
+    acknowledgement_id: str | None = None,
+    removed: bool | None = None,
+    project_root: str | Path | None = None,
+) -> dict[str, JsonValue]:
+    """Manage CLI removal instructions; confirmation requires a positive client ack."""
+
+    project = _catalog_project(project_root)
+    coordinator = _context_removal(project, adapter=AdapterKind.CLI, supported=True)
+    if action == "list":
+        return coordinator.view()
+    if target is None or expected_generation is None:
+        raise ValueError("context removal action requires a target and generation")
+    if action == "request":
+        if idempotency_key is None:
+            raise ValueError("context removal request requires an idempotency key")
+        instruction = coordinator.request(
+            target,
+            idempotency_key=idempotency_key,
+            expected_generation=expected_generation,
+        )
+    elif action == "retry":
+        instruction = coordinator.retry(
+            target, expected_generation=expected_generation
+        )
+    elif action == "ack":
+        if acknowledgement_id is None or removed is None:
+            raise ValueError("context removal acknowledgement fields are required")
+        instruction = coordinator.acknowledge(
+            target,
+            acknowledgement_id=acknowledgement_id,
+            removed=removed,
+            expected_generation=expected_generation,
+        )
+    else:
+        raise ValueError("context removal action must be list, request, retry, or ack")
+    result = coordinator.view()
+    result["instruction"] = instruction.as_dict()
+    return result
 
 
 def local_reasoning(
@@ -1641,7 +1697,7 @@ def local_dashboard(
                 {"task_id": "local-cli", "limit": 10},
                 ("approver",),
             ),
-            "context": local_context(selected.project),
+            "context": local_context(selected.project, adapter=AdapterKind.HTTP),
             "reasoning": local_reasoning("dashboard", project_root=selected.project),
             "updates": local_updates(monitor=selected),
             "secure_audit": {
@@ -2511,6 +2567,20 @@ def _context_state(project: Path) -> LocalContextState:
     return LocalContextState(
         project / ".capabilityhub" / "context-state.json",
         max_portable_tokens=DEFAULT_CONTEXT_TOKENS,
+    )
+
+
+def _context_removal(
+    project: Path,
+    *,
+    adapter: AdapterKind,
+    supported: bool,
+) -> ContextRemovalCoordinator:
+    return ContextRemovalCoordinator(
+        _scoped_state(project),
+        _local_cli_scope("context-removal"),
+        adapter=adapter,
+        client_features=(CONTEXT_REMOVAL,) if supported else (),
     )
 
 

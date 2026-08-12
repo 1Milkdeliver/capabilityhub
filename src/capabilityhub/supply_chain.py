@@ -16,10 +16,13 @@ from base64 import urlsafe_b64decode, urlsafe_b64encode
 from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from .errors import CapabilityHubError, ErrorCategory
 from .models import CapabilityManifest
+
+if TYPE_CHECKING:
+    from .supply_chain_bundle import SigstoreBundle
 
 Environment = Literal["development", "production"]
 HMAC_SHA256 = "hmac-sha256"
@@ -153,6 +156,7 @@ class ArtifactMaterial:
     publisher: str
     registry: str
     attestation: ArtifactAttestation | None = None
+    bundle: SigstoreBundle | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.artifact, bytes):
@@ -286,10 +290,13 @@ class SupplyChainVerifier:
         publisher: str,
         registry: str,
         attestation: ArtifactAttestation | None,
+        bundle: object | None = None,
         now: int | None = None,
     ) -> TrustEvidence:
         """Return compact evidence or reject without exposing supplied trust material."""
 
+        if bundle is not None:
+            raise SupplyChainError("unsupported_transparency_bundle")
         if not isinstance(artifact, bytes):
             raise TypeError("artifact must be bytes")
         actual_digest = "sha256:" + hashlib.sha256(artifact).hexdigest()

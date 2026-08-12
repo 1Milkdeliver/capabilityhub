@@ -16,6 +16,7 @@ from threading import RLock
 from time import monotonic
 from typing import Any, Protocol, cast
 
+from capabilityhub.confinement import require_confinement
 from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.models import (
     CapabilityIdentity,
@@ -62,8 +63,6 @@ class WorkerResourceLimits:
             raise ValueError("cpu_seconds must be positive")
         if self.memory_bytes is not None and self.memory_bytes < 1_048_576:
             raise ValueError("memory_bytes must be at least 1048576")
-        if self.require_filesystem_isolation or self.require_network_isolation:
-            raise ValueError("filesystem and network isolation are not supported")
 
 
 @dataclass(frozen=True, slots=True)
@@ -115,6 +114,11 @@ class ProcessProviderSupervisor:
         request: ExecutionRequest,
         context: ProviderContext,
     ) -> ExecutionResult:
+        limits = self.resource_limits
+        require_confinement(
+            filesystem=bool(limits and limits.require_filesystem_isolation),
+            network=bool(limits and limits.require_network_isolation),
+        )
         if self.strict_local_providers:
             restriction = _local_provider_restriction(provider)
             if restriction is not None:
@@ -222,7 +226,7 @@ class ProcessProviderSupervisor:
                 )
                 raise _error(
                     code,
-                    ErrorCategory.TIMEOUT if cancelled else ErrorCategory.PROVIDER,
+                    ErrorCategory.CANCELLED if cancelled else ErrorCategory.PROVIDER,
                     "The isolated provider execution was cancelled."
                     if cancelled
                     else "The isolated provider worker ended without a valid result.",
@@ -270,7 +274,10 @@ class ProcessProviderSupervisor:
             receiver = self._receivers.get(execution_ref)
             if receiver is not None:
                 receiver.close()
-            return not process.is_alive()
+            # A true result means the registered cancellation was accepted.  The
+            # executing thread owns final join/cleanup, so scheduler lag must not
+            # turn an accepted cancellation into a false negative.
+            return True
 
     def active_count(self) -> int:
         """Return an aggregate only; execution references are never exposed."""

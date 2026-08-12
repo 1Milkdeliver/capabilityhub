@@ -76,6 +76,10 @@ IMPLEMENTED_EVIDENCE = {
         ("src/capabilityhub/approval_store.py", "class ApprovalIntent"),
         ("tests/test_admin_entry_consistency.py", "exact_authenticated_principal"),
     ),
+    "R19": (
+        ("src/capabilityhub/supply_chain_bundle.py", "class SigstoreBundleVerifier"),
+        ("tests/test_supply_chain_bundle.py", "replay_and_log_fork"),
+    ),
     "R20": (
         ("src/capabilityhub/secret_broker.py", "class KeyringSecretStore"),
         ("tests/test_platform_secret_store.py", "headless"),
@@ -95,6 +99,10 @@ IMPLEMENTED_EVIDENCE = {
     "R25": (
         ("src/capabilityhub/runtime.py", "DurableHierarchicalBudgetProvider"),
         ("tests/test_tenant_business_isolation.py", "opaque_hierarchical_budget"),
+    ),
+    "R26": (
+        ("src/capabilityhub/context_removal.py", "class ContextRemovalCoordinator"),
+        ("tests/test_context_removal.py", "pending_then_acknowledged"),
     ),
     "R27": (
         ("src/capabilityhub/scoped_context_state.py", "class ScopedContextState"),
@@ -123,6 +131,10 @@ IMPLEMENTED_EVIDENCE = {
     "R33": (
         ("src/capabilityhub/compatibility.py", "MINIMUM_DEPRECATION_DAYS"),
         ("tests/test_service_adapter.py", "old_client_new_server"),
+    ),
+    "R34": (
+        ("src/capabilityhub/production_profile.py", "def validate_production_profile"),
+        ("tests/test_wheel_smoke.py", "base_wheel_smoke_is_real_and_offline"),
     ),
     "R36": (
         ("src/capabilityhub/webui.py", "class DashboardServer"),

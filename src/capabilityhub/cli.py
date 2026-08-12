@@ -214,9 +214,26 @@ def build_parser() -> argparse.ArgumentParser:
     _pretty_argument(approvals)
     context = commands.add_parser("context", help="show or manage resident context metadata")
     context.add_argument(
-        "action", nargs="?", choices=("list", "access", "pin", "unpin", "remove"), default="list"
+        "action",
+        nargs="?",
+        choices=(
+            "list",
+            "access",
+            "pin",
+            "unpin",
+            "remove",
+            "removals",
+            "request-removal",
+            "retry-removal",
+            "ack-removal",
+        ),
+        default="list",
     )
     context.add_argument("key", nargs="?")
+    context.add_argument("--generation", type=int)
+    context.add_argument("--idempotency-key")
+    context.add_argument("--acknowledgement-id")
+    context.add_argument("--removed", choices=("yes", "no"))
     _project_argument(context)
     _pretty_argument(context)
     reasoning = commands.add_parser("reasoning", help="get budget-aware reasoning tier advice")
@@ -603,6 +620,27 @@ def _main(argv: Sequence[str] | None = None) -> int:
             if args.key is not None:
                 raise _usage("context list does not accept a key")
             payload = runtime.local_context(args.project_root)
+        elif args.action == "removals":
+            if args.key is not None:
+                raise _usage("context removals does not accept a key")
+            payload = runtime.local_context_removal(
+                "list", project_root=args.project_root
+            )
+        elif args.action in {"request-removal", "retry-removal", "ack-removal"}:
+            if args.key is None or args.generation is None:
+                raise _usage(
+                    f"context {args.action} requires a key and --generation"
+                )
+            removal_action = args.action.removesuffix("-removal")
+            payload = runtime.local_context_removal(
+                removal_action,
+                args.key,
+                expected_generation=args.generation,
+                idempotency_key=args.idempotency_key,
+                acknowledgement_id=args.acknowledgement_id,
+                removed=(None if args.removed is None else args.removed == "yes"),
+                project_root=args.project_root,
+            )
         else:
             if args.key is None:
                 raise _usage(f"context {args.action} requires an exact key")

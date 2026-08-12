@@ -11,6 +11,7 @@ from .supply_chain import (
     SupplyChainVerifier,
     TrustEvidence,
 )
+from .supply_chain_bundle import SigstoreBundleVerifier
 from .update_store import RevisionPin, SQLiteUpdateStore, UpdateState
 
 ArtifactAcquirer = Callable[[str], ArtifactMaterial]
@@ -24,7 +25,7 @@ class StagedUpdateManager:
         *,
         registry: CapabilityRegistry,
         store: SQLiteUpdateStore,
-        verifier: SupplyChainVerifier | None = None,
+        verifier: SupplyChainVerifier | SigstoreBundleVerifier | None = None,
         artifact_acquirer: ArtifactAcquirer | None = None,
     ) -> None:
         self.registry = registry
@@ -118,6 +119,7 @@ class StagedUpdateManager:
             publisher=material.publisher,
             registry=material.registry,
             attestation=material.attestation,
+            bundle=material.bundle,
         )
 
     def _validate_pointers(self, pointers: Mapping[str, str]) -> None:

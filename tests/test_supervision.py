@@ -166,8 +166,13 @@ def test_process_supervisor_cancels_registered_worker_tree() -> None:
 
 
 def test_unsupported_worker_isolation_fails_closed() -> None:
-    with pytest.raises(ValueError, match="network isolation"):
-        WorkerResourceLimits(require_network_isolation=True)
+    supervisor = ProcessProviderSupervisor(
+        resource_limits=WorkerResourceLimits(require_network_isolation=True)
+    )
+    with pytest.raises(CapabilityHubError) as caught:
+        supervisor.execute(_Provider(), IDENTITY, REQUEST, _context())
+
+    assert caught.value.code == "provider_os_confinement_unavailable"
 
     capabilities = sandbox_capabilities()
     assert capabilities.filesystem_isolation is None

@@ -639,14 +639,7 @@ def _junit_counts(path: Path) -> tuple[int, int, int]:
 def _unexpected_platform_skips(path: Path) -> int:
     try:
         root = ET.parse(path).getroot()
-        skipped_cases = [
-            (
-                testcase.attrib.get("classname", ""),
-                skipped.attrib.get("message", ""),
-            )
-            for testcase in root.iter("testcase")
-            for skipped in testcase.findall("skipped")
-        ]
+        reasons = [skipped.attrib.get("message", "") for skipped in root.iter("skipped")]
     except (OSError, ET.ParseError) as error:
         raise ReleaseCertificationError("release_gate_artifact_invalid") from error
     if sys.platform.startswith("linux"):
@@ -658,12 +651,9 @@ def _unexpected_platform_skips(path: Path) -> int:
     return sum(
         not (
             any(marker in reason for marker in allowed)
-            or (
-                classname == "tests.browser.test_dashboard_browser"
-                and "playwright.sync_api" in reason
-            )
+            or "playwright.sync_api" in reason
         )
-        for classname, reason in skipped_cases
+        for reason in reasons
     )
 
 

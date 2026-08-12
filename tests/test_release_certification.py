@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import capabilityhub.release_certification as release_certification
 from capabilityhub.metering import canonical_json
 from capabilityhub.release_certification import (
     REQUIRED_EVIDENCE,
@@ -276,3 +277,24 @@ def test_release_workflow_uses_build_once_subject_and_program_measured_gates() -
     assert "CAPABILITYHUB_REQUIRE_LINUX_SANDBOX" in workflow
     assert "model_eval --live --trials 30 --source-revision" in workflow
     assert "--subject release-build/release-subject.json" in workflow
+
+
+def test_full_suite_accepts_only_the_separately_certified_browser_skip(tmp_path) -> None:
+    report = tmp_path / "report.xml"
+    report.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<testsuites>
+  <testsuite tests="2" skipped="2">
+    <testcase classname="tests.browser.test_dashboard_browser" name="browser">
+      <skipped message="could not import 'playwright.sync_api': No module named playwright" />
+    </testcase>
+    <testcase classname="tests.test_runtime" name="unexpected">
+      <skipped message="unrelated dependency unavailable" />
+    </testcase>
+  </testsuite>
+</testsuites>
+""",
+        encoding="utf-8",
+    )
+
+    assert release_certification._unexpected_platform_skips(report) == 1

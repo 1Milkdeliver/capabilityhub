@@ -1813,7 +1813,22 @@ def local_dashboard(
     def snapshot() -> StatusSnapshot:
         inventory = local_inventory(monitor=selected)
         preferences = local_preferences(monitor=selected)
-        loaded = local_loaded(limit=10, monitor=selected)
+        audit_error: str | None = None
+        try:
+            loaded = local_loaded(limit=10, monitor=selected)
+        except CapabilityHubError as error:
+            audit_error = error.code
+            loaded = {"entries": [], "error_code": error.code, "status": "unavailable"}
+        try:
+            audit = local_audit(limit=10, monitor=selected)
+        except CapabilityHubError as error:
+            audit_error = error.code
+            audit = {
+                "error_code": error.code,
+                "events": [],
+                "status": "unavailable",
+                "stored": 0,
+            }
         return {
             "active_capabilities": [],
             "health": local_health(selected.project),
@@ -1822,7 +1837,7 @@ def local_dashboard(
             "conversations": codex_task_index(selected.home, limit=2_000),
             "loaded_capabilities": loaded.get("entries", []),
             "lifecycle": admin("lifecycle.list", {}, ("lifecycle-operator",)),
-            "audit": local_audit(limit=10, monitor=selected),
+            "audit": audit,
             "preferences": {"locale": preferences.get("locale", "auto")},
             "providers": local_providers(monitor=selected),
             "approvals": admin(
@@ -1835,7 +1850,9 @@ def local_dashboard(
             "updates": local_updates(monitor=selected),
             "secure_audit": {
                 "configured": True,
+                "error_code": audit_error,
                 "key_environment": SECURE_AUDIT_KEY_ENV,
+                "status": "unavailable" if audit_error is not None else "available",
             },
         }
 

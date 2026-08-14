@@ -7,7 +7,8 @@ from urllib.request import Request, urlopen
 
 import pytest
 
-from capabilityhub.errors import CapabilityHubError
+import capabilityhub.runtime as runtime_module
+from capabilityhub.errors import CapabilityHubError, ErrorCategory
 from capabilityhub.local_runtime import LocalCatalogMonitor
 from capabilityhub.protocol import protocol_handshake
 from capabilityhub.runtime import (
@@ -295,6 +296,39 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert changed["active"] is False
     assert refreshed["inventory"]["active_by_kind"]["skill"] == 1
     assert refreshed["inventory"]["generation"] >= 3
+
+
+def test_local_dashboard_degrades_only_audit_when_chain_is_invalid(
+    tmp_path, monkeypatch
+) -> None:
+    home = tmp_path / "home"
+    project = tmp_path / "project"
+    project.mkdir()
+    monitor = LocalCatalogMonitor(home=home, project=project, refresh_interval_seconds=0)
+
+    def invalid_audit(*_args, **_kwargs):
+        raise CapabilityHubError(
+            code="secure_audit_chain_invalid",
+            category=ErrorCategory.INTERNAL,
+            safe_message="The secure audit chain failed verification.",
+        )
+
+    monkeypatch.setattr(runtime_module, "local_loaded", invalid_audit)
+    monkeypatch.setattr(runtime_module, "local_audit", invalid_audit)
+
+    with local_dashboard(project, monitor=monitor) as server:
+        payload = _get_json(f"{server.url}/api/status")
+
+    assert payload["inventory"]["status"] in {"complete", "fresh", "partial"}
+    assert payload["loaded_capabilities"] == []
+    assert payload["audit"]["events"] == []
+    assert payload["audit"]["error_code"] == "secure_audit_chain_invalid"
+    assert payload["secure_audit"] == {
+        "configured": True,
+        "error_code": "secure_audit_chain_invalid",
+        "key_environment": "CAPABILITYHUB_AUDIT_KEY",
+        "status": "unavailable",
+    }
 
 
 def test_language_and_lifecycle_persist_and_refresh_inventory(tmp_path) -> None:

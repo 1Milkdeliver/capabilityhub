@@ -58,7 +58,7 @@ const messages = {
     configured: "configured", notConfigured: "not configured", notSelected: "not selected", global: "global", activeState: "active", inactiveState: "inactive",
     pendingState: "pending", approvedState: "approved", deniedState: "denied", consumedState: "consumed", expiredState: "expired",
     readyState: "ready", freshState: "fresh", completeState: "complete", partialState: "partial", staleState: "stale", degradedState: "degraded",
-    availableState: "available", quarantinedState: "quarantined", unknownState: "unknown", reachableState: "reachable",
+    availableState: "available", unavailableState: "unavailable", quarantinedState: "quarantined", unknownState: "unknown", reachableState: "reachable",
     unsupportedState: "unsupported", healthyState: "healthy", failedState: "failed", configuredNotProbedState: "configured, not probed",
     lowTier: "low", mediumTier: "medium", highTier: "high",
   },
@@ -110,7 +110,7 @@ const messages = {
     configured: "已配置", notConfigured: "未配置", notSelected: "未选择", global: "全局", activeState: "已启用", inactiveState: "未启用",
     pendingState: "等待处理", approvedState: "已批准", deniedState: "已拒绝", consumedState: "已使用", expiredState: "已过期",
     readyState: "正常", freshState: "最新", completeState: "完整", partialState: "部分可用", staleState: "已过期", degradedState: "降级运行",
-    availableState: "可用", quarantinedState: "已隔离", unknownState: "未知", reachableState: "可连接",
+    availableState: "可用", unavailableState: "不可用", quarantinedState: "已隔离", unknownState: "未知", reachableState: "可连接",
     unsupportedState: "不支持", healthyState: "健康", failedState: "失败", configuredNotProbedState: "已配置，未探测",
     lowTier: "低", mediumTier: "中", highTier: "高",
   },
@@ -150,7 +150,7 @@ const localizedStateKeys = {
   expired: "expiredState", "已过期": "expiredState", ready: "readyState", "正常": "readyState",
   fresh: "freshState", "最新": "freshState", complete: "completeState", "完整": "completeState",
   partial: "partialState", "部分可用": "partialState", stale: "staleState", degraded: "degradedState", "降级运行": "degradedState",
-  available: "availableState", "可用": "availableState", quarantined: "quarantinedState", "已隔离": "quarantinedState",
+  available: "availableState", "可用": "availableState", unavailable: "unavailableState", "不可用": "unavailableState", quarantined: "quarantinedState", "已隔离": "quarantinedState",
   unknown: "unknownState", "未知": "unknownState", reachable: "reachableState", "可连接": "reachableState",
   unsupported: "unsupportedState", "不支持": "unsupportedState", healthy: "healthyState", "健康": "healthyState",
   failed: "failedState", fail: "failedState", "失败": "failedState", configured_not_probed: "configuredNotProbedState", "已配置，未探测": "configuredNotProbedState",
@@ -223,7 +223,7 @@ function renderSnapshot(payload) {
     renderApprovals(payload.approvals?.approvals || []); renderContext(payload.context?.entries || []); renderLifecycle(payload.lifecycle?.entries || []);
     setText("reasoning-tier", localizedState(payload.reasoning?.current_tier, t("notSelected"))); setText("reasoning-budget", payload.reasoning?.budget?.remaining); setText("reasoning-escalations", payload.reasoning?.escalations_used ?? 0);
     list("update-list", (payload.updates?.states || []).map((item) => ({name: item.coordinate, value: t("updateState", {active: text(item.active_revision), staged: text(item.staged_revision), health: localizedState(item.health_status)})})), t("noUpdates"));
-    setText("secure-audit-status", payload.secure_audit?.configured ? t("configured") : t("notConfigured")); setText("secure-audit-key", payload.secure_audit?.key_environment);
+    setText("secure-audit-status", payload.secure_audit?.status ? localizedState(payload.secure_audit.status) : payload.secure_audit?.configured ? t("configured") : t("notConfigured")); setText("secure-audit-key", payload.secure_audit?.key_environment);
     list("audit-list", (payload.audit?.events || []).map((item) => ({name: `${item.sequence}: ${item.event_type} / ${localizedState(item.outcome)}`, value: item.capability_revision || item.reason_codes?.join(", ") || t("global")})), t("noAudit"));
 }
 

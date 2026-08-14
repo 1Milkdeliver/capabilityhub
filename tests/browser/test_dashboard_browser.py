@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+from threading import Event
 
 import pytest
 
@@ -65,9 +66,7 @@ def _snapshot() -> dict[str, object]:
             "inactive_count": 0,
             "status": "fresh",
         },
-        "lifecycle": {
-            "entries": [{"active": True, "coordinate": "demo/tool", "state": "enabled"}]
-        },
+        "lifecycle": {"entries": [{"active": True, "coordinate": "demo/tool", "state": "enabled"}]},
         "loaded_capabilities": [],
         "model_calls": 0,
         "preferences": {"locale": "en"},
@@ -81,6 +80,61 @@ def _snapshot() -> dict[str, object]:
         "token_usage": 0,
         "updates": {"states": []},
     }
+
+
+def test_stale_status_response_cannot_override_language_selection() -> None:
+    executable = _browser_executable()
+    if executable is None:
+        pytest.skip("System Chrome is unavailable")
+
+    locale = {"value": "zh-CN"}
+    hold_next = Event()
+    stale_started = Event()
+    release_stale = Event()
+
+    def snapshot() -> dict[str, object]:
+        captured_locale = locale["value"]
+        if hold_next.is_set():
+            hold_next.clear()
+            stale_started.set()
+            release_stale.wait(timeout=5)
+        return {
+            **_snapshot(),
+            "context": {"entries": []},
+            "preferences": {"locale": captured_locale},
+            "reasoning": {"current_tier": "未选择"},
+            "updates": {"states": []},
+        }
+
+    def save_language(requested: str) -> dict[str, bool]:
+        locale["value"] = requested
+        return {"saved": True}
+
+    with (
+        DashboardServer(snapshot, language_provider=save_language) as dashboard,
+        playwright.sync_playwright() as runtime,
+    ):
+        browser = runtime.chromium.launch(
+            executable_path=executable,
+            headless=True,
+            args=["--disable-extensions", "--no-first-run"],
+        )
+        page = browser.new_page()
+        page.goto(dashboard.url, wait_until="networkidle")
+        page.get_by_role("heading", name="对话", level=2).wait_for()
+
+        hold_next.set()
+        page.get_by_role("button", name="刷新对话").click()
+        assert stale_started.wait(timeout=5)
+        with page.expect_response(lambda response: response.url.endswith("/api/language")):
+            page.get_by_label("语言").select_option("en")
+        release_stale.set()
+
+        page.get_by_text("Conversation list refreshed.").wait_for()
+        assert page.get_by_label("Language").input_value() == "en"
+        assert page.locator("html").get_attribute("lang") == "en"
+        page.get_by_role("heading", name="Conversations", level=2).wait_for()
+        browser.close()
 
 
 def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_path: Path) -> None:
@@ -191,16 +245,20 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             page = context.new_page()
             page.on(
                 "console",
-                lambda message: console_findings.append(f"{message.type}: {message.text}")
-                if message.type in {"warning", "error"}
-                else None,
+                lambda message: (
+                    console_findings.append(f"{message.type}: {message.text}")
+                    if message.type in {"warning", "error"}
+                    else None
+                ),
             )
             page.on("pageerror", lambda error: page_errors.append(str(error)))
             page.on(
                 "response",
-                lambda response: network.append((response.url, response.status))
-                if response.url.startswith(dashboard_url)
-                else None,
+                lambda response: (
+                    network.append((response.url, response.status))
+                    if response.url.startswith(dashboard_url)
+                    else None
+                ),
             )
             artifact_dir = Path(
                 os.environ.get("CAPABILITYHUB_BROWSER_ARTIFACTS", ".artifacts/browser")
@@ -245,9 +303,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             with page.expect_response(lambda response: response.url.endswith("/api/status")):
                 page.get_by_role("button", name="刷新对话").click()
             with page.expect_response(lambda response: "/api/conversation" in response.url):
-                page.get_by_label("选择对话").select_option(
-                    "019ff540-d2c0-72d3-8fde-c00c42ae6f58"
-                )
+                page.get_by_label("选择对话").select_option("019ff540-d2c0-72d3-8fde-c00c42ae6f58")
             page.locator("#conversation-capabilities").get_by_text("SKILL · demo").wait_for()
             page.get_by_role("link", name="管理", exact=True).click()
             with page.expect_response(lambda response: response.url.endswith("/api/status")):

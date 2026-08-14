@@ -148,6 +148,11 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self._csrf_token = csrf_token
         super().__init__(request, client_address, server, directory=directory)
 
+    def end_headers(self) -> None:
+        if not urlsplit(self.path).path.startswith("/api/"):
+            self.send_header("Cache-Control", "no-store")
+        super().end_headers()
+
     def do_GET(self) -> None:
         parsed = urlsplit(self.path)
         if parsed.path == "/api/status":

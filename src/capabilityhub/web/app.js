@@ -131,6 +131,9 @@ let conversationsTruncated = false;
 let activeDialogItem = null;
 let latestSnapshot = null;
 let latestConversation = null;
+let localeOverride = null;
+let statusRequestSequence = 0;
+let appliedStatusSequence = 0;
 
 const resolvedLocale = (preference) => preference === "zh-CN" ? "zh-CN" : preference === "en" ? "en" : navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
 const t = (key, values = {}) => Object.entries(values).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, String(value)), messages[currentLocale][key] ?? messages.en[key] ?? key);
@@ -225,12 +228,17 @@ function renderSnapshot(payload) {
 }
 
 async function refresh({ announce = true } = {}) {
+  const requestSequence = ++statusRequestSequence;
   try {
     const response = await fetch("/api/status", { cache: "no-store" });
     if (!response.ok) throw Error("status unavailable");
     const payload = await response.json();
+    if (requestSequence < appliedStatusSequence) return;
+    appliedStatusSequence = requestSequence;
     latestSnapshot = payload;
-    applyLocale(payload.preferences?.locale || activePreference, {rerenderSnapshot: false});
+    const serverLocale = payload.preferences?.locale;
+    if (localeOverride && serverLocale === localeOverride) localeOverride = null;
+    applyLocale(localeOverride || serverLocale || activePreference, {rerenderSnapshot: false});
     renderSnapshot(payload);
     if (announce) document.getElementById("state").textContent = t("live");
   } catch { document.getElementById("state").textContent = t("unavailable"); }
@@ -418,7 +426,7 @@ document.getElementById("load-more").addEventListener("click", () => loadCapabil
 document.getElementById("conversation-query").addEventListener("input", renderConversationOptions); document.getElementById("conversation-state").addEventListener("change", renderConversationOptions);
 document.getElementById("conversation-select").addEventListener("change", (event) => loadConversation(event.target.value).catch(() => list("conversation-capabilities", [], t("unavailable"))));
 document.getElementById("refresh-conversations").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; button.textContent = t("refreshing"); await refresh({announce: false}); const selected = document.getElementById("conversation-select").value; if (selected) await loadConversation(selected); button.disabled = false; button.textContent = t("refreshConversations"); document.getElementById("state").textContent = t("conversationsRefreshed"); });
-document.getElementById("language").addEventListener("change", async () => { const previous = activePreference; const requested = document.getElementById("language").value; applyLocale(requested); try { await postJson("/api/language", {locale: requested}); document.getElementById("state").textContent = t("languageSaved"); } catch { applyLocale(previous); document.getElementById("state").textContent = t("languageFailed"); } });
+document.getElementById("language").addEventListener("change", async () => { const previous = activePreference; const requested = document.getElementById("language").value; localeOverride = requested; applyLocale(requested); try { await postJson("/api/language", {locale: requested}); if (latestSnapshot) latestSnapshot.preferences = {...(latestSnapshot.preferences || {}), locale: requested}; document.getElementById("state").textContent = t("languageSaved"); } catch { localeOverride = null; applyLocale(previous); document.getElementById("state").textContent = t("languageFailed"); } });
 document.getElementById("close-capability-dialog").addEventListener("click", () => document.getElementById("capability-dialog").close());
 document.getElementById("capability-dialog").addEventListener("click", (event) => { if (event.target === event.currentTarget) event.currentTarget.close(); });
 window.addEventListener("hashchange", () => showPage(location.hash.slice(1)));

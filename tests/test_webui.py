@@ -35,6 +35,7 @@ def test_dashboard_is_local_read_only_and_serves_snapshot() -> None:
             assert b'"reasoning_tier":"low"' in response.read()
         with urlopen(f"{dashboard.url}/", timeout=2) as response:
             assert b"CapSift" in response.read()
+            assert response.headers["Cache-Control"] == "no-store"
         request = Request(f"{dashboard.url}/api/status", method="POST")
         with pytest.raises(HTTPError) as error:
             urlopen(request, timeout=2)

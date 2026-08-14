@@ -74,7 +74,7 @@ def _snapshot() -> dict[str, object]:
         "providers": {"entries": [{"active": 2, "discovered": 2, "provider": "local"}]},
         "reasoning": {
             "budget": {"remaining": 100},
-            "current_tier": "low",
+            "current_tier": "**未选择**",
             "escalations_used": 0,
         },
         "secure_audit": {"configured": False, "key_environment": "not exposed"},
@@ -94,9 +94,22 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
     usage = {"model_calls": 0, "token_usage": 0}
     preference = {"locale": "en"}
     capability_state = {"active": True}
+    context_entries: list[dict[str, object]] = [
+        {
+            "key": "demo::contract",
+            "pinned": False,
+            "portable_tokens": 4,
+            "section": "contract",
+        }
+    ]
 
     def snapshot() -> dict[str, object]:
-        return {**_snapshot(), **usage, "preferences": dict(preference)}
+        return {
+            **_snapshot(),
+            **usage,
+            "context": {"entries": list(context_entries)},
+            "preferences": dict(preference),
+        }
 
     def save_language(locale: str) -> dict[str, bool]:
         preference["locale"] = locale
@@ -106,6 +119,11 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
     def save_lifecycle(coordinate: str, state: str) -> dict[str, bool]:
         capability_state["active"] = state == "enabled"
         calls.append(("lifecycle", coordinate, state))
+        return {"saved": True}
+
+    def save_context(action: str, key: str) -> dict[str, bool]:
+        calls.append(("context", action, key))
+        context_entries.clear()
         return {"saved": True}
 
     with DashboardServer(
@@ -125,9 +143,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
         approval_provider=lambda approval_id, decision: (
             calls.append(("approval", approval_id, decision)) or {"saved": True}
         ),
-        context_provider=lambda action, key: (
-            calls.append(("context", action, key)) or {"saved": True}
-        ),
+        context_provider=save_context,
         capability_list_provider=lambda query, kind, offset, limit: {
             "entries": [
                 {
@@ -196,7 +212,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             assert page.get_by_role("heading", name="CapSift", level=1).is_visible()
             assert page.get_by_role("heading", name="Conversations", level=2).is_visible()
             page.get_by_role("link", name="Capabilities", exact=True).click()
-            assert page.get_by_role("heading", name="Capabilities", level=2).is_visible()
+            page.get_by_role("heading", name="Capabilities", level=2).wait_for()
             assert page.get_by_label("Search a specific name").is_visible()
             assert page.get_by_label("Capability kind").is_visible()
 
@@ -216,6 +232,12 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
                 "switch", name="Allow future loading"
             ).wait_for()
             page.screenshot(path=artifact_dir / "dashboard-capabilities.png", full_page=True)
+            page.get_by_role("link", name="Manage", exact=True).click()
+            page.get_by_text("No staged update state.", exact=True).wait_for()
+            page.get_by_role("link", name="System details", exact=True).click()
+            assert page.locator("#reasoning-tier").inner_text() == "not selected"
+            assert page.locator("#secure-audit-status").inner_text() == "not configured"
+            page.get_by_role("link", name="Capabilities", exact=True).click()
             with page.expect_response(lambda response: response.url.endswith("/api/language")):
                 page.get_by_label("Language").select_option("zh-CN")
             page.get_by_role("heading", name="能力库", level=2).wait_for()
@@ -237,13 +259,36 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             assert page.url.endswith("#guide")
             page.get_by_role("heading", name="本地使用说明书", level=2).wait_for()
 
-            page.get_by_label("语言").focus()
+            with page.expect_response(lambda response: response.url.endswith("/api/language")):
+                page.get_by_label("语言").select_option("en")
+            page.get_by_role("heading", name="Local user guide", level=2).wait_for()
+            page.get_by_role("link", name="Manage", exact=True).click()
+            page.get_by_text("No staged update state.", exact=True).wait_for()
+            page.get_by_text("No disclosed sections are resident.", exact=True).wait_for()
+            page.get_by_role("link", name="System details", exact=True).click()
+            assert page.locator("#reasoning-tier").inner_text() == "not selected"
+            assert page.locator("#secure-audit-status").inner_text() == "not configured"
+            for page_name, link_name in (
+                ("conversations", "Conversations"),
+                ("capabilities", "Capabilities"),
+                ("manage", "Manage"),
+                ("details", "System details"),
+                ("guide", "Local user guide"),
+            ):
+                page.get_by_role("link", name=link_name, exact=True).click()
+                visible_text = page.locator(f'[data-page-view="{page_name}"]').inner_text()
+                assert not any("\u3400" <= character <= "\u9fff" for character in visible_text), (
+                    page_name,
+                    visible_text,
+                )
+
+            page.get_by_label("Language").focus()
             assert page.evaluate(
                 "() => document.activeElement?.matches('a,button,input,select,summary')"
             )
             page.evaluate("scrollTo(0, 0)")
             page.screenshot(path=artifact_dir / "dashboard-desktop.png", full_page=True)
-            page.get_by_role("link", name="能力库", exact=True).click()
+            page.get_by_role("link", name="Capabilities", exact=True).click()
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.locator("main").evaluate("node => node.scrollWidth <= innerWidth")
             page.screenshot(path=artifact_dir / "dashboard-narrow.png", full_page=True)
@@ -254,6 +299,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
     assert before == after == {"model_calls": 0, "token_usage": 0}
     assert ("lifecycle", "demo/tool", "disabled") in calls
     assert ("language", "zh-CN") in calls
+    assert ("language", "en") in calls
     assert ("approval", "apr_browser", "approve") in calls
     assert ("context", "pin", "demo::contract") in calls
     assert console_findings == []

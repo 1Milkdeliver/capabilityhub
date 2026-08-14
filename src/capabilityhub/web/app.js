@@ -56,6 +56,11 @@ const messages = {
     enable: "Enable", disable: "Disable", quarantine: "Quarantine", quarantineConfirm: "Quarantine {value}?", routing: "Routing",
     activeCount: "{active}/{total} active", providerState: "{provider} / {state}", updateState: "active {active} / staged {staged} / health {health}",
     configured: "configured", notConfigured: "not configured", notSelected: "not selected", global: "global", activeState: "active", inactiveState: "inactive",
+    pendingState: "pending", approvedState: "approved", deniedState: "denied", consumedState: "consumed", expiredState: "expired",
+    readyState: "ready", freshState: "fresh", completeState: "complete", partialState: "partial", staleState: "stale", degradedState: "degraded",
+    availableState: "available", quarantinedState: "quarantined", unknownState: "unknown", reachableState: "reachable",
+    unsupportedState: "unsupported", healthyState: "healthy", failedState: "failed", configuredNotProbedState: "configured, not probed",
+    lowTier: "low", mediumTier: "medium", highTier: "high",
   },
   "zh-CN": {
     eyebrow: "本地 / 受控", loading: "正在读取本地状态…", navigation: "Dashboard 导航", conversations: "对话",
@@ -103,6 +108,11 @@ const messages = {
     forget: "忘记", enable: "启用", disable: "停用", quarantine: "隔离", quarantineConfirm: "确定隔离 {value}？", routing: "选择原因",
     activeCount: "已启用 {active}/{total}", providerState: "{provider} / {state}", updateState: "活动 {active} / 暂存 {staged} / 健康 {health}",
     configured: "已配置", notConfigured: "未配置", notSelected: "未选择", global: "全局", activeState: "已启用", inactiveState: "未启用",
+    pendingState: "等待处理", approvedState: "已批准", deniedState: "已拒绝", consumedState: "已使用", expiredState: "已过期",
+    readyState: "正常", freshState: "最新", completeState: "完整", partialState: "部分可用", staleState: "已过期", degradedState: "降级运行",
+    availableState: "可用", quarantinedState: "已隔离", unknownState: "未知", reachableState: "可连接",
+    unsupportedState: "不支持", healthyState: "健康", failedState: "失败", configuredNotProbedState: "已配置，未探测",
+    lowTier: "低", mediumTier: "中", highTier: "高",
   },
 };
 
@@ -119,13 +129,39 @@ let conversationEntries = [];
 let conversationTotal = 0;
 let conversationsTruncated = false;
 let activeDialogItem = null;
+let latestSnapshot = null;
+let latestConversation = null;
 
 const resolvedLocale = (preference) => preference === "zh-CN" ? "zh-CN" : preference === "en" ? "en" : navigator.language.toLowerCase().startsWith("zh") ? "zh-CN" : "en";
 const t = (key, values = {}) => Object.entries(values).reduce((result, [name, value]) => result.replaceAll(`{${name}}`, String(value)), messages[currentLocale][key] ?? messages.en[key] ?? key);
 const text = (value) => String(value ?? "—");
 const setText = (id, value) => { document.getElementById(id).textContent = text(value); };
 
-function applyLocale(preference) {
+const localizedStateKeys = {
+  "not selected": "notSelected", "未选择": "notSelected", configured: "configured", "已配置": "configured",
+  "not configured": "notConfigured", "未配置": "notConfigured", global: "global", "全局": "global",
+  active: "activeState", "已启用": "activeState", inactive: "inactiveState", "未启用": "inactiveState",
+  enabled: "activeState", "启用": "activeState", disabled: "inactiveState", "停用": "inactiveState",
+  pending: "pendingState", "等待处理": "pendingState", approved: "approvedState", "已批准": "approvedState",
+  denied: "deniedState", "已拒绝": "deniedState", consumed: "consumedState", "已使用": "consumedState",
+  expired: "expiredState", "已过期": "expiredState", ready: "readyState", "正常": "readyState",
+  fresh: "freshState", "最新": "freshState", complete: "completeState", "完整": "completeState",
+  partial: "partialState", "部分可用": "partialState", stale: "staleState", degraded: "degradedState", "降级运行": "degradedState",
+  available: "availableState", "可用": "availableState", quarantined: "quarantinedState", "已隔离": "quarantinedState",
+  unknown: "unknownState", "未知": "unknownState", reachable: "reachableState", "可连接": "reachableState",
+  unsupported: "unsupportedState", "不支持": "unsupportedState", healthy: "healthyState", "健康": "healthyState",
+  failed: "failedState", fail: "failedState", "失败": "failedState", configured_not_probed: "configuredNotProbedState", "已配置，未探测": "configuredNotProbedState",
+  not_configured: "notConfigured", low: "lowTier", "低": "lowTier", medium: "mediumTier", "中": "mediumTier", high: "highTier", "高": "highTier",
+};
+
+function localizedState(value, fallback = "—") {
+  if (value === null || value === undefined || value === "") return fallback;
+  const raw = String(value).replaceAll("**", "").trim();
+  const key = localizedStateKeys[raw.toLowerCase()] || localizedStateKeys[raw];
+  return key ? t(key) : raw;
+}
+
+function applyLocale(preference, {rerenderSnapshot = true} = {}) {
   activePreference = preference || "auto";
   currentLocale = resolvedLocale(activePreference);
   document.documentElement.lang = currentLocale;
@@ -135,6 +171,8 @@ function applyLocale(preference) {
   document.getElementById("language").value = activePreference;
   renderCapabilityCards();
   renderConversationOptions();
+  if (rerenderSnapshot && latestSnapshot) renderSnapshot(latestSnapshot);
+  if (latestConversation) renderConversation(latestConversation);
 }
 
 function showPage(name) {
@@ -162,33 +200,38 @@ function list(id, items, empty) {
   if (!target.children.length) { const row = document.createElement("li"); row.className = "empty-state"; row.textContent = empty; target.append(row); }
 }
 
-async function refresh({ announce = true } = {}) {
-  try {
-    const response = await fetch("/api/status", { cache: "no-store" });
-    if (!response.ok) throw Error("status unavailable");
-    const payload = await response.json();
+function renderSnapshot(payload) {
     const inventory = payload.inventory || {};
     csrfToken = payload.dashboard?.csrf_token || "";
-    applyLocale(payload.preferences?.locale || activePreference);
     conversationEntries = payload.conversations?.entries || [];
     conversationTotal = Number(payload.conversations?.total || conversationEntries.length);
     conversationsTruncated = Boolean(payload.conversations?.truncated);
     renderConversationOptions();
     const kinds = inventory.active_by_kind || {};
     ["skill", "mcp", "cli", "api", "rag"].forEach((kind) => setText(`kind-${kind}`, kinds[kind] ?? 0));
-    setText("snapshot-status", inventory.status); setText("generation", inventory.generation); setText("active-total", inventory.active_total); setText("inactive-total", inventory.inactive_count);
+    setText("snapshot-status", localizedState(inventory.status)); setText("generation", inventory.generation); setText("active-total", inventory.active_total); setText("inactive-total", inventory.inactive_count);
     const notices = Object.entries(inventory.excluded_by_reason || {}).filter(([, count]) => Number(count) > 0).map(([name, count]) => ({name, value: count}));
     list("notice-list", notices, t("noExclusions"));
-    list("health-list", (payload.health?.checks || []).map((item) => ({name: item.check, value: item.status})), t("noHealth"));
-    list("connection-list", (payload.connections?.connections || []).map((item) => ({name: `${item.kind} (${item.active}/${item.configured})`, value: item.state})), t("noConnections"));
+    list("health-list", (payload.health?.checks || []).map((item) => ({name: item.check, value: localizedState(item.status)})), t("noHealth"));
+    list("connection-list", (payload.connections?.connections || []).map((item) => ({name: `${item.kind} (${item.active}/${item.configured})`, value: localizedState(item.state)})), t("noConnections"));
     const providerSource = payload.providers?.entries || payload.providers || [];
     list("provider-list", providerSource.map((item) => ({name: item.provider || item.name, value: t("activeCount", {active: item.active ?? 0, total: item.discovered ?? 0})})), t("noProviders"));
     list("loaded-list", (payload.loaded_capabilities || []).map((item) => ({name: `${item.kind}: ${item.revision}`, value: t("providerState", {provider: item.provider, state: item.active ? t("activeState") : t("inactiveState")})})), t("noLoaded"));
     renderApprovals(payload.approvals?.approvals || []); renderContext(payload.context?.entries || []); renderLifecycle(payload.lifecycle?.entries || []);
-    setText("reasoning-tier", payload.reasoning?.current_tier || t("notSelected")); setText("reasoning-budget", payload.reasoning?.budget?.remaining); setText("reasoning-escalations", payload.reasoning?.escalations_used ?? 0);
-    list("update-list", (payload.updates?.states || []).map((item) => ({name: item.coordinate, value: t("updateState", {active: text(item.active_revision), staged: text(item.staged_revision), health: text(item.health_status)})})), t("noUpdates"));
+    setText("reasoning-tier", localizedState(payload.reasoning?.current_tier, t("notSelected"))); setText("reasoning-budget", payload.reasoning?.budget?.remaining); setText("reasoning-escalations", payload.reasoning?.escalations_used ?? 0);
+    list("update-list", (payload.updates?.states || []).map((item) => ({name: item.coordinate, value: t("updateState", {active: text(item.active_revision), staged: text(item.staged_revision), health: localizedState(item.health_status)})})), t("noUpdates"));
     setText("secure-audit-status", payload.secure_audit?.configured ? t("configured") : t("notConfigured")); setText("secure-audit-key", payload.secure_audit?.key_environment);
-    list("audit-list", (payload.audit?.events || []).map((item) => ({name: `${item.sequence}: ${item.event_type} / ${item.outcome}`, value: item.capability_revision || item.reason_codes?.join(", ") || t("global")})), t("noAudit"));
+    list("audit-list", (payload.audit?.events || []).map((item) => ({name: `${item.sequence}: ${item.event_type} / ${localizedState(item.outcome)}`, value: item.capability_revision || item.reason_codes?.join(", ") || t("global")})), t("noAudit"));
+}
+
+async function refresh({ announce = true } = {}) {
+  try {
+    const response = await fetch("/api/status", { cache: "no-store" });
+    if (!response.ok) throw Error("status unavailable");
+    const payload = await response.json();
+    latestSnapshot = payload;
+    applyLocale(payload.preferences?.locale || activePreference, {rerenderSnapshot: false});
+    renderSnapshot(payload);
     if (announce) document.getElementById("state").textContent = t("live");
   } catch { document.getElementById("state").textContent = t("unavailable"); }
 }
@@ -345,22 +388,26 @@ function renderConversationOptions() {
   document.getElementById("conversation-index-summary").textContent = t(key, {shown: visible.length, total: conversationTotal});
 }
 
-async function loadConversation(taskId) {
-  if (!taskId) { document.getElementById("conversation-capabilities").replaceChildren(); setText("conversation-summary", t("chooseConversationHelp")); return; }
-  setText("conversation-summary", t("loading"));
-  const response = await fetch(`/api/conversation?id=${encodeURIComponent(taskId)}`, {cache: "no-store"}); if (!response.ok) throw Error("conversation unavailable");
-  const payload = await response.json();
+function renderConversation(payload) {
   if (payload.status === "trace_too_large") list("conversation-capabilities", [], t("traceTooLarge"));
   else list("conversation-capabilities", (payload.capabilities || []).map((item) => ({name: `${String(item.kind).toUpperCase()} · ${item.name}`, value: item.source === "observed_skill_instruction_read" ? t("observedSkill") : t("observedTool")})), t("noObservedCapabilities"));
   setText("conversation-summary", t("observedOnly", {calls: payload.coverage?.tool_envelopes ?? 0}));
 }
 
+async function loadConversation(taskId) {
+  if (!taskId) { latestConversation = null; document.getElementById("conversation-capabilities").replaceChildren(); setText("conversation-summary", t("chooseConversationHelp")); return; }
+  setText("conversation-summary", t("loading"));
+  const response = await fetch(`/api/conversation?id=${encodeURIComponent(taskId)}`, {cache: "no-store"}); if (!response.ok) throw Error("conversation unavailable");
+  latestConversation = await response.json();
+  renderConversation(latestConversation);
+}
+
 const approvalButton = (label, approvalId, decision) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.addEventListener("click", async () => { await postJson("/api/approval", {approval_id: approvalId, decision}); await refresh(); }); return button; };
-function renderApprovals(entries) { const target = document.getElementById("approval-list"); target.replaceChildren(); entries.forEach((item) => { const row = document.createElement("li"); const name = document.createElement("strong"); const state = document.createElement("span"); name.textContent = `${text(item.operation)} / ${text(item.status)}`; state.textContent = `${text(item.revision)} / ${text(item.expires_at)}`; row.append(name, state); if (item.status === "pending") { const actions = document.createElement("div"); actions.className = "actions"; actions.append(approvalButton(t("approve"), item.approval_id, "approve"), approvalButton(t("deny"), item.approval_id, "deny")); row.append(actions); } target.append(row); }); if (!entries.length) list("approval-list", [], t("noApprovals")); }
+function renderApprovals(entries) { const target = document.getElementById("approval-list"); target.replaceChildren(); entries.forEach((item) => { const row = document.createElement("li"); const name = document.createElement("strong"); const state = document.createElement("span"); name.textContent = `${text(item.operation)} / ${localizedState(item.status)}`; state.textContent = `${text(item.revision)} / ${text(item.expires_at)}`; row.append(name, state); if (item.status === "pending") { const actions = document.createElement("div"); actions.className = "actions"; actions.append(approvalButton(t("approve"), item.approval_id, "approve"), approvalButton(t("deny"), item.approval_id, "deny")); row.append(actions); } target.append(row); }); if (!entries.length) list("approval-list", [], t("noApprovals")); }
 const contextButton = (label, key, action) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.addEventListener("click", async () => { await postJson("/api/context", {key, action}); await refresh(); }); return button; };
 function renderContext(entries) { const target = document.getElementById("context-list"); target.replaceChildren(); entries.forEach((item) => { const row = document.createElement("li"); const name = document.createElement("strong"); const state = document.createElement("span"); const actions = document.createElement("div"); name.textContent = text(item.section); state.textContent = `${t("tokens", {value: text(item.portable_tokens)})} / ${item.pinned ? t("pinned") : t("evictable")}`; actions.className = "actions"; actions.append(contextButton(item.pinned ? t("unpin") : t("pin"), item.key, item.pinned ? "unpin" : "pin"), contextButton(t("forget"), item.key, "remove")); row.append(name, state, actions); target.append(row); }); if (!entries.length) list("context-list", [], t("noContext")); }
 const actionButton = (label, coordinate, state) => { const button = document.createElement("button"); button.type = "button"; button.textContent = label; button.addEventListener("click", async () => { if (state === "quarantined" && !confirm(t("quarantineConfirm", {value: coordinate}))) return; await postJson("/api/lifecycle", {coordinate, state}); await refresh(); await loadCapabilities({reset: true, all: true}); }); return button; };
-function renderLifecycle(entries) { const target = document.getElementById("lifecycle-list"); target.replaceChildren(); entries.forEach((item) => { const row = document.createElement("li"); const name = document.createElement("strong"); const state = document.createElement("span"); const actions = document.createElement("div"); name.textContent = text(item.coordinate); state.textContent = `${text(item.state)} / ${item.active ? t("activeState") : t("inactiveState")}`; actions.className = "actions"; actions.append(actionButton(t("enable"), item.coordinate, "enabled"), actionButton(t("disable"), item.coordinate, "disabled"), actionButton(t("quarantine"), item.coordinate, "quarantined")); row.append(name, state, actions); target.append(row); }); if (!entries.length) list("lifecycle-list", [], t("noLifecycle")); }
+function renderLifecycle(entries) { const target = document.getElementById("lifecycle-list"); target.replaceChildren(); entries.forEach((item) => { const row = document.createElement("li"); const name = document.createElement("strong"); const state = document.createElement("span"); const actions = document.createElement("div"); name.textContent = text(item.coordinate); state.textContent = `${localizedState(item.state)} / ${item.active ? t("activeState") : t("inactiveState")}`; actions.className = "actions"; actions.append(actionButton(t("enable"), item.coordinate, "enabled"), actionButton(t("disable"), item.coordinate, "disabled"), actionButton(t("quarantine"), item.coordinate, "quarantined")); row.append(name, state, actions); target.append(row); }); if (!entries.length) list("lifecycle-list", [], t("noLifecycle")); }
 async function postJson(path, body) { const response = await fetch(path, {method: "POST", headers: {"Content-Type": "application/json", "X-CapSift-CSRF": csrfToken}, body: JSON.stringify(body)}); if (!response.ok) throw Error("action failed"); return response.json(); }
 
 document.getElementById("search-form").addEventListener("submit", async (event) => { event.preventDefault(); capabilityQuery = document.getElementById("search-query").value.trim(); renderCapabilityCards(); });

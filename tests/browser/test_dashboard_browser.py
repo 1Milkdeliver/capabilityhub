@@ -93,6 +93,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
     calls: list[tuple[str, ...]] = []
     usage = {"model_calls": 0, "token_usage": 0}
     preference = {"locale": "en"}
+    capability_state = {"active": True}
 
     def snapshot() -> dict[str, object]:
         return {**_snapshot(), **usage, "preferences": dict(preference)}
@@ -100,6 +101,11 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
     def save_language(locale: str) -> dict[str, bool]:
         preference["locale"] = locale
         calls.append(("language", locale))
+        return {"saved": True}
+
+    def save_lifecycle(coordinate: str, state: str) -> dict[str, bool]:
+        capability_state["active"] = state == "enabled"
+        calls.append(("lifecycle", coordinate, state))
         return {"saved": True}
 
     with DashboardServer(
@@ -114,9 +120,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
                 }
             ]
         },
-        lifecycle_provider=lambda coordinate, state: (
-            calls.append(("lifecycle", coordinate, state)) or {"saved": True}
-        ),
+        lifecycle_provider=save_lifecycle,
         language_provider=save_language,
         approval_provider=lambda approval_id, decision: (
             calls.append(("approval", approval_id, decision)) or {"saved": True}
@@ -127,7 +131,8 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
         capability_list_provider=lambda query, kind, offset, limit: {
             "entries": [
                 {
-                    "active": True,
+                    "active": capability_state["active"],
+                    "category": "development",
                     "coordinate": "demo/tool",
                     "estimated_load_tokens": 42,
                     "kind": kind or "skill",
@@ -181,45 +186,64 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
                 if response.url.startswith(dashboard_url)
                 else None,
             )
+            artifact_dir = Path(
+                os.environ.get("CAPABILITYHUB_BROWSER_ARTIFACTS", ".artifacts/browser")
+            )
+            artifact_dir.mkdir(parents=True, exist_ok=True)
 
             page.goto(dashboard_url, wait_until="networkidle")
             page.get_by_text("Live snapshot updated.").wait_for()
             assert page.get_by_role("heading", name="CapSift", level=1).is_visible()
+            assert page.get_by_role("heading", name="Conversations", level=2).is_visible()
+            page.get_by_role("link", name="Capabilities", exact=True).click()
             assert page.get_by_role("heading", name="Capabilities", level=2).is_visible()
-            assert page.get_by_label("Task or name").is_visible()
+            assert page.get_by_label("Search a specific name").is_visible()
             assert page.get_by_label("Capability kind").is_visible()
 
             before = dict(usage)
-            page.get_by_label("Task or name").fill("demo")
+            page.get_by_label("Search a specific name").fill("dmo")
             page.get_by_label("Capability kind").select_option("skill")
             page.get_by_role("button", name="Search", exact=True).click()
             page.locator("#search-list strong").get_by_text("demo/tool", exact=True).wait_for()
-            with page.expect_response(lambda response: response.url.endswith("/api/status")):
-                page.locator("#search-list").get_by_role("button", name="Block loading").click()
+            page.locator("#search-list").get_by_role("button", name="View details").click()
+            assert page.get_by_role("dialog").is_visible()
+            page.get_by_role("dialog").get_by_role("button", name="Close").click()
+            with page.expect_response(lambda response: response.url.endswith("/api/lifecycle")):
+                page.locator("#search-list").get_by_role(
+                    "switch", name="Block future loading"
+                ).click()
+            page.locator("#search-list").get_by_role(
+                "switch", name="Allow future loading"
+            ).wait_for()
+            page.screenshot(path=artifact_dir / "dashboard-capabilities.png", full_page=True)
             with page.expect_response(lambda response: response.url.endswith("/api/language")):
                 page.get_by_label("Language").select_option("zh-CN")
             page.get_by_role("heading", name="能力库", level=2).wait_for()
+            page.get_by_role("link", name="对话", exact=True).click()
+            with page.expect_response(lambda response: response.url.endswith("/api/status")):
+                page.get_by_role("button", name="刷新对话").click()
             with page.expect_response(lambda response: "/api/conversation" in response.url):
                 page.get_by_label("选择对话").select_option(
                     "019ff540-d2c0-72d3-8fde-c00c42ae6f58"
                 )
             page.locator("#conversation-capabilities").get_by_text("SKILL · demo").wait_for()
+            page.get_by_role("link", name="管理", exact=True).click()
             with page.expect_response(lambda response: response.url.endswith("/api/status")):
                 page.locator("#approval-list").get_by_role("button", name="批准").click()
             with page.expect_response(lambda response: response.url.endswith("/api/status")):
                 page.locator("#context-list").get_by_role("button", name="固定").click()
 
-            page.get_by_role("link", name="能力库", exact=True).click()
-            assert page.url.endswith("#capabilities-title")
+            page.get_by_role("link", name="本地使用说明书", exact=True).click()
+            assert page.url.endswith("#guide")
+            page.get_by_role("heading", name="本地使用说明书", level=2).wait_for()
 
-            page.keyboard.press("Tab")
-            assert page.evaluate("() => document.activeElement?.matches('a,button,input,select')")
-            artifact_dir = Path(
-                os.environ.get("CAPABILITYHUB_BROWSER_ARTIFACTS", ".artifacts/browser")
+            page.get_by_label("语言").focus()
+            assert page.evaluate(
+                "() => document.activeElement?.matches('a,button,input,select,summary')"
             )
-            artifact_dir.mkdir(parents=True, exist_ok=True)
             page.evaluate("scrollTo(0, 0)")
             page.screenshot(path=artifact_dir / "dashboard-desktop.png", full_page=True)
+            page.get_by_role("link", name="能力库", exact=True).click()
             page.set_viewport_size({"width": 390, "height": 844})
             assert page.locator("main").evaluate("node => node.scrollWidth <= innerWidth")
             page.screenshot(path=artifact_dir / "dashboard-narrow.png", full_page=True)

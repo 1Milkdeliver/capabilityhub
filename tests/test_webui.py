@@ -77,6 +77,13 @@ def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
     assert "/api/context" in assets
     assert "/api/capabilities" in assets
     assert "/api/conversation" in assets
+    assert 'data-page-view="conversations"' in assets
+    assert 'data-page-view="guide"' in assets
+    assert 'role", "switch"' in assets
+    assert "capability-dialog" in assets
+    assert "category-filter" in assets
+    assert "capability-sort" in assets
+    assert "refresh-conversations" in assets
     assert '"zh-CN"' in assets
     assert "data-i18n" in assets
     assert "reasoning-tier" in assets

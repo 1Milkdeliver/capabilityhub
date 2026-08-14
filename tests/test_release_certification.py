@@ -229,6 +229,7 @@ def test_cli_refuses_to_certify_without_signing_key_or_live_evidence(
     _evidence(
         root,
         changes={"model_live": {"status": "skipped", "skipped": 30}},
+        created_at=datetime.now(UTC) - timedelta(minutes=5),
         subject_digest=subject["subject_digest"],
     )
     arguments = [

@@ -393,6 +393,7 @@ def local_capabilities(
         entries.append(
             {
                 "active": coordinate in active,
+                "category": _capability_category(manifest),
                 "coordinate": coordinate,
                 "estimated_load_tokens": sum(
                     section.portable_tokens for section in manifest.sections
@@ -419,6 +420,59 @@ def local_capabilities(
         "offset": bounded_offset,
         "total": len(entries),
     }
+
+
+_CAPABILITY_CATEGORY_KEYWORDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    (
+        "documents",
+        ("document", "docs", "docx", "pdf", "spreadsheet", "sheet", "slides", "office"),
+    ),
+    (
+        "development",
+        (
+            "code", "coding", "developer", "debug", "git", "github", "api", "cli", "mcp",
+            "test", "deploy", "automation", "browser", "frontend", "backend",
+        ),
+    ),
+    (
+        "data",
+        ("data", "analytics", "analysis", "sql", "metric", "report", "dashboard", "research"),
+    ),
+    (
+        "marketing",
+        ("marketing", "seo", "content", "copy", "ads", "affiliate", "growth", "email"),
+    ),
+    (
+        "design",
+        ("design", "image", "video", "canvas", "brand", "visual", "creative", "media"),
+    ),
+    (
+        "collaboration",
+        ("calendar", "meeting", "task", "project", "notion", "lark", "slack", "team"),
+    ),
+    (
+        "security",
+        ("security", "audit", "permission", "approval", "compliance", "secret", "risk"),
+    ),
+)
+
+
+def _capability_category(manifest: CapabilityManifest) -> str:
+    """Classify compact metadata without loading bodies or calling a model."""
+
+    searchable = " ".join(
+        (
+            manifest.identity.coordinate,
+            manifest.summary,
+            manifest.provider,
+            *manifest.tags,
+            *(operation.name for operation in manifest.operations),
+        )
+    ).casefold()
+    for category, keywords in _CAPABILITY_CATEGORY_KEYWORDS:
+        if any(keyword in searchable for keyword in keywords):
+            return category
+    return "other"
 
 
 def _local_cli_adapter(
@@ -1765,7 +1819,7 @@ def local_dashboard(
             "health": local_health(selected.project),
             "inventory": inventory,
             "connections": local_connections(monitor=selected),
-            "conversations": codex_task_index(selected.home, limit=100),
+            "conversations": codex_task_index(selected.home, limit=2_000),
             "loaded_capabilities": loaded.get("entries", []),
             "lifecycle": admin("lifecycle.list", {}, ("lifecycle-operator",)),
             "audit": local_audit(limit=10, monitor=selected),

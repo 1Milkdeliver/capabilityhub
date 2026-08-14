@@ -16,13 +16,20 @@ setting is present, without exposing the key or adding browser-side update actio
 The page also shows the latest ten redacted project audit events. It omits arguments,
 credentials, provider output, raw task identifiers, and absolute audit paths.
 The language picker uses bundled English and Simplified Chinese dictionaries and applies
-the saved project preference immediately without a model call. The capability library
-pages through bounded metadata cards with introductions, Provider names, activation state,
-and estimated future instruction tokens; enabling a card itself spends zero model tokens.
-The optional conversation view reads Codex's small `session_index.jsonl`, then inspects only
-tool-call envelopes for the selected task. It never parses message or reasoning bodies,
-refuses oversized traces, and labels its results as observations rather than a complete
-account of Codex-native context loading.
+the saved project preference immediately without a model call. Five hash-routed pages keep
+Conversations, the capability library, management actions, system details, and the local
+guide separate. The capability library pages through bounded metadata cards with automatic
+categories, introductions, Provider names, activation state, and estimated future
+instruction tokens. Kind, category, state, and Provider filters apply immediately; fuzzy
+name search and Token/alphabetical sorting remain local and make no model call. Cards expose
+a detail dialog and an optimistic lifecycle switch that restores its prior state on failure.
+
+The optional conversation view merges Codex's small `session_index.jsonl` with bounded
+discovery under `sessions` and `archived_sessions`, then inspects only tool-call envelopes
+for the selected task. It never parses message or reasoning bodies. A selected trace streams
+through at most 128 MiB and reports bytes scanned, envelope count, and coverage. This finds
+older and archived tasks that the lightweight index omitted, but still labels results as
+observations because silent Codex-native injection has no reliable evidence envelope.
 
 The repository-local Codex plugin provides two minimal menu skills. They can be
 installed as an always-available help entry without loading the catalog into each chat.

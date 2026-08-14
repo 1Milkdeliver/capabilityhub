@@ -273,6 +273,16 @@ def test_local_dashboard_serves_live_inventory_from_shared_monitor(tmp_path) -> 
     assert capabilities["total"] >= 1
     assert capabilities["entries"][0]["summary"]
     assert "estimated_load_tokens" in capabilities["entries"][0]
+    assert capabilities["entries"][0]["category"] in {
+        "documents",
+        "development",
+        "data",
+        "marketing",
+        "design",
+        "collaboration",
+        "security",
+        "other",
+    }
     assert payload["health"]["catalog_loaded"] is False
     assert payload["active_capabilities"] == []
     assert payload["connections"]["scope"] == "configuration_only"

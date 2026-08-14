@@ -226,19 +226,23 @@ The terminal prints a local URL. Copy it into a browser.
 
 The Dashboard can:
 
+- navigate between Conversations, Capability library, Manage, System details, and a local guide;
+- refresh and filter current or archived local Codex tasks from the first page;
 - show five-kind counts and Inventory freshness;
-- filter the complete capability-card catalog by name, kind, and activation state;
-- show a compact introduction, Provider, state, and estimated instruction tokens on each card;
+- filter immediately by kind, automatic category, activation state, or Provider without pressing Search;
+- use fuzzy search only for a specific name, then sort by estimated tokens or alphabetically;
+- show category-colored cards with an introduction, Provider, state, and prominent estimated Token impact;
+- open a card's details and use a switch to allow or block future full loading through CapSift;
 - switch between English, Simplified Chinese, and system language from the upper-right corner;
-- select a local Codex task and show Skill or tool calls observed by CapSift;
 - show Provider, Routing, Loaded, and connection-configuration state;
-- allow or block future loading, and enable, disable, or quarantine capabilities;
+- enable, disable, or quarantine capabilities, restoring the switch if the save fails;
 - decide existing approval requests;
-- show redacted audit, context, reasoning, and update state.
+- show redacted audit, context, reasoning, and update state;
+- read the built-in local guide without a network connection.
 
-The Dashboard binds to `127.0.0.1` by default. The conversation picker reads only Codex's lightweight `session_index.jsonl`. For a selected task, it inspects tool-call envelopes rather than message, response, or reasoning bodies. A history that exceeds the safe scan limit is marked unavailable instead of being scanned.
+The Dashboard binds to `127.0.0.1` by default. Refreshing conversations merges Codex's lightweight `session_index.jsonl` with bounded file discovery under the `sessions` and `archived_sessions` directories, so older and archived tasks omitted from the index can still appear. Only after you select a task does CapSift stream through up to 128 MiB of its tool-call envelopes. It never reads or displays message, response, or reasoning bodies. The page reports bytes scanned, tool envelopes, and whether coverage was complete.
 
-The Dashboard does not probe external services automatically and does not expose credentials, complete commands, Skill bodies, or Provider output. Enabling a capability costs `0 Token`; the card estimate applies to a later full instruction load. Disabling a capability prevents future disclosure through CapSift but cannot remove content already present in Codex conversation history. Native Codex calls are not all reported to CapSift, so the conversation view displays observed evidence rather than guessing missing activity.
+The Dashboard does not probe external services automatically and does not expose credentials, complete commands, Skill bodies, or Provider output. Enabling a capability costs `0 Token`; the card estimate applies to a later full instruction load. Disabling a capability prevents future disclosure through CapSift but cannot remove content already present in Codex conversation history. CapSift now discovers more old tasks, but silent native Codex injection without a tool-call envelope still cannot be proven reliably. The conversation view reports verifiable evidence and coverage instead of guessing missing activity.
 
 ## 8. Ten useful CLI commands
 

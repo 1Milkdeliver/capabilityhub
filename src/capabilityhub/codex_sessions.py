@@ -4,20 +4,25 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import UTC, datetime
+from itertools import islice
 from pathlib import Path
 from typing import Any
 
 from capabilityhub.models import JsonValue
 
-_SESSION_ID = re.compile(r"^[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$")
+_SESSION_ID_PATTERN = r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}"
+_SESSION_ID = re.compile(rf"^{_SESSION_ID_PATTERN}$")
+_SESSION_ID_IN_NAME = re.compile(_SESSION_ID_PATTERN)
 _SKILL_PATH = re.compile(
     r"(?:^|[\\/])(?P<name>[A-Za-z0-9_.:@+-]{1,100})[\\/]SKILL\.md(?:\b|['\"`])",
     re.IGNORECASE,
 )
 _MCP_TOOL = re.compile(r"\b(?:mcp__|tools\.)(?P<name>[A-Za-z][A-Za-z0-9_]{1,120})")
-_MAX_INDEX_BYTES = 2_000_000
+_MAX_INDEX_BYTES = 16_000_000
 _MAX_LINE_BYTES = 2_000_000
-_DEFAULT_SCAN_BYTES = 16_000_000
+_DEFAULT_SCAN_BYTES = 128_000_000
+_MAX_TRACE_FILES = 5_000
 
 
 def codex_task_index(
@@ -29,36 +34,37 @@ def codex_task_index(
 
     root = _codex_root(home)
     path = root / "session_index.jsonl"
-    if not path.is_file():
-        return {"entries": [], "status": "unavailable", "total": 0}
+    entries: dict[str, dict[str, JsonValue]] = {}
     try:
-        if path.stat().st_size > _MAX_INDEX_BYTES:
-            return {"entries": [], "status": "index_too_large", "total": 0}
-        entries: dict[str, dict[str, JsonValue]] = {}
-        with path.open("r", encoding="utf-8") as stream:
-            for raw_line in stream:
-                item = _json_object(raw_line)
-                if item is None:
-                    continue
-                task_id = item.get("id")
-                title = item.get("thread_name")
-                updated_at = item.get("updated_at")
-                if (
-                    not isinstance(task_id, str)
-                    or _SESSION_ID.fullmatch(task_id) is None
-                    or not isinstance(title, str)
-                    or not isinstance(updated_at, str)
-                ):
-                    continue
-                entries[task_id] = {
-                    "id": task_id,
-                    "title": _compact(title, 160),
-                    "updated_at": _compact(updated_at, 64),
-                }
+        if path.is_file() and path.stat().st_size <= _MAX_INDEX_BYTES:
+            with path.open("r", encoding="utf-8") as stream:
+                for raw_line in stream:
+                    item = _json_object(raw_line)
+                    if item is None:
+                        continue
+                    task_id = item.get("id")
+                    title = item.get("thread_name")
+                    updated_at = item.get("updated_at")
+                    if (
+                        not isinstance(task_id, str)
+                        or _SESSION_ID.fullmatch(task_id) is None
+                        or not isinstance(title, str)
+                        or not isinstance(updated_at, str)
+                    ):
+                        continue
+                    entries[task_id] = {
+                        "archived": False,
+                        "id": task_id,
+                        "source": "task_index",
+                        "title": _compact(title, 160),
+                        "updated_at": _compact(updated_at, 64),
+                    }
+        _merge_trace_index(root, entries)
     except OSError:
-        return {"entries": [], "status": "unavailable", "total": 0}
+        if not entries:
+            return {"entries": [], "status": "unavailable", "total": 0}
     ordered = sorted(entries.values(), key=lambda item: str(item["updated_at"]), reverse=True)
-    bounded_limit = min(max(limit, 1), 200)
+    bounded_limit = min(max(limit, 1), 2_000)
     public_entries: list[JsonValue] = [dict(item) for item in ordered[:bounded_limit]]
     return {
         "entries": public_entries,
@@ -66,6 +72,43 @@ def codex_task_index(
         "total": len(ordered),
         "truncated": len(ordered) > bounded_limit,
     }
+
+
+def _merge_trace_index(
+    root: Path,
+    entries: dict[str, dict[str, JsonValue]],
+) -> None:
+    """Add active and archived traces that the lightweight index no longer lists."""
+
+    for directory, archived in (
+        (root / "sessions", False),
+        (root / "archived_sessions", True),
+    ):
+        if not directory.is_dir():
+            continue
+        for trace in islice(directory.rglob("*.jsonl"), _MAX_TRACE_FILES):
+            match = _SESSION_ID_IN_NAME.search(trace.name)
+            if match is None or not trace.is_file():
+                continue
+            task_id = match.group(0)
+            try:
+                updated_at = datetime.fromtimestamp(trace.stat().st_mtime, UTC).isoformat()
+            except OSError:
+                continue
+            existing = entries.get(task_id)
+            if existing is not None:
+                existing["archived"] = archived
+                existing["trace_available"] = True
+                continue
+            label = "Archived task" if archived else "Older task"
+            entries[task_id] = {
+                "archived": archived,
+                "id": task_id,
+                "source": "trace_discovery",
+                "title": f"{label} {task_id[:8]}",
+                "trace_available": True,
+                "updated_at": updated_at,
+            }
 
 
 def codex_task_capabilities(
@@ -98,9 +141,12 @@ def codex_task_capabilities(
 
     skills: set[str] = set()
     tools: set[str] = set()
+    tool_envelopes = 0
+    scanned_bytes = 0
     try:
         with path.open("rb") as stream:
             for raw_line in stream:
+                scanned_bytes += len(raw_line)
                 if len(raw_line) > _MAX_LINE_BYTES:
                     continue
                 item = _json_object(raw_line.decode("utf-8", errors="replace"))
@@ -112,6 +158,7 @@ def codex_task_capabilities(
                     "function_call",
                 }:
                     continue
+                tool_envelopes += 1
                 name = payload.get("name")
                 if isinstance(name, str) and name not in {"exec", "functions.exec"}:
                     tools.add(_compact(name, 120))
@@ -122,7 +169,14 @@ def codex_task_capabilities(
                 tools.update(match.group("name") for match in _MCP_TOOL.finditer(raw_input))
     except OSError:
         return _task_result(task_id, "trace_unavailable", (), ())
-    return _task_result(task_id, "observed", tuple(sorted(skills)), tuple(sorted(tools)))
+    return {
+        **_task_result(task_id, "observed", tuple(sorted(skills)), tuple(sorted(tools))),
+        "coverage": {
+            "bytes_scanned": scanned_bytes,
+            "tool_envelopes": tool_envelopes,
+            "trace_complete": True,
+        },
+    }
 
 
 def _task_result(

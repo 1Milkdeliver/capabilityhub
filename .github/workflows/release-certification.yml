@@ -146,7 +146,23 @@ jobs:
         run: |
           if [ -n "$CAPABILITYHUB_LIVE_MODEL_EVIDENCE_B64" ]; then
             printf '%s' "$CAPABILITYHUB_LIVE_MODEL_EVIDENCE_B64" | base64 --decode > model-eval-live.json
-          else
+            if ! python - <<'PY'
+          import json
+          from benchmarks.model_eval import validate_artifact
+
+          subject = json.load(open("release-build/release-subject.json", encoding="utf-8"))
+          validate_artifact(
+              "model-eval-live.json",
+              require_complete=True,
+              source_revision=subject["source_revision"],
+              subject_digest=subject["subject_digest"],
+          )
+          PY
+            then
+              rm -f model-eval-live.json
+            fi
+          fi
+          if [ ! -f model-eval-live.json ]; then
             test -n "$OPENAI_API_KEY"
             python -m benchmarks.model_eval --live --trials 30 --source-revision "$GITHUB_SHA" --subject release-build/release-subject.json --artifact model-eval-live.json
           fi

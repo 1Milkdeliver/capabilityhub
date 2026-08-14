@@ -277,6 +277,10 @@ def test_release_workflow_uses_build_once_subject_and_program_measured_gates() -
     assert "gate --type sandbox_linux" in workflow
     assert "CAPABILITYHUB_REQUIRE_LINUX_SANDBOX" in workflow
     assert "model_eval --live --trials 30 --source-revision" in workflow
+    assert "validate_artifact(" in workflow
+    assert "source_revision=subject[\"source_revision\"]" in workflow
+    assert "subject_digest=subject[\"subject_digest\"]" in workflow
+    assert "if [ ! -f model-eval-live.json ]" in workflow
     assert "--subject release-build/release-subject.json" in workflow
     assert 'tags:\n      - "v*.*.*"' in workflow
     assert "publish-release:" in workflow

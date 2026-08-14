@@ -2,6 +2,9 @@ name: Release Certification
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*.*.*"
 
 permissions:
   contents: read
@@ -173,13 +176,84 @@ jobs:
         env:
           CAPABILITYHUB_RELEASE_SIGNING_KEY: ${{ secrets.CAPABILITYHUB_RELEASE_SIGNING_KEY }}
         run: python -m capabilityhub.release_certification certify --evidence-root downloaded-evidence --source-revision "$GITHUB_SHA" --subject downloaded-evidence/release-subject-${{ github.run_id }}/release-subject.json --subject-artifact-root downloaded-evidence/release-subject-${{ github.run_id }} --key-id github-release-certifier --max-age-hours 12 --manifest release-manifest.json --signature release-manifest.sig.json
+      - name: Collect the exact certified release assets
+        run: |
+          cp downloaded-evidence/release-subject-${{ github.run_id }}/release-subject.json .
+          cp downloaded-evidence/release-subject-${{ github.run_id }}/release-sbom.json .
+          cp downloaded-evidence/release-subject-${{ github.run_id }}/capsift-source.tar .
+          cp downloaded-evidence/release-subject-${{ github.run_id }}/dist/*.whl .
       - uses: actions/upload-artifact@v6
         with:
           name: certified-release-${{ github.run_id }}
           path: |
             release-manifest.json
             release-manifest.sig.json
-            downloaded-evidence/release-subject-${{ github.run_id }}/release-subject.json
-            downloaded-evidence/release-subject-${{ github.run_id }}/release-sbom.json
-            downloaded-evidence/release-subject-${{ github.run_id }}/dist/*.whl
+            release-subject.json
+            release-sbom.json
+            capsift-source.tar
+            capsift-*.whl
           if-no-files-found: error
+
+  publish-release:
+    needs: certify
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/download-artifact@v7
+        with:
+          name: certified-release-${{ github.run_id }}
+          path: certified-release
+      - name: Verify tag, version, revision, and immutable artifact set
+        run: |
+          python - <<'PY'
+          import hashlib
+          import json
+          import os
+          import pathlib
+          import tomllib
+
+          root = pathlib.Path("certified-release")
+          version = tomllib.loads(pathlib.Path("pyproject.toml").read_text())["project"]["version"]
+          tag = os.environ["GITHUB_REF_NAME"]
+          revision = os.environ["GITHUB_SHA"]
+          if tag != f"v{version}":
+              raise SystemExit("release tag does not match project version")
+          subject = json.loads((root / "release-subject.json").read_text())
+          if subject.get("source_revision") != revision:
+              raise SystemExit("release subject does not match tagged revision")
+          wheels = tuple(root.glob("capsift-*.whl"))
+          if len(wheels) != 1 or f"capsift-{version}-" not in wheels[0].name:
+              raise SystemExit("certified release must contain exactly one matching wheel")
+          required = (
+              "release-manifest.json",
+              "release-manifest.sig.json",
+              "release-subject.json",
+              "release-sbom.json",
+              "capsift-source.tar",
+          )
+          for name in required:
+              path = root / name
+              if not path.is_file() or path.stat().st_size == 0:
+                  raise SystemExit(f"certified release asset missing: {name}")
+          print(hashlib.sha256(wheels[0].read_bytes()).hexdigest())
+          PY
+      - name: Publish the already-certified immutable assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" \
+            certified-release/capsift-*.whl \
+            certified-release/capsift-source.tar \
+            certified-release/release-subject.json \
+            certified-release/release-sbom.json \
+            certified-release/release-manifest.json \
+            certified-release/release-manifest.sig.json \
+            --verify-tag \
+            --title "CapSift $GITHUB_REF_NAME" \
+            --generate-notes

@@ -278,6 +278,16 @@ def test_release_workflow_uses_build_once_subject_and_program_measured_gates() -
     assert "CAPABILITYHUB_REQUIRE_LINUX_SANDBOX" in workflow
     assert "model_eval --live --trials 30 --source-revision" in workflow
     assert "--subject release-build/release-subject.json" in workflow
+    assert 'tags:\n      - "v*.*.*"' in workflow
+    assert "publish-release:" in workflow
+    assert "needs: certify" in workflow
+    assert "contents: write" in workflow
+    assert "gh release create" in workflow
+    assert "--verify-tag" in workflow
+    assert "capsift-source.tar" in workflow
+    assert "release-manifest.sig.json" in workflow
+    assert 'tag != f"v{version}"' in workflow
+    assert 'subject.get("source_revision") != revision' in workflow
 
 
 def test_full_suite_accepts_only_the_separately_certified_browser_skip(tmp_path) -> None:

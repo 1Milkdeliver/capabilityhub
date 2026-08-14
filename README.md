@@ -2,6 +2,7 @@
 
 > Guides: [English user guide](docs/user-guide-en.md) · [中文使用说明书](docs/user-guide-zh-CN.md)
 > Upgrading from CapabilityHub? Read the [lossless migration guide](docs/migration-capabilityhub-to-capsift.md).
+> Release notes: [Changelog](CHANGELOG.md) · [GitHub Releases](https://github.com/1Milkdeliver/capsift/releases)
 
 CapSift is a self-hosted Python control plane for progressively disclosing agent capabilities. A release is certified only when the signed Release Certification manifest succeeds for that exact source revision and artifact set. It has one manifest model for five capability kinds:
 

@@ -105,6 +105,22 @@ def test_json_cli_commands_route_without_extra_output(
     assert json.loads(capsys.readouterr().out) == payload
 
 
+def test_app_update_cli_routes_check_and_verified_fetch(monkeypatch, capsys) -> None:
+    calls: list[tuple[str, bool]] = []
+
+    def app_update(action: str, *, force: bool) -> dict[str, object]:
+        calls.append((action, force))
+        return {"status": "downloaded" if action == "fetch" else "up_to_date"}
+
+    monkeypatch.setattr(runtime, "local_app_update", app_update)
+
+    assert main(["app-update"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "up_to_date"
+    assert main(["app-update", "fetch", "--force", "--pretty"]) == 0
+    assert json.loads(capsys.readouterr().out)["status"] == "downloaded"
+    assert calls == [("check", False), ("fetch", True)]
+
+
 def test_search_cli_passes_filters_and_emits_compact_json(monkeypatch, capsys) -> None:
     seen: dict[str, object] = {}
 

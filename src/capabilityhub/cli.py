@@ -153,6 +153,14 @@ def build_parser() -> argparse.ArgumentParser:
     updates.add_argument("--limit", type=_positive_int, default=100)
     _project_argument(updates)
     _pretty_argument(updates)
+    app_update = commands.add_parser(
+        "app-update", help="check for or safely download a verified CapSift release"
+    )
+    app_update.add_argument("action", nargs="?", choices=("check", "fetch"), default="check")
+    app_update.add_argument(
+        "--force", action="store_true", help="ignore the 24-hour local check interval"
+    )
+    _pretty_argument(app_update)
     audit = commands.add_parser("audit", help="show a redacted tail of project audit events")
     audit.add_argument("--limit", type=_audit_limit, default=50)
     _project_argument(audit)
@@ -491,6 +499,12 @@ def _main(argv: Sequence[str] | None = None) -> int:
                 trust_mode=args.trust_mode,
             )
         _print_json(payload, pretty=args.pretty)
+        return 0
+    if args.command == "app-update":
+        _print_json(
+            runtime.local_app_update(args.action, force=args.force),
+            pretty=args.pretty,
+        )
         return 0
     if args.command == "audit":
         _print_json(runtime.local_audit(args.project_root, limit=args.limit), pretty=args.pretty)

@@ -28,6 +28,7 @@ from capabilityhub.admin_control import (
     LoopbackAdminControl,
 )
 from capabilityhub.admission import validate_for_admission
+from capabilityhub.app_update import LocalAppUpdater
 from capabilityhub.approval_store import (
     ApprovalIntent,
     ApprovalRecord,
@@ -1088,6 +1089,26 @@ def local_updates(
         "pins": [_jsonable(pin) for pin in manager.pins()],
         "states": [_jsonable(state) for state in manager.states(limit=limit)],
     }
+
+
+def local_app_update(
+    action: str = "check",
+    *,
+    force: bool = False,
+    automatic: bool = False,
+) -> dict[str, JsonValue]:
+    """Check or safely stage a CapSift application release without loading capabilities."""
+
+    if action not in {"check", "fetch"}:
+        raise ValueError("action must be check or fetch")
+    return cast(
+        dict[str, JsonValue],
+        LocalAppUpdater().check(
+            force=force,
+            auto_download=action == "fetch",
+            automatic=automatic,
+        ),
+    )
 
 
 def local_update_action(

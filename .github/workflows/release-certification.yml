@@ -220,7 +220,7 @@ jobs:
       - run: python -m pip install --disable-pip-version-check -e .
       - uses: actions/download-artifact@v7
         with:
-          pattern: release-*-${{ github.run_id }}
+          pattern: release-*-${{ github.run_id }}*
           path: downloaded-evidence
       - name: Aggregate and sign only complete fresh measured evidence
         env:

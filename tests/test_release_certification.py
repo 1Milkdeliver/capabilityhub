@@ -281,6 +281,10 @@ def test_release_workflow_uses_build_once_subject_and_program_measured_gates() -
     assert "source_revision=subject[\"source_revision\"]" in workflow
     assert "subject_digest=subject[\"subject_digest\"]" in workflow
     assert "if [ ! -f model-eval-live.json ]" in workflow
+    assert "CAPSIFT-CODEX-EVIDENCE:" in workflow
+    assert "base64.b64decode(lines[0], validate=True)" in workflow
+    assert "subject_digest: ${{ steps.subject.outputs.subject_digest }}" in workflow
+    assert "release-subject-${{ github.run_id }}-${{" in workflow
     assert "--subject release-build/release-subject.json" in workflow
     assert 'tags:\n      - "v*.*.*"' in workflow
     assert "publish-release:" in workflow

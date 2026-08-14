@@ -72,10 +72,14 @@
     <section class="page-view" data-page-view="manage" aria-labelledby="manage-title" hidden>
       <div class="page-intro"><div><p class="page-kicker" data-i18n="projectControls">PROJECT CONTROLS</p><h2 id="manage-title" data-i18n="manage">Manage</h2><p class="hint" data-i18n="manageHint">Project activation controls. No files are deleted or executed.</p></div></div>
       <div class="management-grid">
+        <section class="app-update-card"><h3 data-i18n="appUpdate">CapSift application update</h3><p class="hint" data-i18n="appUpdateHint">Checks at most once per day and downloads only a SHA-256 verified release. Uses no model or conversation Token.</p>
+          <dl class="metrics compact-metrics"><div><dt data-i18n="installedVersion">Installed</dt><dd id="app-update-current">—</dd></div><div><dt data-i18n="latestVersion">Latest release</dt><dd id="app-update-latest">—</dd></div><div><dt data-i18n="updateStatus">Update status</dt><dd id="app-update-status">—</dd></div></dl>
+          <div class="actions"><button id="check-app-update" type="button" data-i18n="checkAndDownload">Check and download</button><span id="app-update-note" class="hint"></span></div>
+        </section>
         <section><h3 data-i18n="lifecycle">Lifecycle</h3><p class="hint" data-i18n="lifecycleHint">Enable, disable, or quarantine capability coordinates.</p><ul id="lifecycle-list" class="cards"></ul></section>
         <section><h3 data-i18n="approvals">Approvals</h3><p class="hint" data-i18n="approvalsHint">Exact, expiring requests. Arguments and their digests are never displayed.</p><ul id="approval-list" class="cards"></ul></section>
         <section><h3 data-i18n="context">Context</h3><p class="hint" data-i18n="contextHint">Metadata for disclosed sections. Pin, unpin, or forget without reloading bodies.</p><ul id="context-list" class="cards"></ul></section>
-        <section><h3 data-i18n="updates">Updates</h3><p class="hint" data-i18n="updatesHint">Staged revision, health gate, active pointer, rollback target, and in-flight pins.</p><ul id="update-list" class="cards"></ul></section>
+        <section><h3 data-i18n="capabilityUpdates">Capability updates</h3><p class="hint" data-i18n="updatesHint">Staged revision, health gate, active pointer, rollback target, and in-flight pins.</p><ul id="update-list" class="cards"></ul></section>
       </div>
     </section>
 

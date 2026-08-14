@@ -32,8 +32,12 @@ const messages = {
     searchUnavailable: "Capability library unavailable.", manageHint: "Changes apply to this project. No files are deleted and no capability is executed.",
     lifecycle: "Lifecycle", lifecycleHint: "Advanced enable, disable, and quarantine controls.", approvals: "Approvals",
     approvalsHint: "Exact, expiring requests. Arguments and their digests are never displayed.", context: "Context",
-    contextHint: "Metadata for disclosed sections. Pin, unpin, or forget without loading bodies again.", updates: "Updates",
+    contextHint: "Metadata for disclosed sections. Pin, unpin, or forget without loading bodies again.", updates: "Updates", capabilityUpdates: "Capability updates",
     updatesHint: "Staged revision, health gate, active pointer, rollback target, and in-flight pins.",
+    appUpdate: "CapSift application update", appUpdateHint: "Checks at most once per day and downloads only a SHA-256 verified release. Uses no model or conversation Token.",
+    installedVersion: "Installed", latestVersion: "Latest release", updateStatus: "Update status", checkAndDownload: "Check and download",
+    updateChecking: "Checking safely…", updateDownloaded: "Verified update downloaded. Installation remains a separate action.", updateCurrent: "You already have the latest release.", updateFailed: "Could not check. Your current installation was not changed.", updateAvailable: "A verified release is available.",
+    checkingState: "checking", upToDateState: "up to date", updateAvailableState: "update available", downloadedState: "downloaded", checkFailedState: "check failed", disabledState: "disabled",
     detailsHint: "Open only the section you need. These values do not load capability bodies.", status: "Status", snapshot: "Snapshot",
     generation: "Generation", active: "Active", inactive: "Inactive", notices: "Notices", noticesHint: "Safe counts only; sensitive paths and credentials are hidden.",
     health: "Health", healthHint: "Local wiring checks without loading capability bodies.", connections: "Connections",
@@ -89,7 +93,11 @@ const messages = {
     categorySecurity: "安全与管理", categoryOther: "其他", noMatches: "没有匹配项；请清除搜索或更换筛选条件。", searchUnavailable: "能力库暂不可用。",
     manageHint: "设置只作用于当前项目；不会删除文件，也不会执行能力。", lifecycle: "生命周期", lifecycleHint: "高级启用、停用和隔离控制。",
     approvals: "审批", approvalsHint: "精确且会过期的请求；不显示参数及摘要。", context: "上下文", contextHint: "已披露部分的元数据；无需重载正文即可固定或忘记。",
-    updates: "更新", updatesHint: "暂存版本、健康状态、活动版本、回滚目标和执行中版本。", detailsHint: "只展开你需要的部分；这些信息不会加载能力正文。",
+    updates: "更新", capabilityUpdates: "能力版本更新", updatesHint: "暂存版本、健康状态、活动版本、回滚目标和执行中版本。", detailsHint: "只展开你需要的部分；这些信息不会加载能力正文。",
+    appUpdate: "CapSift 软件更新", appUpdateHint: "每天最多检查一次，只下载带 SHA-256 校验的正式发布；不调用模型，也不消耗对话 Token。",
+    installedVersion: "已安装", latestVersion: "最新发布", updateStatus: "更新状态", checkAndDownload: "检查并下载",
+    updateChecking: "正在安全检查…", updateDownloaded: "已下载并校验更新；安装仍是单独操作。", updateCurrent: "当前已经是最新版本。", updateFailed: "检查失败，当前安装没有改变。", updateAvailable: "发现可验证的新版本。",
+    checkingState: "正在检查", upToDateState: "已是最新", updateAvailableState: "有新版本", downloadedState: "已下载", checkFailedState: "检查失败", disabledState: "已关闭",
     status: "状态", snapshot: "快照", generation: "代次", active: "已启用", inactive: "未启用", notices: "提示",
     noticesHint: "只显示安全计数；敏感路径和凭据会隐藏。", health: "健康检查", healthHint: "不加载能力正文，只检查本地接线。",
     connections: "连接", connectionsHint: "只显示配置状态，不进行网络探测。", providers: "Provider", providersHint: "显示每项能力由哪个本地适配器提供。",
@@ -141,6 +149,7 @@ const text = (value) => String(value ?? "—");
 const setText = (id, value) => { document.getElementById(id).textContent = text(value); };
 
 const localizedStateKeys = {
+  checking: "checkingState", up_to_date: "upToDateState", update_available: "updateAvailableState", downloaded: "downloadedState", check_failed: "checkFailedState", disabled: "disabledState",
   "not selected": "notSelected", "未选择": "notSelected", configured: "configured", "已配置": "configured",
   "not configured": "notConfigured", "未配置": "notConfigured", global: "global", "全局": "global",
   active: "activeState", "已启用": "activeState", inactive: "inactiveState", "未启用": "inactiveState",
@@ -223,8 +232,17 @@ function renderSnapshot(payload) {
     renderApprovals(payload.approvals?.approvals || []); renderContext(payload.context?.entries || []); renderLifecycle(payload.lifecycle?.entries || []);
     setText("reasoning-tier", localizedState(payload.reasoning?.current_tier, t("notSelected"))); setText("reasoning-budget", payload.reasoning?.budget?.remaining); setText("reasoning-escalations", payload.reasoning?.escalations_used ?? 0);
     list("update-list", (payload.updates?.states || []).map((item) => ({name: item.coordinate, value: t("updateState", {active: text(item.active_revision), staged: text(item.staged_revision), health: localizedState(item.health_status)})})), t("noUpdates"));
+    renderAppUpdate(payload.app_update || {});
     setText("secure-audit-status", payload.secure_audit?.status ? localizedState(payload.secure_audit.status) : payload.secure_audit?.configured ? t("configured") : t("notConfigured")); setText("secure-audit-key", payload.secure_audit?.key_environment);
     list("audit-list", (payload.audit?.events || []).map((item) => ({name: `${item.sequence}: ${item.event_type} / ${localizedState(item.outcome)}`, value: item.capability_revision || item.reason_codes?.join(", ") || t("global")})), t("noAudit"));
+}
+
+function renderAppUpdate(update) {
+  setText("app-update-current", update.current_version);
+  setText("app-update-latest", update.latest_version);
+  setText("app-update-status", localizedState(update.status));
+  const notes = {downloaded: "updateDownloaded", up_to_date: "updateCurrent", check_failed: "updateFailed", update_available: "updateAvailable", checking: "updateChecking"};
+  setText("app-update-note", notes[update.status] ? t(notes[update.status]) : "");
 }
 
 async function refresh({ announce = true } = {}) {
@@ -426,6 +444,7 @@ document.getElementById("load-more").addEventListener("click", () => loadCapabil
 document.getElementById("conversation-query").addEventListener("input", renderConversationOptions); document.getElementById("conversation-state").addEventListener("change", renderConversationOptions);
 document.getElementById("conversation-select").addEventListener("change", (event) => loadConversation(event.target.value).catch(() => list("conversation-capabilities", [], t("unavailable"))));
 document.getElementById("refresh-conversations").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; button.textContent = t("refreshing"); await refresh({announce: false}); const selected = document.getElementById("conversation-select").value; if (selected) await loadConversation(selected); button.disabled = false; button.textContent = t("refreshConversations"); document.getElementById("state").textContent = t("conversationsRefreshed"); });
+document.getElementById("check-app-update").addEventListener("click", async (event) => { const button = event.currentTarget; button.disabled = true; setText("app-update-note", t("updateChecking")); try { const result = await postJson("/api/app-update", {action: "fetch"}); if (latestSnapshot) latestSnapshot.app_update = result; renderAppUpdate(result); } catch { setText("app-update-note", t("updateFailed")); } finally { button.disabled = false; } });
 document.getElementById("language").addEventListener("change", async () => { const previous = activePreference; const requested = document.getElementById("language").value; localeOverride = requested; applyLocale(requested); try { await postJson("/api/language", {locale: requested}); if (latestSnapshot) latestSnapshot.preferences = {...(latestSnapshot.preferences || {}), locale: requested}; document.getElementById("state").textContent = t("languageSaved"); } catch { localeOverride = null; applyLocale(previous); document.getElementById("state").textContent = t("languageFailed"); } });
 document.getElementById("close-capability-dialog").addEventListener("click", () => document.getElementById("capability-dialog").close());
 document.getElementById("capability-dialog").addEventListener("click", (event) => { if (event.target === event.currentTarget) event.currentTarget.close(); });

@@ -12,10 +12,11 @@ from enum import Enum
 from importlib import import_module, metadata, util
 from pathlib import Path
 from secrets import token_bytes
-from threading import RLock, Timer
+from threading import RLock, Thread, Timer
 from time import monotonic
 from typing import cast
 
+from capabilityhub import __version__
 from capabilityhub.activation_lock import (
     export_activation_lock,
     validate_activation_lock_json,
@@ -145,6 +146,7 @@ from capabilityhub.tenancy import SqliteScopedState, TenantScope
 from capabilityhub.update_store import SQLiteUpdateStore
 from capabilityhub.webui import (
     ApprovalProvider,
+    AppUpdateProvider,
     CapabilityListProvider,
     ContextProvider,
     ConversationProvider,
@@ -325,6 +327,7 @@ def dashboard(
     context_provider: ContextProvider | None = None,
     capability_list_provider: CapabilityListProvider | None = None,
     conversation_provider: ConversationProvider | None = None,
+    app_update_provider: AppUpdateProvider | None = None,
 ) -> DashboardServer:
     """Create (but do not implicitly retain) a localhost-only dashboard server."""
     server = DashboardServer(
@@ -338,6 +341,7 @@ def dashboard(
         context_provider=context_provider,
         capability_list_provider=capability_list_provider,
         conversation_provider=conversation_provider,
+        app_update_provider=app_update_provider,
     )
     server.start()
     return server
@@ -1808,6 +1812,26 @@ def local_dashboard(
     """Start a live local dashboard backed by one local catalog monitor."""
 
     selected = _select_local_scope(project_root, monitor)
+    update_lock = RLock()
+    app_update_state: dict[str, JsonValue] = {
+        "status": "checking",
+        "current_version": __version__,
+        "model_calls": 0,
+        "conversation_tokens": 0,
+    }
+
+    def app_update(action: str, force: bool) -> StatusSnapshot:
+        result = local_app_update(action, force=force, automatic=not force)
+        with update_lock:
+            app_update_state.clear()
+            app_update_state.update(result)
+            return dict(app_update_state)
+
+    Thread(
+        target=lambda: app_update("fetch", False),
+        name="capsift-update-check",
+        daemon=True,
+    ).start()
 
     def admin(
         operation: str,
@@ -1869,6 +1893,7 @@ def local_dashboard(
             "context": local_context(selected.project, adapter=AdapterKind.HTTP),
             "reasoning": local_reasoning("dashboard", project_root=selected.project),
             "updates": local_updates(monitor=selected),
+            "app_update": dict(app_update_state),
             "secure_audit": {
                 "configured": True,
                 "error_code": audit_error,
@@ -1931,6 +1956,7 @@ def local_dashboard(
         context_provider=context,
         capability_list_provider=capabilities,
         conversation_provider=conversation,
+        app_update_provider=app_update,
     )
 
 

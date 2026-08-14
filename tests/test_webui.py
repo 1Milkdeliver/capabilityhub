@@ -89,6 +89,8 @@ def test_dashboard_assets_have_management_controls_and_no_mojibake() -> None:
     assert "data-i18n" in assets
     assert "reasoning-tier" in assets
     assert "update-list" in assets
+    assert "/api/app-update" in assets
+    assert "app-update-status" in assets
     assert "secure-audit-status" in assets
     assert "\u0431" not in assets
     assert "\ufffd" not in assets
@@ -99,6 +101,7 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
     language_calls: list[str] = []
     approval_calls: list[tuple[str, str]] = []
     context_calls: list[tuple[str, str]] = []
+    app_update_calls: list[tuple[str, bool]] = []
 
     with DashboardServer(
         lambda: {"inventory": {"active_total": 1}},
@@ -122,6 +125,9 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
         conversation_provider=lambda task_id: {
             "capabilities": [], "status": "observed", "task_id": task_id, "total": 0,
         },
+        app_update_provider=lambda action, force: (
+            app_update_calls.append((action, force)) or {"status": "downloaded"}
+        ),
     ) as dashboard:
         with urlopen(f"{dashboard.url}/api/status", timeout=2) as response:
             status = json.loads(response.read())
@@ -187,8 +193,17 @@ def test_dashboard_search_and_csrf_protected_management_callbacks() -> None:
         )
         with urlopen(context, timeout=2) as response:
             assert json.loads(response.read()) == {"saved": True}
+        app_update = Request(
+            f"{dashboard.url}/api/app-update",
+            data=b'{"action":"fetch"}',
+            headers={"Content-Type": "application/json", "X-CapSift-CSRF": token},
+            method="POST",
+        )
+        with urlopen(app_update, timeout=2) as response:
+            assert json.loads(response.read()) == {"status": "downloaded"}
 
     assert lifecycle_calls == [("demo/tool", "disabled")]
     assert language_calls == ["zh-CN"]
     assert approval_calls == [("apr_one", "approve")]
     assert context_calls == [("pin", "demo::contract")]
+    assert app_update_calls == [("fetch", True)]

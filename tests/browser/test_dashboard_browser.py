@@ -230,6 +230,16 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             "task_id": task_id,
             "total": 1,
         },
+        app_update_provider=lambda action, force: (
+            calls.append(("app-update", action, str(force)))
+            or {
+                "status": "downloaded",
+                "current_version": "0.2.0",
+                "latest_version": "0.3.0",
+                "model_calls": 0,
+                "conversation_tokens": 0,
+            }
+        ),
     ) as dashboard:
         dashboard_url = dashboard.url
         console_findings: list[str] = []
@@ -292,9 +302,14 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             page.screenshot(path=artifact_dir / "dashboard-capabilities.png", full_page=True)
             page.get_by_role("link", name="Manage", exact=True).click()
             page.get_by_text("No staged update state.", exact=True).wait_for()
+            assert page.get_by_role("heading", name="CapSift application update").is_visible()
+            with page.expect_response(lambda response: response.url.endswith("/api/app-update")):
+                page.get_by_role("button", name="Check and download").click()
+            page.get_by_text("Verified update downloaded.", exact=False).wait_for()
             page.get_by_role("link", name="System details", exact=True).click()
-            assert page.locator("#reasoning-tier").inner_text() == "not selected"
-            assert page.locator("#secure-audit-status").inner_text() == "not configured"
+            page.get_by_role("heading", name="System details", level=2).wait_for()
+            assert page.locator("#reasoning-tier").text_content() == "not selected"
+            assert page.locator("#secure-audit-status").text_content() == "not configured"
             page.get_by_role("link", name="Capabilities", exact=True).click()
             with page.expect_response(lambda response: response.url.endswith("/api/language")):
                 page.get_by_label("Language").select_option("zh-CN")
@@ -322,8 +337,9 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
             page.get_by_text("No staged update state.", exact=True).wait_for()
             page.get_by_text("No disclosed sections are resident.", exact=True).wait_for()
             page.get_by_role("link", name="System details", exact=True).click()
-            assert page.locator("#reasoning-tier").inner_text() == "not selected"
-            assert page.locator("#secure-audit-status").inner_text() == "not configured"
+            page.get_by_role("heading", name="System details", level=2).wait_for()
+            assert page.locator("#reasoning-tier").text_content() == "not selected"
+            assert page.locator("#secure-audit-status").text_content() == "not configured"
             for page_name, link_name in (
                 ("conversations", "Conversations"),
                 ("capabilities", "Capabilities"),
@@ -356,6 +372,7 @@ def test_real_dashboard_actions_responsive_accessible_and_no_model_spend(tmp_pat
     assert ("lifecycle", "demo/tool", "disabled") in calls
     assert ("language", "zh-CN") in calls
     assert ("language", "en") in calls
+    assert ("app-update", "fetch", "True") in calls
     assert ("approval", "apr_browser", "approve") in calls
     assert ("context", "pin", "demo::contract") in calls
     assert console_findings == []

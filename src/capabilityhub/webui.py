@@ -24,6 +24,7 @@ ApprovalProvider = Callable[[str, str], StatusSnapshot]
 ContextProvider = Callable[[str, str], StatusSnapshot]
 CapabilityListProvider = Callable[[str, str | None, int, int], StatusSnapshot]
 ConversationProvider = Callable[[str], StatusSnapshot]
+AppUpdateProvider = Callable[[str, bool], StatusSnapshot]
 
 
 class DashboardServer:
@@ -42,6 +43,7 @@ class DashboardServer:
         context_provider: ContextProvider | None = None,
         capability_list_provider: CapabilityListProvider | None = None,
         conversation_provider: ConversationProvider | None = None,
+        app_update_provider: AppUpdateProvider | None = None,
     ) -> None:
         if host != "localhost" and not ip_address(host).is_loopback:
             raise ValueError("dashboard host must be a loopback address")
@@ -55,6 +57,7 @@ class DashboardServer:
         self._context_provider = context_provider
         self._capability_list_provider = capability_list_provider
         self._conversation_provider = conversation_provider
+        self._app_update_provider = app_update_provider
         self._csrf_token = secrets.token_urlsafe(32)
         self._server: ThreadingHTTPServer | None = None
         self._thread: Thread | None = None
@@ -86,6 +89,7 @@ class DashboardServer:
                 context_provider=self._context_provider,
                 capability_list_provider=self._capability_list_provider,
                 conversation_provider=self._conversation_provider,
+                app_update_provider=self._app_update_provider,
                 csrf_token=self._csrf_token,
             )
             server = ThreadingHTTPServer((self._host, self._port), handler)
@@ -134,6 +138,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         context_provider: ContextProvider | None,
         capability_list_provider: CapabilityListProvider | None,
         conversation_provider: ConversationProvider | None,
+        app_update_provider: AppUpdateProvider | None,
         csrf_token: str,
         directory: str | None = None,
     ) -> None:
@@ -145,6 +150,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
         self._context_provider = context_provider
         self._capability_list_provider = capability_list_provider
         self._conversation_provider = conversation_provider
+        self._app_update_provider = app_update_provider
         self._csrf_token = csrf_token
         super().__init__(request, client_address, server, directory=directory)
 
@@ -171,7 +177,13 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
 
     def do_POST(self) -> None:
         path = urlsplit(self.path).path
-        if path not in {"/api/lifecycle", "/api/language", "/api/approval", "/api/context"}:
+        if path not in {
+            "/api/lifecycle",
+            "/api/language",
+            "/api/approval",
+            "/api/context",
+            "/api/app-update",
+        }:
             self.send_error(HTTPStatus.METHOD_NOT_ALLOWED, "Dashboard action is not available")
             return
         if not self._authorized():
@@ -223,6 +235,18 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
                 return
             self._write_callback(lambda: context_provider(action, key))
             return
+        if path == "/api/app-update":
+            provider = self._app_update_provider
+            app_action = body.get("action")
+            if (
+                provider is None
+                or not isinstance(app_action, str)
+                or app_action not in {"check", "fetch"}
+            ):
+                self.send_error(HTTPStatus.BAD_REQUEST, "Invalid application update request")
+                return
+            self._write_callback(lambda: provider(app_action, True))
+            return
         language_provider = self._language_provider
         locale = body.get("locale")
         if (
@@ -246,6 +270,7 @@ class _DashboardHandler(SimpleHTTPRequestHandler):
                 "search": self._search_provider is not None,
                 "capability_list": self._capability_list_provider is not None,
                 "conversations": self._conversation_provider is not None,
+                "app_update": self._app_update_provider is not None,
             }
             payload = _json_bytes(snapshot)
         except (TypeError, ValueError):

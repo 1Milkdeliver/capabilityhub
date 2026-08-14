@@ -124,6 +124,7 @@ class LocalAppUpdater:
         result["asset_name"] = asset["name"]
         result["asset_bytes"] = asset["size"]
         result["asset_sha256"] = asset["sha256"]
+        result["auto_download"] = auto_download
         if auto_download:
             wheel = self._reader(asset["url"], "application/octet-stream", MAX_WHEEL_BYTES)
             digest_matches = hashlib.sha256(wheel).hexdigest() == asset["sha256"]

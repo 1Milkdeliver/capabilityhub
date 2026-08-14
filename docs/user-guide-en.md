@@ -244,7 +244,7 @@ The Dashboard binds to `127.0.0.1` by default. Refreshing conversations merges C
 
 The Dashboard does not probe external services automatically and does not expose credentials, complete commands, Skill bodies, or Provider output. Enabling a capability costs `0 Token`; the card estimate applies to a later full instruction load. Disabling a capability prevents future disclosure through CapSift but cannot remove content already present in Codex conversation history. CapSift now discovers more old tasks, but silent native Codex injection without a tool-call envelope still cannot be proven reliably. The conversation view reports verifiable evidence and coverage instead of guessing missing activity.
 
-## 8. Ten useful CLI commands
+## 8. Useful CLI commands
 
 | Command | Purpose |
 |---|---|
@@ -258,6 +258,10 @@ The Dashboard does not probe external services automatically and does not expose
 | `capsift budget-report --pretty` | View budget limits and usage |
 | `capsift audit --pretty` | View redacted audit events |
 | `capsift dashboard --project-root .` | Open the local Dashboard |
+| `capsift app-update check --pretty` | Check whether a newer CapSift release exists |
+| `capsift app-update fetch --force --pretty` | Check now and download a SHA-256 verified wheel |
+
+The Dashboard performs one lightweight update check at startup, then uses its local cache for 24 hours. It starts no permanent background service, makes no model call, and consumes no conversation tokens. Automatic updating only checks and safely downloads; it never replaces the running installation. Set `CAPSIFT_AUTO_UPDATE=off` to disable the startup check.
 
 Inspect command options with:
 

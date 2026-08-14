@@ -101,12 +101,20 @@ capsift approvals list --status pending --pretty
 capsift context list --pretty
 capsift reasoning state TASK_ID --pretty
 capsift budget-report --pretty
+capsift app-update check --pretty
+capsift app-update fetch --force --pretty
 capsift benchmark
 capsift benchmark --scale
 capsift dashboard --project-root /absolute/project/path
 capsift http-serve --project-root /absolute/project/path
 capsift mcp-serve
 ```
+
+The Dashboard performs one lightweight application-update check at startup, then reads its local
+24-hour cache. It starts no permanent updater service and uses no model or conversation tokens. A
+new wheel is downloaded only when the GitHub Release API supplies an exact SHA-256 digest; download
+and installation remain separate actions. Set `CAPSIFT_AUTO_UPDATE=off` to disable the automatic
+startup check. Use `capsift app-update check --force --pretty` for a manual check.
 
 Project manifests can opt into real, bounded CLI, HTTP API, local RAG, and MCP stdio adapters. See
 [project provider configuration](docs/provider-configuration.md). Discovery remains inert unless a

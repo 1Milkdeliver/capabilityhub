@@ -246,7 +246,7 @@ Dashboard 默认只监听 `127.0.0.1`，也就是本机。刷新对话时，它�
 
 Dashboard 不会自动探测外部服务，也不会显示凭据、完整命令、Skill 正文或 Provider 输出。启用能力本身消耗 `0 Token`；卡片上的 Token 是以后完整加载说明时的估算值。停用能力只能阻止后续通过 CapSift 再次加载，不能删除已经进入 Codex 对话历史的内容。CapSift 现在能发现更多旧对话，但 Codex 在没有工具调用包络时静默注入的原生内容仍无法被可靠证明；对话视图会明确显示可验证证据和覆盖范围，不会猜测遗漏项。
 
-## 8. 常用的 10 个命令
+## 8. 常用命令
 
 | 命令 | 用途 |
 |---|---|
@@ -260,6 +260,10 @@ Dashboard 不会自动探测外部服务，也不会显示凭据、完整命令�
 | `capsift budget-report --pretty` | 查看预算与已用额度 |
 | `capsift audit --pretty` | 查看脱敏审计记录 |
 | `capsift dashboard --project-root .` | 打开本地管理面板 |
+| `capsift app-update check --pretty` | 查看 CapSift 软件是否有新版本 |
+| `capsift app-update fetch --force --pretty` | 立即检查并下载经过 SHA-256 校验的更新包 |
+
+Dashboard 启动时会自动做一次轻量检查，之后 24 小时内只读取本地缓存。它不会常驻后台、不会调用模型，也不消耗对话 Token。自动流程只负责检查和安全下载，不会在 Dashboard 运行中替换当前安装。设置环境变量 `CAPSIFT_AUTO_UPDATE=off` 可以关闭启动时自动检查。
 
 查看某个命令的参数：
 
